@@ -1,0 +1,6 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#2563eb" rx="180"/>
+  <text x="512" y="600" font-family="Arial, sans-serif" font-size="400" font-weight="bold" fill="white" text-anchor="middle">ABS</text>
+  <circle cx="512" cy="300" r="120" fill="white" opacity="0.9"/>
+  <path d="M 512 200 L 512 400 M 412 300 L 612 300" stroke="#2563eb" stroke-width="30" stroke-linecap="round"/>
+</svg>

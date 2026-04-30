@@ -1,0 +1,30 @@
+[package]
+name = "pic-abs-tester"
+version = "1.0.0"
+description = "PIC ABS Hydraulic Testing & Diagnostics"
+authors = ["Reman By ADLC"]
+license = ""
+repository = ""
+default-run = "pic-abs-tester"
+edition = "2021"
+rust-version = "1.60"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "1.5", features = [ "protocol-all", "dialog-all", "fs-all", "path-all", "shell-open", "window-close", "window-hide", "window-maximize", "window-minimize", "window-show", "window-start-dragging", "window-unmaximize", "window-unminimize"] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+serialport = "4.2"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.30", features = ["bundled"] }
+tokio-postgres = { version = "0.7", features = [] }
+
+[features]
+default = [ "custom-protocol" ]
+custom-protocol = [ "tauri/custom-protocol" ]
