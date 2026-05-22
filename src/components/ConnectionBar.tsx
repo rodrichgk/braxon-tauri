@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 
@@ -17,7 +17,18 @@ export default function ConnectionBar() {
     connect: serialConnect,
     disconnect: serialDisconnect,
     errorMessage: serialError,
+    ports,
+    refreshPorts,
+    selectedPort,
+    setSelectedPort,
+    baudRate,
+    setBaudRate,
   } = useClientSerialConnection();
+
+  // Refresh port list each time the details panel opens
+  useEffect(() => {
+    if (expanded && !serialConnected) refreshPorts();
+  }, [expanded]);
 
   const esp32Devices = devices.filter(d => d.device_type === 'esp32');
   const overallConnected = isConnectedToDevice || serialConnected;
@@ -142,18 +153,75 @@ export default function ConnectionBar() {
             {/* Serial connection */}
             <div>
               <p className="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-wide">Serial (USB)</p>
+
+              {!serialConnected && (
+                <div className="space-y-2 mb-2">
+                  {/* Port picker + refresh */}
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={selectedPort ?? ''}
+                      onChange={e => setSelectedPort(e.target.value || null)}
+                      className="flex-1 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white
+                        focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="">
+                        {ports.length === 0 ? '— no ports found —' : '— select port —'}
+                      </option>
+                      {ports.map(p => (
+                        <option key={p.port_name} value={p.port_name}>
+                          {p.port_name}  [{p.port_type}]
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={refreshPorts}
+                      title="Refresh port list"
+                      className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded"
+                    >
+                      ↻
+                    </button>
+                  </div>
+
+                  {/* Baud rate */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 w-14 shrink-0">Baud rate</span>
+                    <select
+                      value={baudRate}
+                      onChange={e => setBaudRate(e.target.value)}
+                      className="bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white
+                        focus:outline-none focus:border-blue-500"
+                    >
+                      {['9600','19200','38400','57600','115200','230400','460800','921600'].map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {ports.length === 0 && (
+                    <p className="text-xs text-amber-400">
+                      Connect Pico 2 via USB, then click ↻
+                    </p>
+                  )}
+                  {serialError && <p className="text-xs text-red-400">{serialError}</p>}
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => serialConnected ? serialDisconnect() : serialConnect()}
+                  disabled={!serialConnected && !selectedPort}
                   className={[
-                    'px-3 py-1 text-xs rounded',
+                    'px-3 py-1 text-xs rounded disabled:opacity-40 disabled:cursor-not-allowed',
                     serialConnected ? 'bg-red-600 hover:bg-red-500' : 'bg-green-700 hover:bg-green-600'
                   ].join(' ')}
                 >
                   {serialConnected ? 'Disconnect' : 'Connect'}
                 </button>
-                {serialConnected && <span className="text-xs text-green-400">● Connected via USB</span>}
-                {serialError && <span className="text-xs text-red-400">{serialError}</span>}
+                {serialConnected && (
+                  <span className="text-xs text-green-400">
+                    ● {selectedPort} @ {baudRate}
+                  </span>
+                )}
               </div>
             </div>
           </div>

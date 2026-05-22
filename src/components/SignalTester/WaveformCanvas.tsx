@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 
 interface WheelSpeeds {
   fl: number;
@@ -100,7 +100,7 @@ export default function WaveformCanvas({ wheelSpeeds, wheelEnabled, isConnected 
         ctx.strokeStyle = isConnected ? '#9ca3af' : '#d1d5db';
         ctx.lineWidth = 2;
         
-        Object.keys(wheelSpeeds).forEach((wheel, index) => {
+        Object.keys(wheelSpeeds).forEach((_wheel, index) => {
           const yCenter = (height / 4) * index + (height / 8);
           ctx.beginPath();
           ctx.moveTo(30, yCenter);
@@ -185,7 +185,7 @@ export default function WaveformCanvas({ wheelSpeeds, wheelEnabled, isConnected 
   }, [wheelSpeeds, wheelEnabled, isConnected]);
 
   return (
-    <div className="w-full h-48 bg-gray-100 dark:bg-gray-700 rounded-xl mb-6 overflow-hidden shadow-inner transition-colors">
+    <div className="w-full h-48 bg-slate-100 dark:bg-slate-700 rounded-xl mb-6 overflow-hidden shadow-inner transition-colors">
       <canvas ref={canvasRef} className="w-full h-full" />
     </div>
   );

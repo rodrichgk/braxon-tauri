@@ -15,7 +15,6 @@ interface ProfileEditorProps {
   onAddPoint: () => void;
   onRemovePoint: () => void;
   onCanvasClick: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  setEditingPoint: (index: number | null) => void;
 }
 
 export default function ProfileEditor({
@@ -30,7 +29,6 @@ export default function ProfileEditor({
   onAddPoint,
   onRemovePoint,
   onCanvasClick,
-  setEditingPoint
 }: ProfileEditorProps) {
   const profileCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -160,8 +158,8 @@ export default function ProfileEditor({
   }, [activeProfile, editingPoint, maxFrequency]);
 
   return (
-    <div className="mt-6 card">
-      <h3 className="card-header">Test Profile Editor</h3>
+    <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+      <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-4">Test Profile Editor</h3>
       <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-3">
         <div className="flex items-center">
           <select
@@ -204,14 +202,14 @@ export default function ProfileEditor({
         </div>
       </div>
 
-      <div className="relative w-full h-64 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-inner">
+      <div className="relative w-full h-64 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 rounded-lg overflow-hidden shadow-inner">
         <canvas
           ref={profileCanvasRef}
           className="w-full h-full cursor-crosshair"
           onClick={onCanvasClick}
         />
       </div>
-      <div className="mt-3 text-xs text-gray-600 dark:text-gray-400">
+      <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
         <p>Click on points to select, then click elsewhere on the graph to move the selected point. Click empty space to add a new point.</p>
         <p>X-axis: Time (0-15s), Y-axis: Frequency (0-{maxFrequency}Hz).</p>
       </div>

@@ -24,8 +24,6 @@ interface CANSettingsProps {
     canValue: string;
   };
   isConnected: boolean;
-  onConnect: () => void;
-  onDisconnect: () => void;
   sendMessage?: (message: string) => Promise<boolean | void>;
   canReceivedData?: {
     idLine?: string;
@@ -37,8 +35,6 @@ interface CANSettingsProps {
 export default function CANSettings({
   result,
   isConnected,
-  onConnect,
-  onDisconnect,
   sendMessage,
   canReceivedData = {}
 }: CANSettingsProps) {
@@ -148,7 +144,6 @@ export default function CANSettings({
     if (isConnected && sendMessage) {
       const timer = setTimeout(() => {
         // Simply take the first 3 characters (e.g., "500" from "500Kbps")
-        const speedValue = canData.speed.substring(0, 3);
         const message = `t\n`;
         sendMessage(message);
         //addMessageToLog('TX', `Set CAN Speed: ${speedValue}kbps`);
@@ -234,25 +229,18 @@ export default function CANSettings({
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
         <div className="flex items-center gap-4">
-          <button
-            onClick={isConnected ? onDisconnect : onConnect}
-            className={isConnected ? 'btn-danger' : 'btn-success'}
-          >
-            {isConnected ? 'Disconnect' : 'Connect'}
-          </button>
-
           <div className={`flex items-center text-sm ${isConnected ? 'status-success' : 'status-error'}`}>
             <span
               className={`connection-dot ${isConnected ? 'connection-connected' : 'connection-disconnected'}`}
             />
             <span className="ml-2 font-medium">
-              {isConnected ? 'Connected' : 'Disconnected'}
+              {isConnected ? 'Connected' : 'Disconnected — use the bar above'}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
             Fault Codes:
           </span>
           <button
@@ -266,7 +254,7 @@ export default function CANSettings({
               ${
                 hasFaults
                   ? 'bg-red-600'
-                  : (receivedCanData.hasComms ? 'bg-green-600' : 'bg-gray-300 dark:bg-gray-600')
+                  : (receivedCanData.hasComms ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600')
               }
             `}
           >
@@ -283,7 +271,7 @@ export default function CANSettings({
             <LightBulbIcon
               className={`
                 absolute h-4 w-4
-                ${hasFaults ? 'text-white left-1' : 'text-gray-500 right-1'}
+                ${hasFaults ? 'text-white left-1' : 'text-slate-500 right-1'}
                 transition
               `}
             />
@@ -296,16 +284,16 @@ export default function CANSettings({
           <div className="flex items-center">
             <button
               onClick={() => setShowLog(!showLog)}
-              className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 mr-2 focus:outline-none transition-colors"
+              className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 mr-2 focus:outline-none transition-colors"
               aria-label={showLog ? "Hide log" : "Show log"}
             >
               {showLog ? (
-                <ChevronUpIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <ChevronUpIcon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
               ) : (
-                <ChevronDownIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                <ChevronDownIcon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
               )}
             </button>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
               CAN Communication Log
             </h3>
           </div>
@@ -328,15 +316,15 @@ export default function CANSettings({
           </div>
         </div>
         {showLog && (
-          <div 
+          <div
             ref={logContainerRef}
-            className="bg-gray-100 dark:bg-gray-700 p-4 rounded-xl h-32 overflow-auto font-mono text-sm text-gray-800 dark:text-gray-200 transition-colors"
+            className="bg-slate-100 dark:bg-slate-700 p-4 rounded-xl h-32 overflow-auto font-mono text-sm text-slate-800 dark:text-slate-200 transition-colors"
           >
           {isConnected ? (
             canMessages.length > 0 ? (
               canMessages.map((msg, idx) => (
                 <div key={idx} className="mb-1">
-                  <span className="text-gray-500 dark:text-gray-400 text-xs mr-2">[{msg.timestamp}]</span>
+                  <span className="text-slate-500 dark:text-slate-400 text-xs mr-2">[{msg.timestamp}]</span>
                   <span className={msg.direction === 'TX' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}>
                     {msg.direction === 'TX' ? '➤ ' : '◀ '}
                   </span>
@@ -344,12 +332,12 @@ export default function CANSettings({
                 </div>
               ))
             ) : (
-              <div className="italic text-gray-500 dark:text-gray-400">
+              <div className="italic text-slate-500 dark:text-slate-400">
                 No messages yet. Use the Send button to send a CAN message.
               </div>
             )
           ) : (
-            <div className="italic text-gray-500 dark:text-gray-400">
+            <div className="italic text-slate-500 dark:text-slate-400">
               Not connected to CAN bus...
             </div>
           )}

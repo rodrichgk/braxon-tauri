@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 // Sensor data interface
@@ -15,101 +15,15 @@ interface BenchPowerProps {
   sendMessage: (message: string) => Promise<boolean | void>;
 }
 
-export default function BenchPower({
-  sendMessage
-}: BenchPowerProps) {
-  const [voltage, setVoltage] = useState<number>(12);
-  const [current, setCurrent] = useState<number>(1);
-  const [resetInProgress, setResetInProgress] = useState<boolean>(false);
-  
-  // Sensor data from ESP32
-  const [sensorData, setSensorData] = useState<SensorData>({
+export default function BenchPower(_props: BenchPowerProps) {
+  const [sensorData] = useState<SensorData>({
     voltage: 0,
     current: 0,
     voltage_ignition: 0,
     voltage_abs: 0,
   });
 
-  const {
-    isConnected: wsConnected,
-    devices,
-    selectedDeviceId,
-    selectDevice,
-    sendMessage: wsSendMessage,
-    isConnectedToDevice
-  } = useWebSocketContext();
-
-  // Get WebSocket context to listen for sensor data
-  const { socket } = useWebSocketContext();
-
-  // Listen for WebSocket messages containing sensor data
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleWebSocketMessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 2) { // MSG_SENSOR_DATA
-          setSensorData({
-            voltage: data.voltage_vcc || data.voltage || 0,
-            current: data.current || 0,
-            voltage_ignition: data.voltage_ignition || 0,
-            voltage_abs: data.voltage_abs || 0
-          });
-        }
-      } catch (error) {
-        // Ignore non-JSON messages
-      }
-    };
-
-    socket.addEventListener('message', handleWebSocketMessage);
-    return () => socket.removeEventListener('message', handleWebSocketMessage);
-  }, [socket]);
-
-  const handleVoltageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value);
-    setVoltage(value);
-    if (isConnectedToDevice) {
-      sendPowerSettings();
-    }
-  };
-
-  const handleCurrentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value);
-    setCurrent(value);
-    if (isConnectedToDevice) {
-      sendPowerSettings();
-    }
-  };
-
-  const handleCurrentReset = () => {
-    if (isConnectedToDevice) {
-      setResetInProgress(true);
-      
-      // Send reset command for Hall effect sensor current metering
-      sendMessage('CURRENT_RESET:1')
-        .then(() => {
-          // After a brief delay, turn off reset state
-          setTimeout(() => {
-            sendMessage('CURRENT_RESET:0');
-            setResetInProgress(false);
-          }, 2000); // 2 seconds for visual feedback
-        })
-        .catch(error => {
-          console.error('Error resetting current meter:', error);
-          setResetInProgress(false);
-        });
-    }
-  };
-
-  const sendPowerSettings = async () => {
-    if (isConnectedToDevice) {
-      const voltageCommand = `VOLTAGE:${voltage.toFixed(1)}`;
-      const currentCommand = `CURRENT:${current.toFixed(2)}`;
-      await sendMessage(voltageCommand);
-      await sendMessage(currentCommand);
-    }
-  };
+  const { isConnectedToDevice } = useWebSocketContext();
 
   return (
     <div className="card">
@@ -185,8 +99,8 @@ export default function BenchPower({
         */}
 
         {/* ESP32 Sensor Readings */}
-        <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <h4 className="text-lg font-medium text-gray-800 dark:text-white mb-3">
+        <div className="mt-6 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100 dark:border-slate-600/50">
+          <h4 className="text-base font-semibold text-slate-800 dark:text-white mb-3">
             Live Sensor Readings
           </h4>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -194,25 +108,25 @@ export default function BenchPower({
               <div className="text-xl font-bold status-info">
                 {sensorData.voltage.toFixed(2)}V
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">VCC Main</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">VCC Main</div>
             </div>
             <div className="text-center">
               <div className="text-xl font-bold status-success">
                 {sensorData.current.toFixed(3)}A
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Current</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Current</div>
             </div>
             <div className="text-center">
               <div className="text-xl font-bold status-warning">
                 {(sensorData.voltage_ignition || 0).toFixed(2)}V
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">Ignition</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">Ignition</div>
             </div>
             <div className="text-center">
               <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
                 {(sensorData.voltage_abs || 0).toFixed(2)}V
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">ABS Power</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">ABS Power</div>
             </div>
           </div>
         </div>

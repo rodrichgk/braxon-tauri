@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 pub struct AppState {
     websocket_server: Arc<Mutex<Option<websocket::WebSocketServer>>>,
     pub db_config: Arc<Mutex<database::DbConfig>>,
+    pub serial_connection: serial::SharedSerialConnection,
 }
 
 fn main() {
@@ -23,6 +24,7 @@ fn main() {
     let state = AppState {
         websocket_server: Arc::new(Mutex::new(None)),
         db_config: Arc::new(Mutex::new(db_config)),
+        serial_connection: serial::create_serial_connection(),
     };
 
     tauri::Builder::default()
@@ -41,6 +43,7 @@ fn main() {
             commands::connect_serial,
             commands::disconnect_serial,
             commands::send_serial_message,
+            commands::is_serial_connected,
             commands::get_devices,
             commands::select_device,
             commands::send_device_message,

@@ -5,49 +5,72 @@
 @layer base {
   body {
     @apply bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800;
-    @apply text-gray-900 dark:text-gray-100;
+    @apply text-slate-900 dark:text-slate-100;
   }
 }
 
 @layer components {
+  /* Shared card surface — used by modern pages and legacy `.card` alike */
+  .glass-effect {
+    @apply bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 shadow-sm;
+  }
+
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 transition-all duration-200;
+    @apply bg-white dark:bg-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-700/60 shadow-sm p-6 transition-all duration-200;
   }
 
   .card-header {
-    @apply text-xl font-bold mb-4 text-gray-800 dark:text-white;
+    @apply text-lg font-semibold mb-4 text-slate-900 dark:text-white;
   }
 
+  /* Buttons */
   .btn-primary {
-    @apply px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg
+      transition-all duration-150 font-medium text-sm shadow-sm hover:shadow-md
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-secondary {
-    @apply px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600
+      text-slate-700 dark:text-slate-200 rounded-lg transition-all duration-150 font-medium text-sm
+      border border-slate-300 dark:border-slate-600
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-success {
-    @apply px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-4 py-2 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white rounded-lg
+      transition-all duration-150 font-medium text-sm shadow-sm hover:shadow-md
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-danger {
-    @apply px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-4 py-2 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-lg
+      transition-all duration-150 font-medium text-sm shadow-sm hover:shadow-md
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-warning {
-    @apply px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-all duration-200 font-medium shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-4 py-2 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white rounded-lg
+      transition-all duration-150 font-medium text-sm shadow-sm hover:shadow-md
+      disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
+  /* Form elements */
   .input-field {
-    @apply w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
+    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg
+      bg-white dark:bg-slate-700/60 text-slate-900 dark:text-slate-100
+      placeholder-slate-400 dark:placeholder-slate-500
+      focus:ring-2 focus:ring-blue-500 focus:border-transparent
+      transition-all duration-150 text-sm;
   }
 
   .input-label {
-    @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2;
+    @apply block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1;
   }
 
+  /* Status / connection indicators */
   .connection-dot {
-    @apply w-3 h-3 rounded-full inline-block;
+    @apply w-2 h-2 rounded-full inline-block shrink-0;
   }
 
   .connection-connected {
@@ -67,28 +90,25 @@
   }
 
   .status-warning {
-    @apply text-yellow-600 dark:text-yellow-400 font-medium;
+    @apply text-amber-500 dark:text-amber-400 font-medium;
   }
 
   .status-info {
     @apply text-blue-600 dark:text-blue-400 font-medium;
   }
+
+  /* Alert banners */
+  .alert {
+    @apply relative px-4 py-3 rounded-lg border text-sm;
+  }
+
+  .alert-error {
+    @apply bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300;
+  }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-gray-200 dark:bg-gray-700;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-400 dark:bg-gray-500 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-gray-500 dark:bg-gray-400;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { @apply bg-slate-100 dark:bg-slate-800; }
+::-webkit-scrollbar-thumb { @apply bg-slate-300 dark:bg-slate-600 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-slate-400 dark:bg-slate-500; }

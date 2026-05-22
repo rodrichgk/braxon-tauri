@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { PowerIcon, BoltIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
@@ -20,7 +20,7 @@ export interface PowerIndicatorsRef {
   toggleIgnition: () => void;
 }
 
-const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ sendMessage, onPowerStatusChange }, ref) => {
+const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ sendMessage }, ref) => {
   const [powerStates, setPowerStates] = useState<PowerStates>({
     absPower: false,
     ignition: false
@@ -31,36 +31,7 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
     ignition: false
   });
 
-  // Get WebSocket context to listen for status updates
-  const { socket, isConnectedToDevice } = useWebSocketContext();
-
-  // Listen for WebSocket messages containing status updates
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleWebSocketMessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 22) { // MSG_STATUS
-          const newStates = {
-            absPower: data.abs_power || false,
-            ignition: data.ignition || false
-          };
-          setPowerStates(newStates);
-          
-          // Notify parent component of power status changes
-          if (onPowerStatusChange) {
-            onPowerStatusChange(newStates.absPower, newStates.ignition);
-          }
-        }
-      } catch (error) {
-        // Ignore non-JSON messages
-      }
-    };
-
-    socket.addEventListener('message', handleWebSocketMessage);
-    return () => socket.removeEventListener('message', handleWebSocketMessage);
-  }, [socket, onPowerStatusChange]);
+  const { isConnectedToDevice } = useWebSocketContext();
 
   useImperativeHandle(ref, () => ({
     toggleAbsPower: handleAbsPowerToggle,
@@ -133,7 +104,7 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* ABS Power Control */}
         <div className="space-y-3">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
             ABS Power
           </label>
           <button
@@ -172,7 +143,7 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
 
         {/* Ignition Control */}
         <div className="space-y-3">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
             Ignition
           </label>
           <button

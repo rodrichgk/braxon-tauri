@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
+import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useWheelSpeedControl } from '@/hooks/useWheelSpeedControl';
 import { useProfileManagement } from '@/hooks/useProfileManagement';
 import { useRecording } from '@/hooks/useRecording';
@@ -22,140 +24,202 @@ interface WheelSpeeds {
   rr: number;
 }
 
+const WHEEL_NAMES = ['FL', 'FR', 'RL', 'RR'] as const;
+
+const VARIANTS = [
+  { label: 'Std',    detailDF11: '7/14 mA',       detailAK: '7/14/28 mA' },
+  { label: '1.5 kΩ', detailDF11: '8/16 mA',       detailAK: '8/16/32 mA' },
+  { label: '2.7 kΩ', detailDF11: '4.4/8.8 mA',    detailAK: '4.4/8.8/17.6 mA' },
+  { label: '1 kΩ',   detailDF11: '12/24 mA',       detailAK: '12/24/~33 mA' },
+] as const;
+
+const QUICK_SPEEDS_KMH = [0, 5, 20, 50, 80, 120, 180, 250];
+
 export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
   const { isConnectedToDevice } = useWebSocketContext();
-  
-  // Frequency control
-  const [frequency, setFrequency] = useState(0);
-  const [maxFrequency, setMaxFrequency] = useState(1500);
-  const [signalType, setSignalType] = useState<'sine' | 'square'>('sine');
-  const [isActiveMode, setIsActiveMode] = useState(true);
-  const [maxSpeed, setMaxSpeed] = useState(1500);
-  
+  const { isConnected: serialConnected } = useClientSerialConnection();
+  const isConnected = isConnectedToDevice || serialConnected;
+
+  // Wheel model — used for km/h ↔ Hz conversion
+  const [circumference, setCircumference] = useState(2.0);   // tyre circumference in metres
+  const [ppr, setPpr] = useState(48);                        // pulses (teeth) per revolution
+  const circumferenceRef = useRef(2.0);
+  const pprRef = useRef(48);
+  circumferenceRef.current = circumference;
+  pprRef.current = ppr;
+
+  // km/h master speed — drives the Hz value sent to the Pico
+  const [speedKmh, setSpeedKmh] = useState(0);
+  const speedKmhRef = useRef(0);
+  speedKmhRef.current = speedKmh;
+  const speedDirtyRef = useRef(false);
+  const lastSentHzRef = useRef(-1);
+
+  // Per-channel WSS profiles: index = channel (0=FL,1=FR,2=RL,3=RR), value = profile 0-7
+  const [wheelProfiles, setWheelProfiles] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const isAnyAKChannel = wheelProfiles.some(id => id >= 4);
+
+  // Per-channel AK frequency multipliers ×100 (100=1×, 200=2×, etc.)
+  const [akMultipliers, setAkMultipliers] = useState<[number, number, number, number]>([100, 100, 100, 100]);
+
   // Test states
   const [isAutoTesting, setIsAutoTesting] = useState(false);
   const [isHardwareTesting, setIsHardwareTesting] = useState(false);
   const [isPlayingRecorded, setIsPlayingRecorded] = useState(false);
   const [remainingTime, setRemainingTime] = useState(900);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
-  
-  // Refs for throttling and tracking
-  const frequencyThrottleRef = useRef<number | null>(null);
-  const pendingFrequencyRef = useRef<number | null>(null);
-  const lastSentFrequencyRef = useRef<number>(-1);
 
-  // Custom hooks
+  const maxFrequency = 1500;
+  const maxSpeed = 1500;
+
+  // Serial log (TX = blue, RX = green)
+  const [serialLog, setSerialLog] = useState<string[]>([]);
+  const [logExpanded, setLogExpanded] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Wrap sendMessage to also record TX/ERR lines in the log
+  const loggedSend = useCallback((msg: string) => {
+    setSerialLog(prev => [...prev.slice(-299), `TX: ${msg.trim()}`]);
+    Promise.resolve(sendMessage(msg)).catch((err: unknown) => {
+      setSerialLog(prev => [...prev.slice(-299), `ERR: ${String(err)}`]);
+    });
+  }, [sendMessage]);
+
+  // Wheel speed hook — messages formatted as W<fl>,<fr>,<rl>,<rr>\n
   const wheelSpeedControl = useWheelSpeedControl({
-    isConnected: isConnectedToDevice,
+    isConnected,
     sendMessage: (speeds: WheelSpeeds) => {
-      const message = JSON.stringify({
-        type: 3,
-        fl: speeds.fl,
-        fr: speeds.fr,
-        rl: speeds.rl,
-        rr: speeds.rr,
-        timestamp: Date.now()
-      });
-      sendMessage(message);
+      loggedSend(`W${speeds.fl},${speeds.fr},${speeds.rl},${speeds.rr}\n`);
     }
   });
 
   const profileManagement = useProfileManagement();
   const recording = useRecording();
 
-  // Handle active/passive mode switching
-  const handleModeSwitch = () => {
-    const newMode = !isActiveMode;
-    setIsActiveMode(newMode);
-    
-    if (sendMessage) {
-      const message = JSON.stringify({
-        type: 5,
-        mode: newMode ? 'active' : 'passive'
-      });
-      sendMessage(message);
-    }
+  // km/h → Hz  (v_ms = kmh/3.6 ; rev/s = v_ms / circ ; Hz = rev/s * ppr)
+  const kmhToHz = (kmh: number, circ = circumferenceRef.current, p = pprRef.current) => {
+    if (circ <= 0 || p <= 0) return 0;
+    return Math.round((kmh / 3.6) / circ * p);
   };
 
-  // Handle signal type change
-  const handleSignalTypeChange = (type: 'sine' | 'square') => {
-    setSignalType(type);
-    if (isConnectedToDevice) {
-      const waveType = type === 'sine' ? 2 : 1;
-      sendMessage(`Waveform : ${waveType},${frequency}\n`);
-    }
-  };
+  const currentHz = kmhToHz(speedKmh);
 
-  // Handle frequency change
-  const handleFrequencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value);
-    setFrequency(value);
+  const wheelSpeedControlRef = useRef(wheelSpeedControl);
+  wheelSpeedControlRef.current = wheelSpeedControl;
 
-    pendingFrequencyRef.current = value;
-    if (frequencyThrottleRef.current == null) {
-      frequencyThrottleRef.current = requestAnimationFrame(() => {
-        frequencyThrottleRef.current = null;
-        if (pendingFrequencyRef.current !== null && isConnectedToDevice) {
-          const freqToSend = pendingFrequencyRef.current;
-          
-          if (freqToSend !== lastSentFrequencyRef.current) {
-            sendMessage(`Frequency : ${freqToSend}\n`);
-            lastSentFrequencyRef.current = freqToSend;
-          }
-          pendingFrequencyRef.current = null;
-        }
-      });
-    }
-  };
-
-  // Recording effect
+  // 50 ms throttled ticker — matches Python LIVE_UPDATE_INTERVAL_MS = 50
+  // Uses refs to avoid stale closures; only sends if Hz changed by ≥ 1
   useEffect(() => {
-    if (recording.isRecording) {
-      recording.addRecordingPoint(frequency);
-    }
-  }, [frequency, recording.isRecording]);
+    const id = setInterval(() => {
+      if (!speedDirtyRef.current) return;
+      const hz = kmhToHz(speedKmhRef.current);
+      if (Math.abs(hz - lastSentHzRef.current) >= 1) {
+        wheelSpeedControlRef.current.handleMasterSpeedChange(hz);
+        lastSentHzRef.current = hz;
+      }
+      speedDirtyRef.current = false;
+    }, 50);
+    return () => clearInterval(id);
+  }, []); // intentionally empty — uses refs throughout
 
-  // Auto test toggle
+  // Listen for incoming serial data and add to log
+  useEffect(() => {
+    const unlistenPromise = listen<string>('serial-data', e => {
+      setSerialLog(prev => [...prev.slice(-299), `RX: ${e.payload}`]);
+    });
+    return () => { 
+      unlistenPromise.then(unlisten => unlisten()); 
+    };
+  }, []);
+
+  // Auto-scroll log when expanded
+  useEffect(() => {
+    if (logExpanded) logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [serialLog, logExpanded]);
+
+  // ---- Handlers ----
+
+  const handleKmhSlider = (kmh: number) => {
+    setSpeedKmh(kmh);
+    speedKmhRef.current = kmh;
+    speedDirtyRef.current = true;
+  };
+
+  // Quick-set: bypass the 50ms throttle and send immediately
+  const handleQuickSpeed = (kmh: number) => {
+    setSpeedKmh(kmh);
+    speedKmhRef.current = kmh;
+    const hz = kmhToHz(kmh);
+    wheelSpeedControl.handleMasterSpeedChange(hz);
+    lastSentHzRef.current = hz;
+    speedDirtyRef.current = false;
+  };
+
+  const handleStop = () => {
+    handleQuickSpeed(0);
+    loggedSend('X\n');
+  };
+
+  const handleChannelProfileSelect = (ch: number, profileId: number) => {
+    setWheelProfiles(prev => {
+      const next = [...prev] as [number, number, number, number];
+      next[ch] = profileId;
+      return next;
+    });
+    loggedSend(`C${ch},${profileId}\n`);
+  };
+
+  const handleChannelProtocolToggle = (ch: number, toAK: boolean) => {
+    const variant = wheelProfiles[ch] % 4;
+    handleChannelProfileSelect(ch, toAK ? 4 + variant : variant);
+  };
+
+  const handleChannelVariantSelect = (ch: number, variant: number) => {
+    const isAK = wheelProfiles[ch] >= 4;
+    handleChannelProfileSelect(ch, isAK ? 4 + variant : variant);
+  };
+
+  const handleAllProtocol = (toAK: boolean) => {
+    for (let ch = 0; ch < 4; ch++) {
+      const variant = wheelProfiles[ch] % 4;
+      handleChannelProfileSelect(ch, toAK ? 4 + variant : variant);
+    }
+  };
+
+  const handleAKMultiplierChange = (ch: number, multX100: number) => {
+    setAkMultipliers(prev => {
+      const next = [...prev] as [number, number, number, number];
+      next[ch] = multX100;
+      return next;
+    });
+    loggedSend(`M${ch},${multX100}\n`);
+  };
+
   const toggleAutoTest = () => {
     if (!isAutoTesting) {
       setRemainingTime(900);
-      setFrequency(0);
-      sendMessage(`Frequency : 0\n`);
-      lastSentFrequencyRef.current = 0;
+      loggedSend('R\n');
     } else {
-      setFrequency(0);
-      sendMessage(`Waveform : 0,0\n`);
-      lastSentFrequencyRef.current = 0;
+      loggedSend('X\n');
     }
-    setIsAutoTesting(!isAutoTesting);
+    setIsAutoTesting(prev => !prev);
   };
 
-  // Recording controls
-  const handleStartRecording = () => {
-    recording.startRecording();
-  };
-
-  const handleStopRecording = () => {
-    recording.stopRecording(frequency);
-  };
+  const handleStopRecording = () => recording.stopRecording(wheelSpeedControl.masterSpeed);
 
   const handlePlayRecorded = () => {
     if (recording.recordedProfile.length < 2) {
-      alert("Please record a profile first (at least 2 points)!");
+      alert('Please record a profile first (at least 2 points)!');
       return;
     }
     setRemainingTime(900);
-    setFrequency(0);
-    sendMessage(`Frequency : 0\n`);
-    lastSentFrequencyRef.current = 0;
+    loggedSend('R\n');
     setIsPlayingRecorded(true);
   };
 
   const handleStopPlayback = () => {
     setIsPlayingRecorded(false);
-    setFrequency(0);
-    sendMessage(`Waveform : 0,0\n`);
-    lastSentFrequencyRef.current = 0;
+    loggedSend('X\n');
   };
 
   const handleSaveRecorded = async () => {
@@ -166,206 +230,433 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
     }
   };
 
-  // Profile canvas click handler
   const handleProfileCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-
     const margin = { left: 30, right: 20, top: 20, bottom: 30 };
     const plotWidth = rect.width - margin.left - margin.right;
     const plotHeight = rect.height - margin.top - margin.bottom;
-
     if (x < margin.left || x > rect.width - margin.right ||
-        y < margin.top || y > rect.height - margin.bottom) {
-      return;
-    }
+        y < margin.top  || y > rect.height - margin.bottom) return;
 
     const clickTime = Math.max(0, Math.min(15, ((x - margin.left) / plotWidth) * 15));
     const clickFreq = Math.max(0, Math.min(maxFrequency, (1 - (y - margin.top) / plotHeight) * maxFrequency));
 
-    let foundPointIndex: number | null = null;
-    profileManagement.activeProfile.forEach((point, index) => {
-      const pointX = margin.left + (point.time / 15) * plotWidth;
-      const pointY = margin.top + plotHeight - (point.frequency / maxFrequency) * plotHeight;
-      const distance = Math.sqrt(Math.pow(pointX - x, 2) + Math.pow(pointY - y, 2));
-      if (distance < 10) {
-        foundPointIndex = index;
-      }
+    let foundIdx: number | null = null;
+    profileManagement.activeProfile.forEach((point, i) => {
+      const px = margin.left + (point.time / 15) * plotWidth;
+      const py = margin.top + plotHeight - (point.frequency / maxFrequency) * plotHeight;
+      if (Math.hypot(px - x, py - y) < 10) foundIdx = i;
     });
 
-    if (foundPointIndex !== null) {
-      profileManagement.setEditingPoint(foundPointIndex);
+    if (foundIdx !== null) {
+      profileManagement.setEditingPoint(foundIdx);
+    } else if (profileManagement.editingPoint !== null) {
+      profileManagement.updateProfilePoint(profileManagement.editingPoint, {
+        time: clickTime, frequency: Math.round(clickFreq)
+      });
     } else {
-      if (profileManagement.editingPoint !== null) {
-        profileManagement.updateProfilePoint(profileManagement.editingPoint, {
-          time: clickTime,
-          frequency: Math.round(clickFreq)
-        });
-      } else {
-        const newProfile = [...profileManagement.activeProfile, { 
-          time: clickTime, 
-          frequency: Math.round(clickFreq) 
-        }];
-        profileManagement.setActiveProfile(newProfile.sort((a, b) => a.time - b.time));
-        profileManagement.setEditingPoint(
-          newProfile.findIndex(p => p.time === clickTime && p.frequency === Math.round(clickFreq))
-        );
-      }
+      const newProfile = [...profileManagement.activeProfile, {
+        time: clickTime, frequency: Math.round(clickFreq)
+      }].sort((a, b) => a.time - b.time);
+      profileManagement.setActiveProfile(newProfile);
+      profileManagement.setEditingPoint(
+        newProfile.findIndex(p => p.time === clickTime && p.frequency === Math.round(clickFreq))
+      );
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
+  // ---- Render ----
 
   return (
-    <div className="card">
-      <h2 className="card-header flex items-center">
-        <span className="mr-2">Signal Tester</span>
-        {isConnectedToDevice ? (
-          <span className="connection-dot connection-connected animate-pulse">Connected</span>
-        ) : (
-          <span className="connection-dot connection-disconnected">Disconnected</span>
-        )}
+    <div className="card w-full">
+
+      {/* ── Header ── */}
+      <h2 className="card-header flex items-center justify-between">
+        <span>Signal Tester</span>
+        <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${
+          isConnected
+            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+            : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+        }`}>
+          {isConnected ? '● Connected' : '○ Disconnected'}
+        </span>
       </h2>
 
-      {/* Waveform Display */}
+      {/* ── Waveform preview ── */}
       <WaveformCanvas
         wheelSpeeds={wheelSpeedControl.wheelSpeeds}
         wheelEnabled={wheelSpeedControl.wheelEnabled}
-        isConnected={isConnectedToDevice}
+        isConnected={isConnected}
       />
 
-      {/* Wheel Speed Controls */}
-      <WheelSpeedControls
-        wheelSpeeds={wheelSpeedControl.wheelSpeeds}
-        wheelEnabled={wheelSpeedControl.wheelEnabled}
-        isLinked={wheelSpeedControl.isLinked}
-        masterSpeed={wheelSpeedControl.masterSpeed}
-        maxSpeed={maxSpeed}
-        isConnected={isConnectedToDevice}
-        isAutoTesting={isAutoTesting}
-        isPlayingRecorded={isPlayingRecorded}
-        signalType={signalType}
-        isActiveMode={isActiveMode}
-        onMasterSpeedChange={wheelSpeedControl.handleMasterSpeedChange}
-        onIndividualWheelChange={wheelSpeedControl.handleIndividualWheelChange}
-        onToggleWheelEnabled={wheelSpeedControl.toggleWheelEnabled}
-        onToggleLinked={wheelSpeedControl.toggleLinked}
-        onSignalTypeChange={handleSignalTypeChange}
-        onModeSwitch={handleModeSwitch}
-      />
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-      {/* Manual Frequency Control */}
-      {!isAutoTesting && !isPlayingRecorded && (
-        <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-750 rounded-lg border border-blue-200 dark:border-gray-600">
-          <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-semibold text-gray-800 dark:text-white">
-              Manual Frequency Control
-            </label>
-            <span className="text-2xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">{frequency} Hz</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max={maxFrequency}
-            value={frequency}
-            onChange={handleFrequencyChange}
-            className="w-full h-3 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
-            disabled={!isConnectedToDevice || recording.isRecording}
-          />
-          <div className="flex justify-between mt-2 text-xs text-gray-600 dark:text-gray-400">
-            <span>0 Hz</span>
-            <span>{maxFrequency} Hz</span>
-          </div>
-        </div>
-      )}
+        <div>
+            {/* ── Speed Control (km/h) ── */}
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+            <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-4">Speed Control</h3>
 
-      {/* Test Controls */}
-      <div className="mt-6 space-y-3">
-        {(isAutoTesting || isPlayingRecorded) && (
-          <div className="text-center p-4 bg-blue-50 dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-gray-600">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">Test in Progress</p>
-            <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
-              {formatTime(remainingTime)}
+            {/* Big readout */}
+            <div className="flex items-end justify-between mb-3">
+              <div className="leading-none">
+                <span className="text-4xl font-bold tabular-nums text-slate-900 dark:text-white">
+                  {speedKmh.toFixed(1)}
+                </span>
+                <span className="text-base text-slate-400 dark:text-slate-500 ml-1.5">km/h</span>
+              </div>
+              <div className="text-right leading-none">
+                <span className="text-2xl font-semibold tabular-nums text-blue-600 dark:text-blue-400">
+                  {currentHz}
+                </span>
+                <span className="text-sm text-slate-400 dark:text-slate-500 ml-1">Hz</span>
+              </div>
+            </div>
+
+            {/* km/h slider */}
+            <input
+              type="range"
+              min="0"
+              max="300"
+              step="0.5"
+              value={speedKmh}
+              onChange={e => handleKmhSlider(parseFloat(e.target.value))}
+              className="w-full h-2 bg-slate-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
+              disabled={!isConnected || isAutoTesting || isPlayingRecorded}
+            />
+
+            {/* Quick-set buttons */}
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {QUICK_SPEEDS_KMH.map(v => (
+                <button
+                  key={v}
+                  onClick={() => handleQuickSpeed(v)}
+                  disabled={!isConnected || isAutoTesting || isPlayingRecorded}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-50 ${
+                    speedKmh === v
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+              <span className="text-xs text-slate-400 dark:text-slate-500 self-center ml-0.5">km/h</span>
+              <button
+                onClick={handleStop}
+                disabled={!isConnected}
+                className="ml-auto px-3 py-1 rounded-md text-xs font-medium btn-danger disabled:opacity-50"
+              >
+                STOP (X)
+              </button>
+            </div>
+
+            {/* Wheel model */}
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">Wheel model:</span>
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-slate-500 dark:text-slate-400">Circumference</label>
+                <input
+                  type="number"
+                  value={circumference}
+                  min="0.1" max="5" step="0.01"
+                  onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setCircumference(v); }}
+                  className="input-field w-16 text-xs py-1"
+                />
+                <span className="text-xs text-slate-400">m</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-slate-500 dark:text-slate-400">Teeth</label>
+                <input
+                  type="number"
+                  value={ppr}
+                  min="1" max="200" step="1"
+                  onChange={e => { const v = parseInt(e.target.value); if (v > 0) setPpr(v); }}
+                  className="input-field w-14 text-xs py-1"
+                />
+                <span className="text-xs text-slate-400">PPR</span>
+              </div>
             </div>
           </div>
-        )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            onClick={toggleAutoTest}
-            className={`px-4 py-3 rounded-lg shadow-md font-medium flex items-center justify-center transition-all text-sm ${
-              isAutoTesting ? 'btn-danger hover:shadow-lg' : 'btn-primary hover:shadow-lg'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-            disabled={!isConnectedToDevice || isPlayingRecorded || profileEditorOpen}
-          >
-            {isAutoTesting ? <PauseIcon className="w-5 h-5 mr-2" /> : <PlayIcon className="w-5 h-5 mr-2" />}
-            {isAutoTesting ? 'Stop Profile Test' : 'Run Profile Test'}
-          </button>
+          {/* ── WSS Protocol Assignment (per channel) ── */}
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-white">WSS Protocol Assignment</h3>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => handleAllProtocol(false)}
+                  disabled={!isConnected}
+                  className="px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  All DF11
+                </button>
+                <button
+                  onClick={() => handleAllProtocol(true)}
+                  disabled={!isConnected}
+                  className="px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 text-white hover:bg-purple-700"
+                >
+                  All AK
+                </button>
+              </div>
+            </div>
 
-          <button
-            className={`px-4 py-3 rounded-lg shadow-md font-medium flex items-center justify-center transition-all text-sm ${
-              isHardwareTesting ? 'btn-danger hover:shadow-lg' : 'btn-success hover:shadow-lg'
-            } disabled:opacity-50 disabled:cursor-not-allowed`}
-            disabled={!isConnectedToDevice || isAutoTesting || isPlayingRecorded || profileEditorOpen}
-            onClick={() => {
-              setIsHardwareTesting(!isHardwareTesting);
-              const message = { type: 13, id: Date.now() % 1000 };
-              sendMessage(JSON.stringify(message));
-            }}
-          >
-            {isHardwareTesting ? <PauseIcon className="w-5 h-5 mr-2" /> : <PlayIcon className="w-5 h-5 mr-2" />}
-            {isHardwareTesting ? 'Stop Hardware Test' : 'Hardware Auto Test'}
-          </button>
+            <div className="space-y-2">
+              {WHEEL_NAMES.map((wheel, ch) => {
+                const profileId = wheelProfiles[ch];
+                const isAK = profileId >= 4;
+                const variant = profileId % 4;
+                return (
+                  <div key={wheel} className="flex items-center gap-2 flex-wrap">
+                    {/* Wheel label */}
+                    <span className="text-xs font-mono font-bold w-7 shrink-0 text-slate-700 dark:text-slate-200">{wheel}</span>
+
+                    {/* Protocol toggle */}
+                    <div className="flex rounded overflow-hidden border border-slate-200 dark:border-slate-600 shrink-0 text-xs">
+                      <button
+                        onClick={() => handleChannelProtocolToggle(ch, false)}
+                        disabled={!isConnected}
+                        className={`px-2.5 py-1 font-medium transition-colors disabled:opacity-50 ${
+                          !isAK
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                        }`}
+                      >
+                        DF11
+                      </button>
+                      <button
+                        onClick={() => handleChannelProtocolToggle(ch, true)}
+                        disabled={!isConnected}
+                        className={`px-2.5 py-1 font-medium transition-colors disabled:opacity-50 ${
+                          isAK
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                        }`}
+                      >
+                        VDA AK
+                      </button>
+                    </div>
+
+                    {/* Variant buttons */}
+                    <div className="flex gap-1">
+                      {VARIANTS.map((v, vi) => (
+                        <button
+                          key={vi}
+                          onClick={() => handleChannelVariantSelect(ch, vi)}
+                          disabled={!isConnected}
+                          title={isAK ? v.detailAK : v.detailDF11}
+                          className={`px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
+                            variant === vi
+                              ? (isAK ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white')
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                          }`}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Current level detail */}
+                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                      {isAK ? VARIANTS[variant].detailAK : VARIANTS[variant].detailDF11}
+                    </span>
+
+                    {/* AK frequency multiplier — only for AK channels */}
+                    {isAK && (
+                      <select
+                        value={akMultipliers[ch]}
+                        onChange={e => handleAKMultiplierChange(ch, parseInt(e.target.value))}
+                        disabled={!isConnected}
+                        title="AK frequency multiplier"
+                        className="text-xs rounded px-1 py-1 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 disabled:opacity-50"
+                      >
+                        <option value={50}>×0.5</option>
+                        <option value={100}>×1</option>
+                        <option value={125}>×1.25</option>
+                        <option value={150}>×1.5</option>
+                        <option value={175}>×1.75</option>
+                        <option value={200}>×2</option>
+                        <option value={250}>×2.5</option>
+                        <option value={300}>×3</option>
+                        <option value={400}>×4</option>
+                      </select>
+                    )}
+
+                    {/* Per-channel barcode button — only for AK channels */}
+                    {isAK && (
+                      <button
+                        onClick={() => loggedSend(`K${ch}\n`)}
+                        disabled={!isConnected}
+                        className="ml-auto px-2 py-1 rounded text-xs font-medium btn-warning disabled:opacity-50 shrink-0"
+                      >
+                        Barcode
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <button
-          onClick={() => setProfileEditorOpen(!profileEditorOpen)}
-          className="w-full btn-secondary text-sm py-2.5 disabled:opacity-50 shadow hover:shadow-md transition-all"
-          disabled={isAutoTesting || isPlayingRecorded}
-        >
-          {profileEditorOpen ? '✕ Close Profile Editor' : '⚙ Edit Test Profile'}
-        </button>
-      </div>
+        <div>
+            {/* ── Per-wheel independent control (Hz fine-tune) ── */}
+          <WheelSpeedControls
+            wheelSpeeds={wheelSpeedControl.wheelSpeeds}
+            wheelEnabled={wheelSpeedControl.wheelEnabled}
+            isLinked={wheelSpeedControl.isLinked}
+            masterSpeed={wheelSpeedControl.masterSpeed}
+            maxSpeed={maxSpeed}
+            isConnected={isConnected}
+            isAutoTesting={isAutoTesting}
+            isPlayingRecorded={isPlayingRecorded}
+            onMasterSpeedChange={wheelSpeedControl.handleMasterSpeedChange}
+            onIndividualWheelChange={wheelSpeedControl.handleIndividualWheelChange}
+            onToggleWheelEnabled={wheelSpeedControl.toggleWheelEnabled}
+            onToggleLinked={wheelSpeedControl.toggleLinked}
+          />
 
-      {/* Profile Editor */}
-      {profileEditorOpen && (
-        <ProfileEditor
-          profiles={profileManagement.profiles}
-          activeProfile={profileManagement.activeProfile}
-          selectedProfileId={profileManagement.selectedProfileId}
-          isLoadingProfiles={profileManagement.isLoadingProfiles}
-          editingPoint={profileManagement.editingPoint}
-          maxFrequency={maxFrequency}
-          onLoadProfile={profileManagement.loadProfile}
-          onSaveProfile={profileManagement.saveProfile}
-          onAddPoint={() => profileManagement.addProfilePoint(maxFrequency)}
-          onRemovePoint={profileManagement.removeProfilePoint}
-          onCanvasClick={handleProfileCanvasClick}
-          setEditingPoint={profileManagement.setEditingPoint}
-        />
-      )}
+          {/* ── Test Controls ── */}
+          <div className="mt-6 space-y-3">
+            {(isAutoTesting || isPlayingRecorded) && (
+              <div className="text-center p-4 bg-blue-50 dark:bg-slate-800/60 rounded-lg border border-blue-200 dark:border-slate-600">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Test in Progress</p>
+                <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                  {formatTime(remainingTime)}
+                </div>
+              </div>
+            )}
 
-      {/* Recording Controls */}
-      <RecordingControls
-        isRecording={recording.isRecording}
-        isPlayingRecorded={isPlayingRecorded}
-        recordedProfile={recording.recordedProfile}
-        recordingStartTime={recording.recordingStartTimeRef.current}
-        isConnected={isConnectedToDevice}
-        isAutoTesting={isAutoTesting}
-        profileEditorOpen={profileEditorOpen}
-        onStartRecording={handleStartRecording}
-        onStopRecording={handleStopRecording}
-        onPlayRecorded={handlePlayRecorded}
-        onStopPlayback={handleStopPlayback}
-        onSaveRecorded={handleSaveRecorded}
-      />
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={toggleAutoTest}
+                className={`px-4 py-3 rounded-lg font-medium flex items-center justify-center transition-all text-sm shadow-sm disabled:opacity-50 ${
+                  isAutoTesting ? 'btn-danger' : 'btn-primary'
+                }`}
+                disabled={!isConnected || isPlayingRecorded || profileEditorOpen}
+              >
+                {isAutoTesting ? <PauseIcon className="w-4 h-4 mr-2" /> : <PlayIcon className="w-4 h-4 mr-2" />}
+                {isAutoTesting ? 'Stop Curve' : 'Run ABS Curve'}
+              </button>
+
+              <button
+                className={`px-4 py-3 rounded-lg font-medium flex items-center justify-center transition-all text-sm shadow-sm disabled:opacity-50 ${
+                  isHardwareTesting ? 'btn-danger' : 'btn-success'
+                }`}
+                disabled={!isConnected || isAutoTesting || isPlayingRecorded || profileEditorOpen}
+                onClick={() => {
+                  const starting = !isHardwareTesting;
+                  setIsHardwareTesting(starting);
+                  loggedSend(starting ? 'R\n' : 'X\n');
+                }}
+              >
+                {isHardwareTesting ? <PauseIcon className="w-4 h-4 mr-2" /> : <PlayIcon className="w-4 h-4 mr-2" />}
+                {isHardwareTesting ? 'Stop Test' : 'Hardware Test'}
+              </button>
+
+              <button
+                onClick={() => loggedSend('K\n')}
+                disabled={!isConnected || !isAnyAKChannel}
+                title={!isAnyAKChannel ? 'Set at least one channel to VDA AK first' : 'Send VDA AK standstill barcode on all AK channels'}
+                className="px-4 py-2.5 rounded-lg font-medium text-sm btn-warning shadow-sm disabled:opacity-50 transition-all"
+              >
+                Send AK Barcode
+              </button>
+
+              <button
+                onClick={() => setProfileEditorOpen(v => !v)}
+                disabled={isAutoTesting || isPlayingRecorded}
+                className="px-4 py-2.5 rounded-lg font-medium text-sm btn-secondary shadow-sm disabled:opacity-50"
+              >
+                {profileEditorOpen ? '✕ Close Editor' : '⚙ Profile Editor'}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Profile Editor ── */}
+          {profileEditorOpen && (
+            <ProfileEditor
+              profiles={profileManagement.profiles}
+              activeProfile={profileManagement.activeProfile}
+              selectedProfileId={profileManagement.selectedProfileId}
+              isLoadingProfiles={profileManagement.isLoadingProfiles}
+              editingPoint={profileManagement.editingPoint}
+              maxFrequency={maxFrequency}
+              onLoadProfile={profileManagement.loadProfile}
+              onSaveProfile={profileManagement.saveProfile}
+              onAddPoint={() => profileManagement.addProfilePoint(maxFrequency)}
+              onRemovePoint={profileManagement.removeProfilePoint}
+              onCanvasClick={handleProfileCanvasClick}
+            />
+          )}
+
+          {/* ── Recording Studio ── */}
+          <RecordingControls
+            isRecording={recording.isRecording}
+            isPlayingRecorded={isPlayingRecorded}
+            recordedProfile={recording.recordedProfile}
+            recordingStartTime={recording.recordingStartTimeRef.current}
+            isConnected={isConnected}
+            isAutoTesting={isAutoTesting}
+            profileEditorOpen={profileEditorOpen}
+            onStartRecording={recording.startRecording}
+            onStopRecording={handleStopRecording}
+            onPlayRecorded={handlePlayRecorded}
+            onStopPlayback={handleStopPlayback}
+            onSaveRecorded={handleSaveRecorded}
+          />
+
+          {/* ── Serial Log ── */}
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-white">
+                Serial Log
+                {serialLog.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-slate-400">({serialLog.length})</span>
+                )}
+              </h3>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => setLogExpanded(v => !v)}
+                  className="text-xs btn-secondary px-2.5 py-1"
+                >
+                  {logExpanded ? 'Collapse' : 'Expand'}
+                </button>
+                <button
+                  onClick={() => setSerialLog([])}
+                  className="text-xs btn-secondary px-2.5 py-1"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div
+              className={`bg-slate-900 rounded-lg p-3 font-mono text-xs overflow-y-auto transition-all duration-200 ${
+                logExpanded ? 'h-56' : 'h-20'
+              }`}
+            >
+              {serialLog.length === 0 ? (
+                <span className="text-slate-600">No messages yet...</span>
+              ) : (
+                serialLog.map((line, i) => (
+                  <div
+                    key={i}
+                    className={line.startsWith('TX:') ? 'text-blue-400' : line.startsWith('ERR:') ? 'text-red-400' : 'text-green-400'}
+                  >
+                    {line}
+                  </div>
+                ))
+              )}
+              <div ref={logEndRef} />
+            </div>
+          </div>  
+        </div>
+      </div>      
     </div>
   );
 }

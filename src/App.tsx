@@ -15,7 +15,7 @@ function App() {
   return (
     <ToastProvider>
       <WebSocketProvider>
-        <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
+        <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
           {/* Connection bar - always visible at top */}
           <ConnectionBar />
           {/* Navigation tabs */}

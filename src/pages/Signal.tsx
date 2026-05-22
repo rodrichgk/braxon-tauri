@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import SignalTester from '@/components/SignalTester';
+import SignalTester from '@/components/SignalTester/SignalTesterMain';
 import CANSettings from '@/components/CANSettings';
 import BenchPower from '@/components/BenchPower';
 import PowerIndicators from '@/components/PowerIndicators';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
+import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 
 interface ABSDataRow {
   id: string;
@@ -23,7 +24,9 @@ interface ABSDataRow {
 }
 
 export default function SignalPage() {
-  const { sendMessage } = useWebSocketContext();
+  const { sendMessage: wsSendMessage, isConnectedToDevice } = useWebSocketContext();
+  const { isConnected: serialConnected, sendCommand: serialSendCommand } = useClientSerialConnection();
+  const isConnected = isConnectedToDevice || serialConnected;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ABSDataRow[]>([]);
   const [selected, setSelected] = useState<ABSDataRow | null>(null);
@@ -58,13 +61,16 @@ export default function SignalPage() {
   }, [query]);
 
   const handleSendMessage = async (message: string): Promise<boolean | void> => {
-    return sendMessage({ type: 1, data: message, timestamp: Date.now() });
+    if (serialConnected) {
+      return serialSendCommand(message);
+    }
+    return wsSendMessage({ type: 1, data: message, timestamp: Date.now() });
   };
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Signal Testing</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Wheel Speed Sensor — Hardware in the Loop Simulation</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm">ABS ECU diagnostics via CAN / K-Line / Wheel speed signals</p>
       </div>
 
@@ -129,9 +135,7 @@ export default function SignalPage() {
           {/* CAN Settings */}
           <CANSettings
             result={canData}
-            isConnected={false}
-            onConnect={() => {}}
-            onDisconnect={() => {}}
+            isConnected={isConnected}
             sendMessage={handleSendMessage}
             canReceivedData={canReceivedData}
           />
@@ -141,8 +145,11 @@ export default function SignalPage() {
         <div className="space-y-6">
           <PowerIndicators sendMessage={handleSendMessage} />
           <BenchPower sendMessage={handleSendMessage} />
-          <SignalTester sendMessage={handleSendMessage} wssType={selected?.wssType} />
+          
         </div>
+      </div>
+      <div className="mt-6">
+        <SignalTester sendMessage={handleSendMessage} />
       </div>
     </div>
   );

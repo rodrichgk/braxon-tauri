@@ -27,25 +27,16 @@ export function ABSTester({ profile }: ABSTesterProps) {
   const [isTesting, setIsTesting] = useState(false);
   // WebSocket connection
   const {
-    isConnected: wsConnected,
-    devices,
-    selectedDeviceId,
-    selectDevice,
     sendMessage: wsSendMessage,
     isConnectedToDevice
   } = useWebSocketContext();
 
-  // Serial connection
+  // Serial connection — read-only, ConnectionBar owns connect/disconnect
   const {
     isConnected: serialConnected,
-    connect,
-    disconnect,
     sendCommand,
     errorMessage,
   } = useClientSerialConnection({
-    onConnect: () => console.log('Serial connected'),
-    onDisconnect: () => console.log('Serial disconnected'),
-    onError: (error) => console.error('Serial error:', error),
     onDataReceived: (data) => {
       if (typeof data === 'string') {
         setRawMessages(prev => [...prev, data].slice(-100));
@@ -289,55 +280,10 @@ export function ABSTester({ profile }: ABSTesterProps) {
             </div>
           </div>
         </div>
-        <div className="mt-4 space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">
-                Connection
-              </label>
-              <div className="space-y-2">
-                {devices.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">
-                      WebSocket Devices
-                    </label>
-                    <select
-                      value={selectedDeviceId || ''}
-                      onChange={(e) => selectDevice(e.target.value)}
-                      className="input-field"
-                    >
-                      <option value="">Select WebSocket device</option>
-                      {devices.map((device) => (
-                        <option key={device.id} value={device.id}>
-                          {device.id} ({device.type})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    onClick={isConnected ? disconnect : connect}
-                    disabled={!isConnected && devices.length === 0}
-                    className={clsx(
-                      isConnected ? 'btn-danger' : 'btn-success',
-                      !isConnected && devices.length === 0 && 'btn-secondary opacity-50 cursor-not-allowed'
-                    )}
-                  >
-                    {isConnected ? 'Disconnect' : 'Connect Serial'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className="text-sm font-medium mb-1 text-slate-700 dark:text-slate-300">Status</div>
-              <div className="flex items-center gap-4">
-                <div className={`flex items-center gap-2 ${isConnected ? 'status-success' : 'status-error'}`}>
-                  <div className={`connection-dot ${isConnected ? 'connection-connected' : 'connection-disconnected'}`} />
-                  <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
-                </div>
-              </div>
-            </div>
+        <div className="mt-4">
+          <div className={`inline-flex items-center gap-2 text-sm ${isConnected ? 'status-success' : 'status-error'}`}>
+            <div className={`connection-dot ${isConnected ? 'connection-connected' : 'connection-disconnected'}`} />
+            <span>{isConnected ? 'Connected' : 'Disconnected — use the bar above to connect'}</span>
           </div>
         </div>
       </div>

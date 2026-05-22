@@ -4,7 +4,7 @@ const TABS: { id: Page; label: string; icon: string; description: string }[] = [
   { id: "home",   label: "Home",           icon: "🏠", description: "Info & Configuration" },
   { id: "valves", label: "Valve Testing",   icon: "⚙️", description: "Hydraulic modulator valves" },
   { id: "motors", label: "Motor Testing",   icon: "🔧", description: "ABS block motor" },
-  { id: "signal", label: "Signal Testing",  icon: "📡", description: "ABS ECU diagnostics" },
+  { id: "signal", label: "WSS HIL Simulation", icon: "📡", description: "Wheel Speed Sensor Hardware-in-the-Loop" },
 ];
 
 interface NavigationProps {

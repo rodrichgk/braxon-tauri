@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 
 export interface ProfilePoint {
   time: number;
@@ -15,6 +14,23 @@ export interface ServerProfile {
   updatedAt: string;
 }
 
+const STORAGE_KEY = 'wss_hil_profiles';
+
+function loadFromStorage(): ServerProfile[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as ServerProfile[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveToStorage(profiles: ServerProfile[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
+  } catch { /* storage full or unavailable — silently skip */ }
+}
+
 export function useProfileManagement() {
   const [profiles, setProfiles] = useState<ServerProfile[]>([]);
   const [activeProfile, setActiveProfile] = useState<ProfilePoint[]>([]);
@@ -25,107 +41,84 @@ export function useProfileManagement() {
 
   const fetchProfiles = useCallback(async () => {
     setIsLoadingProfiles(true);
-    try {
-      const response = await fetch('/api/profiles');
-      if (!response.ok) {
-        throw new Error('Failed to fetch profiles');
-      }
-      const data = await response.json();
-      setProfiles(data);
-      
-      if (data.length > 0 && !selectedProfileId) {
-        const firstProfile = data[0];
-        setSelectedProfileName(firstProfile.name);
-        setSelectedProfileId(firstProfile.id);
-        setActiveProfile(JSON.parse(firstProfile.points));
-      }
-    } catch (error) {
-      console.error('Error fetching profiles:', error);
-      toast.error('Failed to load profiles');
-    } finally {
-      setIsLoadingProfiles(false);
+    const data = loadFromStorage();
+    setProfiles(data);
+    if (data.length > 0 && !selectedProfileId) {
+      const first = data[0];
+      setSelectedProfileId(first.id);
+      setSelectedProfileName(first.name);
+      try { setActiveProfile(JSON.parse(first.points)); } catch { /* malformed */ }
     }
+    setIsLoadingProfiles(false);
   }, [selectedProfileId]);
 
   const saveProfile = useCallback(async () => {
-    const profileName = prompt("Enter a name for this profile:", selectedProfileName);
+    const profileName = prompt('Enter a name for this profile:', selectedProfileName);
     if (!profileName) return;
-    
-    try {
-      if (selectedProfileId) {
-        const response = await fetch(`/api/profiles/${selectedProfileId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: profileName,
-            points: activeProfile
-          }),
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to update profile');
-        }
-        
-        toast.success('Profile updated successfully');
-      } else {
-        const response = await fetch('/api/profiles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: profileName,
-            points: activeProfile
-          }),
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to create profile');
-        }
-        
-        toast.success('Profile created successfully');
-      }
-      
-      await fetchProfiles();
+
+    const now = new Date().toISOString();
+    const existing = loadFromStorage();
+
+    if (selectedProfileId) {
+      const updated = existing.map(p =>
+        p.id === selectedProfileId
+          ? { ...p, name: profileName, points: JSON.stringify(activeProfile), updatedAt: now }
+          : p
+      );
+      saveToStorage(updated);
+      setProfiles(updated);
       setSelectedProfileName(profileName);
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save profile');
+    } else {
+      const newProfile: ServerProfile = {
+        id: crypto.randomUUID(),
+        name: profileName,
+        points: JSON.stringify(activeProfile),
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const updated = [...existing, newProfile];
+      saveToStorage(updated);
+      setProfiles(updated);
+      setSelectedProfileId(newProfile.id);
+      setSelectedProfileName(profileName);
     }
-  }, [selectedProfileId, selectedProfileName, activeProfile, fetchProfiles]);
+  }, [selectedProfileId, selectedProfileName, activeProfile]);
 
   const loadProfile = useCallback((profileId: string) => {
     const profile = profiles.find(p => p.id === profileId);
-    if (profile) {
-      setActiveProfile(JSON.parse(profile.points));
-      setSelectedProfileName(profile.name);
-      setSelectedProfileId(profile.id);
-      setEditingPoint(null);
-    }
+    if (!profile) return;
+    try { setActiveProfile(JSON.parse(profile.points)); } catch { /* malformed */ }
+    setSelectedProfileName(profile.name);
+    setSelectedProfileId(profile.id);
+    setEditingPoint(null);
   }, [profiles]);
 
   const addProfilePoint = useCallback((maxFrequency: number) => {
-    const newPoint: ProfilePoint = { time: 7.5, frequency: maxFrequency / 2 };
-    setActiveProfile(prev => [...prev, newPoint]);
-    setEditingPoint(activeProfile.length);
-  }, [activeProfile.length]);
+    setActiveProfile(prev => {
+      setEditingPoint(prev.length);
+      return [...prev, { time: 7.5, frequency: Math.round(maxFrequency / 2) }];
+    });
+  }, []);
 
   const removeProfilePoint = useCallback(() => {
     if (editingPoint !== null && activeProfile.length > 2) {
-      const newProfile = activeProfile.filter((_, i) => i !== editingPoint);
-      setActiveProfile(newProfile);
+      setActiveProfile(activeProfile.filter((_, i) => i !== editingPoint));
       setEditingPoint(null);
     }
   }, [editingPoint, activeProfile]);
 
   const updateProfilePoint = useCallback((index: number, point: ProfilePoint) => {
-    const newProfile = [...activeProfile];
-    newProfile[index] = point;
-    setActiveProfile(newProfile.sort((a, b) => a.time - b.time));
-  }, [activeProfile]);
+    setActiveProfile(prev => {
+      const next = [...prev];
+      next[index] = point;
+      return next.sort((a, b) => a.time - b.time);
+    });
+  }, []);
 
   useEffect(() => {
     fetchProfiles();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {
@@ -142,6 +135,6 @@ export function useProfileManagement() {
     loadProfile,
     addProfilePoint,
     removeProfilePoint,
-    updateProfilePoint
+    updateProfilePoint,
   };
 }

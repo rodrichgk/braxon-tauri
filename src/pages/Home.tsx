@@ -88,7 +88,7 @@ export default function HomePage() {
             <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
               <div>⚙️ <strong>Valve Testing</strong> — Test solenoid valves on the hydraulic modulator block</div>
               <div>🔧 <strong>Motor Testing</strong> — Test the pump motor on the ABS block</div>
-              <div>📡 <strong>Signal Testing</strong> — Diagnose the ABS ECU via CAN/K-Line signals</div>
+              <div>📡 <strong>WSS HIL Simulation</strong> — Wheel Speed Sensor Hardware in the Loop simulation</div>
             </div>
           </div>
         </div>

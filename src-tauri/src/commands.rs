@@ -2,7 +2,7 @@ use crate::database::{self, ABSData, ABSModule, DbConfig, MotorTest, SignalProfi
 use crate::serial::{self, SerialPortData};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -14,18 +14,109 @@ pub async fn get_serial_ports() -> Result<Vec<SerialPortData>, String> {
 }
 
 #[tauri::command]
-pub async fn connect_serial(_port_name: String, _baud_rate: u32) -> Result<(), String> {
+pub async fn connect_serial(
+    port_name: String,
+    baud_rate: u32,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // connect() opens the port once and returns it alongside the rx channel.
+    // The worker thread owns the port — no try_clone() needed.
+    let (port, rx) = {
+        let mut conn = state.serial_connection.lock().await;
+        conn.connect(&port_name, baud_rate)?
+    };
+
+    let stop_flag = {
+        let conn = state.serial_connection.lock().await;
+        conn.stop_flag()
+    };
+
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        use std::sync::mpsc::TryRecvError;
+
+        let mut port = port;
+        let mut line_buf = String::new();
+        let mut read_buf = [0u8; 256];
+
+        loop {
+            if stop_flag.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+
+            // ---- TX: drain outgoing command queue (non-blocking) ----
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => {
+                        let data = msg.as_bytes();
+                        if let Err(e) = port.write_all(data) {
+                            // transient USB CDC stall on Windows — one retry
+                            if e.raw_os_error() == Some(121) {
+                                std::thread::sleep(std::time::Duration::from_millis(15));
+                                let _ = port.write_all(data);
+                            }
+                        }
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        // Sender was dropped by disconnect() — exit cleanly
+                        let _ = app_handle.emit_all("serial-disconnected", ());
+                        return;
+                    }
+                }
+            }
+
+            // ---- RX: read available data (10 ms timeout) ----
+            match port.read(&mut read_buf) {
+                Ok(n) if n > 0 => {
+                    if let Ok(chunk) = std::str::from_utf8(&read_buf[..n]) {
+                        for c in chunk.chars() {
+                            if c == '\n' {
+                                let line = line_buf.trim().to_string();
+                                if !line.is_empty() {
+                                    let _ = app_handle.emit_all("serial-data", &line);
+                                }
+                                line_buf.clear();
+                            } else if c != '\r' {
+                                line_buf.push(c);
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => break, // device gone
+            }
+        }
+
+        let _ = app_handle.emit_all("serial-disconnected", ());
+    });
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn disconnect_serial() -> Result<(), String> {
+pub async fn disconnect_serial(state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.serial_connection.lock().await;
+    conn.disconnect();
     Ok(())
 }
 
 #[tauri::command]
-pub async fn send_serial_message(_message: String) -> Result<(), String> {
-    Ok(())
+pub async fn send_serial_message(message: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut msg = message;
+    if !msg.ends_with('\n') {
+        msg.push('\n');
+    }
+    let conn = state.serial_connection.lock().await;
+    conn.send_message(msg)
+}
+
+#[tauri::command]
+pub async fn is_serial_connected(state: State<'_, AppState>) -> Result<bool, String> {
+    let conn = state.serial_connection.lock().await;
+    Ok(conn.is_connected())
 }
 
 // ---- WebSocket Device Commands ----
