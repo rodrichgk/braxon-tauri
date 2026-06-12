@@ -279,11 +279,10 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
       {/* ── Header ── */}
       <h2 className="card-header flex items-center justify-between">
         <span>Signal Tester</span>
-        <span className={`text-xs font-normal px-2 py-0.5 rounded-full ${
-          isConnected
-            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-            : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
-        }`}>
+        <span className={[
+          'text-xs font-medium px-2 py-0.5 rounded-md',
+          isConnected ? 'bg-success/15 text-success' : 'bg-elevated text-text-tertiary border border-border',
+        ].join(' ')}>
           {isConnected ? '● Connected' : '○ Disconnected'}
         </span>
       </h2>
@@ -299,108 +298,75 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
 
         <div>
             {/* ── Speed Control (km/h) ── */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
-            <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-4">Speed Control</h3>
+          <div className="mt-6 pt-6 border-t border-border">
+            <h3 className="text-sm font-semibold text-text-primary mb-4">Speed Control</h3>
 
             {/* Big readout */}
             <div className="flex items-end justify-between mb-3">
               <div className="leading-none">
-                <span className="text-4xl font-bold tabular-nums text-slate-900 dark:text-white">
-                  {speedKmh.toFixed(1)}
-                </span>
-                <span className="text-base text-slate-400 dark:text-slate-500 ml-1.5">km/h</span>
+                <span className="text-4xl font-bold tabular-nums text-text-primary">{speedKmh.toFixed(1)}</span>
+                <span className="text-base text-text-tertiary ml-1.5">km/h</span>
               </div>
               <div className="text-right leading-none">
-                <span className="text-2xl font-semibold tabular-nums text-blue-600 dark:text-blue-400">
-                  {currentHz}
-                </span>
-                <span className="text-sm text-slate-400 dark:text-slate-500 ml-1">Hz</span>
+                <span className="text-2xl font-semibold tabular-nums text-accent">{currentHz}</span>
+                <span className="text-sm text-text-tertiary ml-1">Hz</span>
               </div>
             </div>
 
-            {/* km/h slider */}
-            <input
-              type="range"
-              min="0"
-              max="300"
-              step="0.5"
-              value={speedKmh}
+            <input type="range" min="0" max="300" step="0.5" value={speedKmh}
               onChange={e => handleKmhSlider(parseFloat(e.target.value))}
-              className="w-full h-2 bg-slate-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-600 disabled:opacity-50"
+              className="w-full h-1.5 bg-elevated rounded-full appearance-none cursor-pointer accent-[#0a84ff] disabled:opacity-40"
               disabled={!isConnected || isAutoTesting || isPlayingRecorded}
             />
 
-            {/* Quick-set buttons */}
             <div className="flex flex-wrap gap-1.5 mt-3">
               {QUICK_SPEEDS_KMH.map(v => (
-                <button
-                  key={v}
-                  onClick={() => handleQuickSpeed(v)}
+                <button key={v} onClick={() => handleQuickSpeed(v)}
                   disabled={!isConnected || isAutoTesting || isPlayingRecorded}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-50 ${
+                  className={['px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40',
                     speedKmh === v
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                  }`}
-                >
+                      ? 'bg-accent/15 text-accent border border-accent/20'
+                      : 'bg-elevated text-text-secondary hover:text-text-primary border border-border'].join(' ')}>
                   {v}
                 </button>
               ))}
-              <span className="text-xs text-slate-400 dark:text-slate-500 self-center ml-0.5">km/h</span>
-              <button
-                onClick={handleStop}
-                disabled={!isConnected}
-                className="ml-auto px-3 py-1 rounded-md text-xs font-medium btn-danger disabled:opacity-50"
-              >
+              <span className="text-xs text-text-tertiary self-center ml-0.5">km/h</span>
+              <button onClick={handleStop} disabled={!isConnected}
+                className="ml-auto px-3 py-1 rounded-md text-xs font-medium btn-danger disabled:opacity-40">
                 STOP (X)
               </button>
             </div>
 
-            {/* Wheel model */}
-            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">Wheel model:</span>
+            <div className="mt-3 pt-3 border-t border-border/50 flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="text-xs text-text-tertiary shrink-0">Wheel model:</span>
               <div className="flex items-center gap-1.5">
-                <label className="text-xs text-slate-500 dark:text-slate-400">Circumference</label>
-                <input
-                  type="number"
-                  value={circumference}
-                  min="0.1" max="5" step="0.01"
+                <label className="text-xs text-text-tertiary">Circumference</label>
+                <input type="number" value={circumference} min="0.1" max="5" step="0.01"
                   onChange={e => { const v = parseFloat(e.target.value); if (v > 0) setCircumference(v); }}
-                  className="input-field w-16 text-xs py-1"
-                />
-                <span className="text-xs text-slate-400">m</span>
+                  className="input-field w-16 text-xs py-1" />
+                <span className="text-xs text-text-tertiary">m</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <label className="text-xs text-slate-500 dark:text-slate-400">Teeth</label>
-                <input
-                  type="number"
-                  value={ppr}
-                  min="1" max="200" step="1"
+                <label className="text-xs text-text-tertiary">Teeth</label>
+                <input type="number" value={ppr} min="1" max="200" step="1"
                   onChange={e => { const v = parseInt(e.target.value); if (v > 0) setPpr(v); }}
-                  className="input-field w-14 text-xs py-1"
-                />
-                <span className="text-xs text-slate-400">PPR</span>
+                  className="input-field w-14 text-xs py-1" />
+                <span className="text-xs text-text-tertiary">PPR</span>
               </div>
             </div>
           </div>
 
           {/* ── WSS Protocol Assignment (per channel) ── */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+          <div className="mt-6 pt-6 border-t border-border">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold text-slate-800 dark:text-white">WSS Protocol Assignment</h3>
+              <h3 className="text-sm font-semibold text-text-primary">WSS Protocol Assignment</h3>
               <div className="flex gap-1.5">
-                <button
-                  onClick={() => handleAllProtocol(false)}
-                  disabled={!isConnected}
-                  className="px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-700"
-                >
+                <button onClick={() => handleAllProtocol(false)} disabled={!isConnected}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40 bg-accent/15 text-accent border border-accent/20 hover:bg-accent/25">
                   All DF11
                 </button>
-                <button
-                  onClick={() => handleAllProtocol(true)}
-                  disabled={!isConnected}
-                  className="px-2.5 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 text-white hover:bg-purple-700"
-                >
+                <button onClick={() => handleAllProtocol(true)} disabled={!isConnected}
+                  className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40 bg-elevated text-text-secondary border border-border hover:text-text-primary">
                   All AK
                 </button>
               </div>
@@ -413,68 +379,43 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
                 const variant = profileId % 4;
                 return (
                   <div key={wheel} className="flex items-center gap-2 flex-wrap">
-                    {/* Wheel label */}
-                    <span className="text-xs font-mono font-bold w-7 shrink-0 text-slate-700 dark:text-slate-200">{wheel}</span>
+                    <span className="text-xs font-mono font-bold w-7 shrink-0 text-text-secondary">{wheel}</span>
 
-                    {/* Protocol toggle */}
-                    <div className="flex rounded overflow-hidden border border-slate-200 dark:border-slate-600 shrink-0 text-xs">
-                      <button
-                        onClick={() => handleChannelProtocolToggle(ch, false)}
-                        disabled={!isConnected}
-                        className={`px-2.5 py-1 font-medium transition-colors disabled:opacity-50 ${
-                          !isAK
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-                        }`}
-                      >
+                    <div className="flex rounded-lg overflow-hidden border border-border shrink-0 text-xs">
+                      <button onClick={() => handleChannelProtocolToggle(ch, false)} disabled={!isConnected}
+                        className={['px-2.5 py-1 font-medium transition-colors disabled:opacity-40',
+                          !isAK ? 'bg-accent/15 text-accent' : 'bg-elevated text-text-tertiary hover:text-text-secondary'].join(' ')}>
                         DF11
                       </button>
-                      <button
-                        onClick={() => handleChannelProtocolToggle(ch, true)}
-                        disabled={!isConnected}
-                        className={`px-2.5 py-1 font-medium transition-colors disabled:opacity-50 ${
-                          isAK
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-                        }`}
-                      >
+                      <button onClick={() => handleChannelProtocolToggle(ch, true)} disabled={!isConnected}
+                        className={['px-2.5 py-1 font-medium transition-colors disabled:opacity-40',
+                          isAK ? 'bg-elevated text-text-primary' : 'bg-elevated text-text-tertiary hover:text-text-secondary'].join(' ')}>
                         VDA AK
                       </button>
                     </div>
 
-                    {/* Variant buttons */}
                     <div className="flex gap-1">
                       {VARIANTS.map((v, vi) => (
-                        <button
-                          key={vi}
-                          onClick={() => handleChannelVariantSelect(ch, vi)}
-                          disabled={!isConnected}
+                        <button key={vi} onClick={() => handleChannelVariantSelect(ch, vi)} disabled={!isConnected}
                           title={isAK ? v.detailAK : v.detailDF11}
-                          className={`px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 ${
+                          className={['px-2 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40',
                             variant === vi
-                              ? (isAK ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white')
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-                          }`}
-                        >
+                              ? 'bg-accent/15 text-accent border border-accent/20'
+                              : 'bg-elevated text-text-tertiary border border-border hover:text-text-secondary'].join(' ')}>
                           {v.label}
                         </button>
                       ))}
                     </div>
 
-                    {/* Current level detail */}
-                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                    <span className="text-xs text-text-tertiary shrink-0">
                       {isAK ? VARIANTS[variant].detailAK : VARIANTS[variant].detailDF11}
                     </span>
 
-                    {/* AK frequency multiplier — only for AK channels */}
                     {isAK && (
-                      <select
-                        value={akMultipliers[ch]}
+                      <select value={akMultipliers[ch]} disabled={!isConnected}
                         onChange={e => handleAKMultiplierChange(ch, parseInt(e.target.value))}
-                        disabled={!isConnected}
                         title="AK frequency multiplier"
-                        className="text-xs rounded px-1 py-1 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 disabled:opacity-50"
-                      >
+                        className="text-xs rounded-md px-1.5 py-1 bg-elevated border border-border text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40 disabled:opacity-40">
                         <option value={50}>×0.5</option>
                         <option value={100}>×1</option>
                         <option value={125}>×1.25</option>
@@ -487,13 +428,9 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
                       </select>
                     )}
 
-                    {/* Per-channel barcode button — only for AK channels */}
                     {isAK && (
-                      <button
-                        onClick={() => loggedSend(`K${ch}\n`)}
-                        disabled={!isConnected}
-                        className="ml-auto px-2 py-1 rounded text-xs font-medium btn-warning disabled:opacity-50 shrink-0"
-                      >
+                      <button onClick={() => loggedSend(`K${ch}\n`)} disabled={!isConnected}
+                        className="ml-auto px-2 py-1 rounded-md text-xs font-medium btn-warning disabled:opacity-40 shrink-0">
                         Barcode
                       </button>
                     )}
@@ -524,9 +461,9 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
           {/* ── Test Controls ── */}
           <div className="mt-6 space-y-3">
             {(isAutoTesting || isPlayingRecorded) && (
-              <div className="text-center p-4 bg-blue-50 dark:bg-slate-800/60 rounded-lg border border-blue-200 dark:border-slate-600">
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">Test in Progress</p>
-                <div className="text-4xl font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+              <div className="text-center p-4 bg-elevated rounded-xl border border-border">
+                <p className="text-xs text-text-tertiary mb-1">Test in Progress</p>
+                <div className="text-4xl font-bold text-accent tabular-nums font-mono">
                   {formatTime(remainingTime)}
                 </div>
               </div>
@@ -612,46 +549,31 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
           />
 
           {/* ── Serial Log ── */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+          <div className="mt-6 pt-6 border-t border-border">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-semibold text-slate-800 dark:text-white">
+              <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
                 Serial Log
                 {serialLog.length > 0 && (
-                  <span className="ml-2 text-xs font-normal text-slate-400">({serialLog.length})</span>
+                  <span className="text-xs font-normal text-text-tertiary">({serialLog.length})</span>
                 )}
               </h3>
               <div className="flex gap-1.5">
-                <button
-                  onClick={() => setLogExpanded(v => !v)}
-                  className="text-xs btn-secondary px-2.5 py-1"
-                >
+                <button onClick={() => setLogExpanded(v => !v)} className="text-xs btn-secondary px-2.5 py-1">
                   {logExpanded ? 'Collapse' : 'Expand'}
                 </button>
-                <button
-                  onClick={() => setSerialLog([])}
-                  className="text-xs btn-secondary px-2.5 py-1"
-                >
-                  Clear
-                </button>
+                <button onClick={() => setSerialLog([])} className="text-xs btn-secondary px-2.5 py-1">Clear</button>
               </div>
             </div>
-            <div
-              className={`bg-slate-900 rounded-lg p-3 font-mono text-xs overflow-y-auto transition-all duration-200 ${
-                logExpanded ? 'h-56' : 'h-20'
-              }`}
-            >
+            <div className={['bg-elevated border border-border rounded-xl p-3 font-mono text-xs overflow-y-auto transition-all duration-200 space-y-0.5',
+              logExpanded ? 'h-56' : 'h-20'].join(' ')}>
               {serialLog.length === 0 ? (
-                <span className="text-slate-600">No messages yet...</span>
-              ) : (
-                serialLog.map((line, i) => (
-                  <div
-                    key={i}
-                    className={line.startsWith('TX:') ? 'text-blue-400' : line.startsWith('ERR:') ? 'text-red-400' : 'text-green-400'}
-                  >
-                    {line}
-                  </div>
-                ))
-              )}
+                <span className="text-text-tertiary">No messages yet…</span>
+              ) : serialLog.map((line, i) => (
+                <div key={i} className={
+                  line.startsWith('TX:')  ? 'text-accent'  :
+                  line.startsWith('ERR:') ? 'text-danger'  : 'text-success'
+                }>{line}</div>
+              ))}
               <div ref={logEndRef} />
             </div>
           </div>  

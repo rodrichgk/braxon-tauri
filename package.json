@@ -1,7 +1,7 @@
 {
-  "name": "pic-abs-tester-tauri",
+  "name": "braxon",
   "version": "1.0.0",
-  "description": "PIC ABS Hydraulic Testing & Diagnostics - Tauri Desktop App",
+  "description": "BRAXON — ABS Hydraulic Diagnostics Platform",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,12 +12,13 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@heroicons/react": "^2.0.18",
     "@tauri-apps/api": "^1.5.1",
+    "framer-motion": "^10.16.4",
+    "pg": "^8.21.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hot-toast": "^2.4.1",
-    "framer-motion": "^10.16.4",
-    "@heroicons/react": "^2.0.18"
+    "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.6",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/tauri';
 import clientSerial, { SerialEvent, SerialOptions, SerialPortInfo } from '@/lib/clientSerial';
 
 export interface SerialConnectionCallbacks {
@@ -26,16 +27,18 @@ export interface UseClientSerialConnectionResult {
   refreshPorts: () => Promise<void>;
   selectedPort: string | null;
   setSelectedPort: (port: string | null) => void;
+  picoDetected: boolean;
 }
 
 export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks): UseClientSerialConnectionResult {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(() => clientSerial.getIsConnected());
   const [baudRate, setBaudRate] = useState('115200');
   const [autoScroll, setAutoScroll] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [dataLog, setDataLog] = useState<string[]>([]);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState<string | null>(null);
+  const [picoDetected, setPicoDetected] = useState(false);
 
   const refreshPorts = useCallback(async () => {
     try {
@@ -50,6 +53,18 @@ export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks)
   useEffect(() => {
     refreshPorts();
   }, [refreshPorts]);
+
+  // Auto-detect Pico by VID 0x2E8A on mount
+  useEffect(() => {
+    invoke<string | null>('get_pico_port')
+      .then(port => {
+        if (port) {
+          setSelectedPort(port);
+          setPicoDetected(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSerialEvent = useCallback((event: SerialEvent) => {
     switch (event.type) {
@@ -132,5 +147,6 @@ export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks)
     refreshPorts,
     selectedPort,
     setSelectedPort,
+    picoDetected,
   };
 }

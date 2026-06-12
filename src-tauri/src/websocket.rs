@@ -1,4 +1,4 @@
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -47,9 +47,10 @@ impl WebSocketServer {
             }
         };
 
-        let (mut write, mut read) = ws_stream.split();
+        // _write must stay alive for the full duration — dropping it early closes
+        // the WebSocket write half and causes the read loop to terminate immediately.
+        let (_write, mut read) = ws_stream.split();
         let devices = self.devices.clone();
-        let app_handle = self.app_handle.clone();
 
         // Add client to devices
         {

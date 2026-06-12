@@ -1,11 +1,11 @@
 [package]
-name = "pic-abs-tester"
+name = "braxon"
 version = "1.0.0"
-description = "PIC ABS Hydraulic Testing & Diagnostics"
-authors = ["Reman By ADLC"]
+description = "BRAXON — ABS Hydraulic Diagnostics Platform"
+authors = ["Gabhy Rodrich KIBA"]
 license = ""
 repository = ""
-default-run = "pic-abs-tester"
+default-run = "braxon"
 edition = "2021"
 rust-version = "1.60"
 
@@ -24,6 +24,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.30", features = ["bundled"] }
 tokio-postgres = { version = "0.7", features = [] }
+sha2 = "0.10"
 
 [features]
 default = [ "custom-protocol" ]

@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "PIC ABS Tester",
+    "productName": "BRAXON",
     "version": "1.0.0"
   },
   "tauri": {
@@ -61,7 +61,7 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.reman.pic-abs-tester",
+      "identifier": "com.reman.braxon",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
@@ -77,7 +77,9 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "PIC ABS Tester",
+        "title": "BRAXON",
+        "decorations": false,
+        "transparent": true,
         "width": 1400,
         "height": 900,
         "minWidth": 1024,

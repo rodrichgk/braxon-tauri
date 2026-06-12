@@ -23,8 +23,15 @@ class TauriSerial {
   private selectedPort: string | null = null;
   private unlistenData: UnlistenFn | null = null;
   private unlistenDisconnect: UnlistenFn | null = null;
+  private _isConnected = false;
+
+  getIsConnected(): boolean {
+    return this._isConnected;
+  }
 
   private emit(event: SerialEvent) {
+    if (event.type === 'connected')    this._isConnected = true;
+    if (event.type === 'disconnected') this._isConnected = false;
     this.listeners.forEach(cb => cb(event));
   }
 

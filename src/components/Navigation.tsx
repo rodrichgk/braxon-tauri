@@ -1,4 +1,4 @@
-export type Page = "home" | "valves" | "motors" | "signal";
+export type Page = "home" | "valves" | "motors" | "signal" | "jobs";
 
 const TABS: { id: Page; label: string; icon: string; description: string }[] = [
   { id: "home",   label: "Home",           icon: "🏠", description: "Info & Configuration" },

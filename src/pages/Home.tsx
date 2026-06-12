@@ -56,56 +56,56 @@ export default function HomePage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Dashboard</h1>
-      <p className="text-slate-500 dark:text-slate-400 mb-8">Application info and configuration</p>
+      <h1 className="text-2xl font-semibold text-text-primary mb-1 tracking-tight">Dashboard</h1>
+      <p className="text-sm text-text-secondary mb-8">Application info and configuration</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
         {/* About */}
-        <div className="glass-effect rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">About</h2>
-          <div className="space-y-3 text-sm text-slate-600 dark:text-slate-400">
-            <div className="flex justify-between">
+        <div className="card">
+          <h2 className="text-sm font-semibold text-text-primary mb-4 tracking-tight">About</h2>
+          <div className="space-y-3 text-sm text-text-secondary">
+            <div className="flex justify-between items-center">
               <span>Application</span>
-              <span className="font-medium text-slate-900 dark:text-white">PIC ABS Tester</span>
+              <span className="font-medium text-text-primary">BRAXON</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span>Version</span>
-              <span className="font-medium text-slate-900 dark:text-white">1.0.0</span>
+              <span className="font-medium text-text-primary">1.0.0</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span>Platform</span>
-              <span className="font-medium text-slate-900 dark:text-white">Tauri Desktop</span>
+              <span className="font-medium text-text-primary">Tauri Desktop</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span>WebSocket Server</span>
-              <span className="font-medium text-green-600">127.0.0.1:8765</span>
+              <span className="font-medium text-success">127.0.0.1:8765</span>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Tabs</h3>
-            <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-              <div>⚙️ <strong>Valve Testing</strong> — Test solenoid valves on the hydraulic modulator block</div>
-              <div>🔧 <strong>Motor Testing</strong> — Test the pump motor on the ABS block</div>
-              <div>📡 <strong>WSS HIL Simulation</strong> — Wheel Speed Sensor Hardware in the Loop simulation</div>
+          <div className="mt-5 pt-4 border-t border-border">
+            <h3 className="text-xs font-semibold text-text-secondary mb-3 tracking-wide uppercase">Pages</h3>
+            <div className="space-y-2 text-sm text-text-secondary">
+              <div><span className="text-text-primary font-medium">Valve Testing</span> — Solenoid valves on the hydraulic modulator block</div>
+              <div><span className="text-text-primary font-medium">Motor Testing</span> — Pump motor on the ABS block</div>
+              <div><span className="text-text-primary font-medium">Signal HIL</span> — Wheel Speed Sensor hardware-in-the-loop simulation</div>
             </div>
           </div>
         </div>
 
         {/* DB Config */}
-        <div className="glass-effect rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+        <div className="card">
+          <h2 className="text-sm font-semibold text-text-primary mb-1 tracking-tight">
             Database Connection
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-            Direct connection to PostgreSQL — no web server needed.
+          <p className="text-xs text-text-tertiary mb-4">
+            Direct PostgreSQL — no web server needed.
           </p>
 
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Host</label>
+                <label className="input-label">Host</label>
                 <input
                   type="text"
                   value={config.host}
@@ -115,7 +115,7 @@ export default function HomePage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Port</label>
+                <label className="input-label">Port</label>
                 <input
                   type="number"
                   value={config.port}
@@ -126,7 +126,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Database</label>
+              <label className="input-label">Database</label>
               <input
                 type="text"
                 value={config.database}
@@ -136,7 +136,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Username</label>
+              <label className="input-label">Username</label>
               <input
                 type="text"
                 value={config.username}
@@ -146,7 +146,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Password</label>
+              <label className="input-label">Password</label>
               <input
                 type="password"
                 value={config.password}
@@ -175,10 +175,10 @@ export default function HomePage() {
 
             {testStatus && (
               <div className={[
-                'text-xs p-3 rounded-lg',
+                'text-xs p-3 rounded-xl border',
                 testStatus.ok
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
-                  : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
+                  ? 'bg-success/10 border-success/20 text-success'
+                  : 'bg-danger/10 border-danger/20 text-danger'
               ].join(' ')}>
                 {testStatus.ok ? '✓ ' : '✗ '}{testStatus.msg}
               </div>

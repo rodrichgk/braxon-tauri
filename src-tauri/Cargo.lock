@@ -152,6 +152,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "braxon"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serialport",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "tokio-postgres",
+ "tokio-tungstenite",
+ "uuid",
+]
+
+[[package]]
 name = "brotli"
 version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2234,24 +2253,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher 1.0.2",
-]
-
-[[package]]
-name = "pic-abs-tester"
-version = "1.0.0"
-dependencies = [
- "chrono",
- "futures-util",
- "rusqlite",
- "serde",
- "serde_json",
- "serialport",
- "tauri",
- "tauri-build",
- "tokio",
- "tokio-postgres",
- "tokio-tungstenite",
- "uuid",
 ]
 
 [[package]]

@@ -26,6 +26,16 @@ impl SerialConnection {
         }
     }
 
+    pub fn find_pico_port() -> Option<String> {
+        serialport::available_ports()
+            .ok()?
+            .into_iter()
+            .find(|p| matches!(&p.port_type,
+                serialport::SerialPortType::UsbPort(info) if info.vid == 0x2E8A
+            ))
+            .map(|p| p.port_name)
+    }
+
     pub fn list_ports() -> Result<Vec<SerialPortData>, String> {
         match serialport::available_ports() {
             Ok(ports) => {

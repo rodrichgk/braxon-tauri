@@ -10,7 +10,7 @@ interface ProfileEditorProps {
   isLoadingProfiles: boolean;
   editingPoint: number | null;
   maxFrequency: number;
-  onLoadProfile: (profileId: string) => void;
+  onLoadProfile: (id: string) => void;
   onSaveProfile: () => void;
   onAddPoint: () => void;
   onRemovePoint: () => void;
@@ -18,201 +18,127 @@ interface ProfileEditorProps {
 }
 
 export default function ProfileEditor({
-  profiles,
-  activeProfile,
-  selectedProfileId,
-  isLoadingProfiles,
-  editingPoint,
-  maxFrequency,
-  onLoadProfile,
-  onSaveProfile,
-  onAddPoint,
-  onRemovePoint,
-  onCanvasClick,
+  profiles, activeProfile, selectedProfileId, isLoadingProfiles,
+  editingPoint, maxFrequency,
+  onLoadProfile, onSaveProfile, onAddPoint, onRemovePoint, onCanvasClick,
 }: ProfileEditorProps) {
-  const profileCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const canvas = profileCanvasRef.current;
+    const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = rect.width * dpr;
+    canvas.width  = rect.width  * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
 
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
+    // Theme-aware colors
+    const dark = document.documentElement.classList.contains('dark');
+    const bgColor     = dark ? '#1c1c1e' : '#ffffff';
+    const gridColor   = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+    const axisColor   = dark ? 'rgba(255,255,255,0.2)'  : 'rgba(0,0,0,0.25)';
+    const labelColor  = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.4)';
+    const lineColor   = '#0a84ff';
+    const pointColor  = '#0a84ff';
+    const selectColor = '#ff453a';
 
-    const width = rect.width;
-    const height = rect.height;
+    const mL = 32, mR = 12, mT = 12, mB = 26;
+    const pW = W - mL - mR, pH = H - mT - mB;
+    const tx = (t: number) => mL + (t / 15) * pW;
+    const ty = (f: number) => mT + pH - (f / maxFrequency) * pH;
 
-    const margin = {
-      left: 30,
-      right: 20,
-      top: 20,
-      bottom: 30
-    };
+    // Background
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, W, H);
 
-    const plotWidth = width - margin.left - margin.right;
-    const plotHeight = height - margin.top - margin.bottom;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-
-    // Draw background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
-
-    // Draw grid
-    ctx.strokeStyle = '#e5e7eb';
+    // Grid
+    ctx.strokeStyle = gridColor;
     ctx.lineWidth = 1;
-    ctx.beginPath();
-
-    // Vertical grid lines (time)
-    for (let i = 0; i <= 15; i += 3) {
-      const x = margin.left + (i / 15) * plotWidth;
-      ctx.moveTo(x, margin.top);
-      ctx.lineTo(x, height - margin.bottom);
+    for (let i = 0; i <= 5; i++) {
+      ctx.beginPath(); ctx.moveTo(tx(i * 3), mT); ctx.lineTo(tx(i * 3), mT + pH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mL, ty(i * maxFrequency / 5)); ctx.lineTo(mL + pW, ty(i * maxFrequency / 5)); ctx.stroke();
     }
 
-    // Horizontal grid lines (frequency)
-    for (let i = 0; i <= maxFrequency; i += maxFrequency / 5) {
-      const y = margin.top + plotHeight - (i / maxFrequency) * plotHeight;
-      ctx.moveTo(margin.left, y);
-      ctx.lineTo(width - margin.right, y);
-    }
-    ctx.stroke();
+    // Axes
+    ctx.strokeStyle = axisColor; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mL, mT); ctx.lineTo(mL, mT + pH + 1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mL - 1, mT + pH); ctx.lineTo(mL + pW, mT + pH); ctx.stroke();
 
-    // Draw axes
-    ctx.strokeStyle = '#374151';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(margin.left, margin.top);
-    ctx.lineTo(margin.left, height - margin.bottom);
-    ctx.lineTo(width - margin.right, height - margin.bottom);
-    ctx.stroke();
-
-    // Draw axis labels
-    ctx.fillStyle = '#374151';
-    ctx.font = '11px sans-serif';
+    // Labels
+    ctx.fillStyle = labelColor;
+    ctx.font = '10px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
-
-    // X-axis labels (time)
-    for (let i = 0; i <= 15; i += 3) {
-      const x = margin.left + (i / 15) * plotWidth;
-      ctx.fillText(`${i}s`, x, height - 10);
+    for (let i = 0; i <= 5; i++) {
+      ctx.fillText(`${i * 3}s`, tx(i * 3), mT + pH + 16);
     }
-
-    // Y-axis labels (frequency)
     ctx.textAlign = 'right';
-    for (let i = 0; i <= maxFrequency; i += maxFrequency / 5) {
-      const y = margin.top + plotHeight - (i / maxFrequency) * plotHeight;
-      ctx.fillText(`${i}Hz`, margin.left - 5, y + 4);
+    for (let i = 0; i <= 5; i++) {
+      ctx.fillText(`${Math.round(i * maxFrequency / 5)}`, mL - 5, ty(i * maxFrequency / 5) + 3);
     }
 
-    // Draw profile line
+    // Profile line
     if (activeProfile.length > 0) {
-      const sortedProfile = [...activeProfile].sort((a, b) => a.time - b.time);
-
-      ctx.strokeStyle = '#3b82f6';
-      ctx.lineWidth = 2;
+      const sorted = [...activeProfile].sort((a, b) => a.time - b.time);
+      ctx.strokeStyle = lineColor; ctx.lineWidth = 2;
       ctx.beginPath();
-
-      sortedProfile.forEach((point, index) => {
-        const x = margin.left + (point.time / 15) * plotWidth;
-        const y = margin.top + plotHeight - (point.frequency / maxFrequency) * plotHeight;
-
-        if (index === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+      sorted.forEach((pt, i) => {
+        i === 0 ? ctx.moveTo(tx(pt.time), ty(pt.frequency)) : ctx.lineTo(tx(pt.time), ty(pt.frequency));
       });
       ctx.stroke();
 
-      // Draw points
-      sortedProfile.forEach((point, index) => {
-        const x = margin.left + (point.time / 15) * plotWidth;
-        const y = margin.top + plotHeight - (point.frequency / maxFrequency) * plotHeight;
-
-        ctx.fillStyle = index === editingPoint ? '#ef4444' : '#3b82f6';
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
-        ctx.fill();
-
-        // Draw point info
-        if (index === editingPoint) {
-          ctx.fillStyle = '#374151';
-          ctx.font = 'bold 10px sans-serif';
+      // Points
+      sorted.forEach((pt, i) => {
+        const x = tx(pt.time), y = ty(pt.frequency);
+        const isSelected = i === editingPoint;
+        ctx.fillStyle = isSelected ? selectColor : pointColor;
+        ctx.beginPath(); ctx.arc(x, y, isSelected ? 6 : 4, 0, 2 * Math.PI); ctx.fill();
+        if (isSelected) {
+          ctx.fillStyle = labelColor;
+          ctx.font = 'bold 9px Inter, system-ui, sans-serif';
           ctx.textAlign = 'left';
-          ctx.fillText(`${point.time.toFixed(1)}s, ${point.frequency}Hz`, x + 8, y - 8);
+          ctx.fillText(`${pt.time.toFixed(1)}s, ${pt.frequency}Hz`, x + 9, y - 6);
         }
       });
     }
   }, [activeProfile, editingPoint, maxFrequency]);
 
   return (
-    <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
-      <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-4">Test Profile Editor</h3>
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-3">
-        <div className="flex items-center">
+    <div className="mt-6 pt-6 border-t border-border">
+      <h3 className="text-sm font-semibold text-text-primary mb-4">Test Profile Editor</h3>
+
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-2">
           <select
-            className="input-field block w-full sm:w-auto text-sm mr-3"
             value={selectedProfileId || ''}
-            onChange={(e) => onLoadProfile(e.target.value)}
+            onChange={e => onLoadProfile(e.target.value)}
             disabled={isLoadingProfiles}
+            className="input-field text-xs py-1.5 w-auto"
           >
-            {isLoadingProfiles ? (
-              <option>Loading profiles...</option>
-            ) : profiles.length === 0 ? (
-              <option>No profiles available</option>
-            ) : (
-              profiles.map(profile => (
-                <option key={profile.id} value={profile.id}>{profile.name}</option>
-              ))
-            )}
+            {isLoadingProfiles ? <option>Loading…</option>
+              : profiles.length === 0 ? <option>No profiles</option>
+              : profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button
-            onClick={onSaveProfile}
-            className="btn-success text-sm font-medium"
-          >
-            Save Current
-          </button>
+          <button onClick={onSaveProfile} className="btn-success text-xs py-1.5 px-3">Save</button>
         </div>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={onAddPoint}
-            className="btn-primary text-sm font-medium"
-          >
-            Add Point
-          </button>
-          <button
-            onClick={onRemovePoint}
-            className="btn-danger text-sm font-medium disabled:opacity-50"
-            disabled={editingPoint === null || activeProfile.length <= 2}
-          >
-            Remove Point
-          </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onAddPoint} className="btn-primary text-xs py-1.5 px-3">Add Point</button>
+          <button onClick={onRemovePoint} disabled={editingPoint === null || activeProfile.length <= 2}
+            className="btn-danger text-xs py-1.5 px-3 disabled:opacity-40">Remove</button>
         </div>
       </div>
 
-      <div className="relative w-full h-64 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 rounded-lg overflow-hidden shadow-inner">
-        <canvas
-          ref={profileCanvasRef}
-          className="w-full h-full cursor-crosshair"
-          onClick={onCanvasClick}
-        />
+      <div className="relative w-full h-56 border border-border bg-card rounded-xl overflow-hidden">
+        <canvas ref={canvasRef} className="w-full h-full cursor-crosshair" onClick={onCanvasClick} />
       </div>
-      <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-        <p>Click on points to select, then click elsewhere on the graph to move the selected point. Click empty space to add a new point.</p>
-        <p>X-axis: Time (0-15s), Y-axis: Frequency (0-{maxFrequency}Hz).</p>
-      </div>
+
+      <p className="text-[10px] text-text-tertiary mt-2">
+        Click a point to select it, then click elsewhere to move it. Click empty space to add a point. X: time (0–15s) · Y: frequency (0–{maxFrequency}Hz)
+      </p>
     </div>
   );
 }

@@ -40,6 +40,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_serial_ports,
+            commands::get_pico_port,
             commands::connect_serial,
             commands::disconnect_serial,
             commands::send_serial_message,
@@ -64,6 +65,23 @@ fn main() {
             commands::delete_profile,
             commands::get_motor_tests,
             commands::save_motor_test,
+            commands::save_wss_calibration,
+            commands::get_wss_calibration,
+            commands::list_users,
+            commands::create_user,
+            commands::login_user,
+            commands::create_repair_job,
+            commands::get_repair_jobs,
+            commands::update_repair_job,
+            commands::delete_repair_job,
+            commands::save_job_dtcs,
+            commands::get_job_dtcs,
+            commands::import_ecu_dtcs,
+            commands::lookup_dtc,
+            commands::get_ecu_db_stats,
+            commands::get_ecu_list,
+            commands::get_ecu_actuators,
+            commands::match_ecu_ident,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,349 +1,409 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import {
-  DevicePhoneMobileIcon,
-  LightBulbIcon,
-  ArrowDownTrayIcon,
-  XCircleIcon,
-  ChevronUpIcon,
-  ChevronDownIcon,
-} from '@heroicons/react/24/outline';
+import { listen } from '@tauri-apps/api/event';
+import { SignalIcon, ArrowDownTrayIcon, XCircleIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 
-interface CANMessage {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface RawField { label: string; name: string; value: string; ph: string; }
+
+interface CanFrame {
   timestamp: string;
   direction: 'TX' | 'RX';
-  message: string;
+  /** formatted display string for TX or unparsed lines */
+  message?: string;
+  /** present for parsed RX frames */
+  id?: number;
+  dlc?: number;
+  data?: number[];
+  /** true when frame ID matches the selected ABS entry */
+  isMatch?: boolean;
+  /** value at the expected byte position from the database entry */
+  matchByteValue?: number;
 }
 
 interface CANSettingsProps {
-  result: {
-    canSpeed: string;
-    canByte: string;
-    canIdLine: string;
-    canValue: string;
-  };
+  result: { canSpeed: string; canByte: string; canIdLine: string; canValue: string };
   isConnected: boolean;
   sendMessage?: (message: string) => Promise<boolean | void>;
-  canReceivedData?: {
-    idLine?: string;
-    byte?: string;
-    value?: string;
-  };
+  canReceivedData?: { idLine?: string; byte?: string; value?: string };
+  legacyMode?: boolean;
 }
+
+// The Nano firmware receives the literal kbps value: 250, 500, or 1000.
+const LEGACY_SPEEDS = [
+  { label: '250 kbps', cmd: 250  },
+  { label: '500 kbps', cmd: 500  },
+  { label: '1 Mbps',   cmd: 1000 },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function ts() {
+  const now = new Date();
+  return [now.getHours(), now.getMinutes(), now.getSeconds()]
+    .map(n => n.toString().padStart(2, '0')).join(':');
+}
+
+function hex(n: number, pad = 2) {
+  return n.toString(16).toUpperCase().padStart(pad, '0');
+}
+
+/** Try to parse a CAN ID string that may be decimal or hex ("0x201", "513", "201"). */
+function parseCanIdStr(s: string): number | null {
+  if (!s) return null;
+  s = s.trim();
+  if (s.startsWith('0x') || s.startsWith('0X')) {
+    const n = parseInt(s.slice(2), 16);
+    return isNaN(n) ? null : n;
+  }
+  const dec = parseInt(s, 10);
+  if (!isNaN(dec)) return dec;
+  const hex = parseInt(s, 16);
+  return isNaN(hex) ? null : hex;
+}
+
+/**
+ * Try to parse a line like "513 8 0 0 255 255 255 255 255 255" as a CAN frame.
+ * Returns null for non-frame lines ("Freq : 12.3", "init", etc.).
+ */
+function parseNanoFrame(line: string): { id: number; dlc: number; data: number[] } | null {
+  const parts = line.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  const id = parseInt(parts[0], 10);
+  const dlc = parseInt(parts[1], 10);
+  if (isNaN(id) || isNaN(dlc) || dlc < 0 || dlc > 8) return null;
+  if (parts.length !== 2 + dlc) return null;
+  const data = parts.slice(2).map(b => parseInt(b, 10));
+  if (data.some(isNaN)) return null;
+  return { id, dlc, data };
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CANSettings({
   result,
   isConnected,
   sendMessage,
-  canReceivedData = {}
+  legacyMode = false,
 }: CANSettingsProps) {
-  // Maximum number of messages to keep in the log
-  const MAX_LOG_MESSAGES = 100;
-  const [hasFaults, setHasFaults] = useState(false);
-  const [receivedCanData, setReceivedCanData] = useState<{
-    idLine?: string;
-    byte?: string;
-    value?: string;
-    hasComms: boolean;
-  }>({
-    idLine: undefined,
-    byte: undefined,
-    value: undefined,
-    hasComms: false
-  });
+  const { legacyCanSpeed, setLegacyCanSpeed } = useAppSettings();
+
   const [canData, setCanData] = useState({
     speed: result.canSpeed,
-    byte: result.canByte,
+    byte:  result.canByte,
     idLine: result.canIdLine,
-    value: result.canValue,
+    value:  result.canValue,
   });
-  const [canMessages, setCanMessages] = useState<CANMessage[]>([]);
+  const [frames, setFrames] = useState<CanFrame[]>([]);
   const [showLog, setShowLog] = useState(true);
-  const logContainerRef = useRef<HTMLDivElement>(null);
+  const [matchCount, setMatchCount] = useState(0);
+  const logRef = useRef<HTMLDivElement>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setCanData(prev => ({ ...prev, [name]: value }));
-  };
+  // The selected ABS entry's CAN ID and byte, parsed for matching
+  const matchId = parseCanIdStr(result.canIdLine);
+  const matchByte = result.canByte ? parseInt(result.canByte, 10) : null;
 
-  // Check fault status based on incoming CAN data
-  const checkFaultStatus = () => {
-    // If we have communication but values don't match expected ones
-    if (receivedCanData.hasComms) {
-      // Compare received values with expected values
-      // If any of the values don't match, we have faults
-      const hasMismatch = Boolean(
-        (receivedCanData.idLine && receivedCanData.idLine !== canData.idLine) || 
-        (receivedCanData.byte && receivedCanData.byte !== canData.byte) || 
-        (receivedCanData.value && receivedCanData.value !== canData.value)
-      );
-      
-      setHasFaults(hasMismatch);
-    }
-  };
-  
-  // For manual testing
-  const toggleFaults = () => setHasFaults(f => !f);
-  
-  // Sync internal state when result prop changes (e.g. new search selection)
   useEffect(() => {
     setCanData({
       speed: result.canSpeed,
-      byte: result.canByte,
+      byte:  result.canByte,
       idLine: result.canIdLine,
-      value: result.canValue,
+      value:  result.canValue,
     });
   }, [result.canSpeed, result.canByte, result.canIdLine, result.canValue]);
 
-  // Keep log scrolled to bottom
+  // Auto-scroll
   useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [canMessages]);
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [frames]);
 
-  // Add message to the log
-  const addMessageToLog = (direction: 'TX' | 'RX', message: string) => {
-    const now = new Date();
-    const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-    
-    setCanMessages(prev => {
-      const newMessage = {
-        timestamp,
-        direction,
-        message
+  // Legacy mode: listen to serial-data and parse Nano CAN frames
+  useEffect(() => {
+    if (!legacyMode) return;
+    const unsub = listen<string>('serial-data', e => {
+      const line = e.payload;
+      const parsed = parseNanoFrame(line);
+      if (!parsed) return; // not a CAN frame (e.g. "Freq : 12.3" or "init")
+
+      const isMatch = matchId !== null && parsed.id === matchId;
+      const matchByteValue =
+        isMatch && matchByte !== null && matchByte < parsed.data.length
+          ? parsed.data[matchByte]
+          : undefined;
+
+      const frame: CanFrame = {
+        timestamp: ts(),
+        direction: 'RX',
+        id: parsed.id,
+        dlc: parsed.dlc,
+        data: parsed.data,
+        isMatch,
+        matchByteValue,
       };
-      
-      // If we've reached the maximum number of messages, remove the oldest one
-      if (prev.length >= MAX_LOG_MESSAGES) {
-        return [...prev.slice(1), newMessage];
-      }
-      
-      // Otherwise, just add the new message
-      return [...prev, newMessage];
+
+      setFrames(prev => {
+        const next = prev.length >= 200 ? [...prev.slice(1), frame] : [...prev, frame];
+        return next;
+      });
+      if (isMatch) setMatchCount(c => c + 1);
+    });
+    return () => { unsub.then(u => u()); };
+  }, [legacyMode, matchId, matchByte]);
+
+  // Pico mode: send handshake ping
+  useEffect(() => {
+    if (legacyMode || !isConnected || !sendMessage) return;
+    const t = setTimeout(() => sendMessage('t\n'), 1000);
+    return () => clearTimeout(t);
+  }, [legacyMode, isConnected, sendMessage]);
+
+  const addTx = (msg: string) => {
+    setFrames(prev => {
+      const frame: CanFrame = { timestamp: ts(), direction: 'TX', message: msg };
+      return prev.length >= 200 ? [...prev.slice(1), frame] : [...prev, frame];
     });
   };
 
-  // Clear log messages
-  const clearLog = () => {
-    setCanMessages([]);
+  // Legacy: set CAN speed on the Nano
+  const sendLegacySpeed = async (cmd: number) => {
+    if (!isConnected || !sendMessage) return;
+    const msg = `CANSpeed : ${cmd}`;
+    addTx(msg);
+    await sendMessage(`${msg}\n`);
+    setLegacyCanSpeed(cmd);
   };
 
-  // Send CAN message
+  // Pico: send a raw CAN message
   const sendCanMessage = async () => {
-    if (isConnected && sendMessage) {
-      const message = `SEND:${canData.idLine}:${canData.value}:${canData.byte}`;
-      addMessageToLog('TX', `ID: ${canData.idLine} | Data: ${canData.value} | Length: ${canData.byte}`);
-      await sendMessage(message);
-    }
+    if (!isConnected || !sendMessage) return;
+    const msg = `ID: ${canData.idLine} | Data: ${canData.value} | Len: ${canData.byte}`;
+    addTx(msg);
+    await sendMessage(`SEND:${canData.idLine}:${canData.value}:${canData.byte}`);
   };
 
-  // Send CAN speed 1 second after connection
-  useEffect(() => {
-    if (isConnected && sendMessage) {
-      const timer = setTimeout(() => {
-        // Simply take the first 3 characters (e.g., "500" from "500Kbps")
-        const message = `t\n`;
-        sendMessage(message);
-        //addMessageToLog('TX', `Set CAN Speed: ${speedValue}kbps`);
-      }, 1000); // 1 second delay
-      
-      return () => clearTimeout(timer);
-    }
-  }, [isConnected, sendMessage, canData.speed]);
+  const clearLog = () => { setFrames([]); setMatchCount(0); };
 
-  // Update received CAN data when props change
-  useEffect(() => {
-    if (canReceivedData) {
-      setReceivedCanData(prev => ({
-        ...prev,
-        idLine: canReceivedData.idLine,
-        byte: canReceivedData.byte,
-        value: canReceivedData.value,
-        hasComms: !!canReceivedData.idLine || !!canReceivedData.byte || !!canReceivedData.value
-      }));
-    }
-  }, [canReceivedData]);
-  
-  // Check fault status whenever received data changes
-  useEffect(() => {
-    if (receivedCanData.hasComms) {
-      checkFaultStatus();
-    }
-  }, [receivedCanData, canData.idLine, canData.byte, canData.value]);
+  const picoFields: RawField[] = [
+    { label: 'CAN Speed', name: 'speed',  value: canData.speed,  ph: '500kbps' },
+    { label: 'CAN Byte',  name: 'byte',   value: canData.byte,   ph: '8'      },
+    { label: 'CAN ID',    name: 'idLine', value: canData.idLine, ph: '0x7E0'  },
+    { label: 'CAN Value', name: 'value',  value: canData.value,  ph: '0xFF'   },
+  ];
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="card">
-      <h2 className="card-header flex items-center">
-        <DevicePhoneMobileIcon className="h-6 w-6 mr-2 text-blue-600" />
-        CAN Settings
+      {/* Header */}
+      <h2 className="card-header flex items-center gap-2">
+        <SignalIcon className="h-4 w-4 text-text-tertiary" />
+        {legacyMode ? 'CAN Bus Monitor' : 'CAN Settings'}
+        {legacyMode && (
+          <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-warning/15 text-warning border border-warning/20">
+            NANO
+          </span>
+        )}
       </h2>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        {[
-          {
-            label: 'CAN Speed',
-            name: 'speed',
-            value: canData.speed,
-            placeholder: '500kbps',
-          },
-          {
-            label: 'CAN Byte',
-            name: 'byte',
-            value: canData.byte,
-            placeholder: '8',
-          },
-          {
-            label: 'CAN ID Line',
-            name: 'idLine',
-            value: canData.idLine,
-            placeholder: '0x7E0',
-          },
-          {
-            label: 'CAN Value',
-            name: 'value',
-            value: canData.value,
-            placeholder: '0xFF',
-          },
-        ].map((field, idx) => (
-          <div key={idx}>
-            <label
-              htmlFor={field.name}
-              className="input-label"
-            >
-              {field.label}
-            </label>
-            <input
-              id={field.name}
-              name={field.name}
-              type="text"
-              value={field.value}
-              onChange={handleChange}
-              placeholder={field.placeholder}
-              className="input-field"
-            />
+      {/* ── Legacy mode: CAN speed selector ── */}
+      {legacyMode ? (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-medium text-text-secondary">CAN Bus Speed</span>
+            {legacyCanSpeed !== null && (
+              <button
+                onClick={() => setLegacyCanSpeed(null)}
+                disabled={!isConnected}
+                className="text-[10px] text-danger hover:text-danger/80 disabled:opacity-40 transition-colors"
+              >
+                Stop CAN ✕
+              </button>
+            )}
           </div>
-        ))}
-      </div>
-
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
-        <div className="flex items-center gap-4">
-          <div className={`flex items-center text-sm ${isConnected ? 'status-success' : 'status-error'}`}>
-            <span
-              className={`connection-dot ${isConnected ? 'connection-connected' : 'connection-disconnected'}`}
-            />
-            <span className="ml-2 font-medium">
-              {isConnected ? 'Connected' : 'Disconnected — use the bar above'}
-            </span>
+          <div className="flex gap-2">
+            {LEGACY_SPEEDS.map(s => (
+              <button
+                key={s.cmd}
+                disabled={!isConnected}
+                onClick={() => sendLegacySpeed(s.cmd)}
+                className={[
+                  'flex-1 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40',
+                  legacyCanSpeed === s.cmd
+                    ? 'bg-success/15 text-success border border-success/20'
+                    : 'bg-elevated text-text-secondary border border-border hover:text-text-primary',
+                ].join(' ')}
+              >
+                {s.label}
+              </button>
+            ))}
           </div>
         </div>
+      ) : (
+        /* ── Pico mode: 4 text fields ── */
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {picoFields.map(f => (
+            <div key={f.name}>
+              <label className="input-label">{f.label}</label>
+              <input
+                name={f.name} type="text" value={f.value} placeholder={f.ph}
+                onChange={e => setCanData(p => ({ ...p, [e.target.name]: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Fault Codes:
+      {/* ── Toolbar row ── */}
+      <div className="flex items-center justify-between mb-3 gap-2">
+        {/* Status */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className={['w-2 h-2 rounded-full shrink-0', isConnected ? 'bg-success' : 'bg-text-tertiary'].join(' ')} />
+          <span className={isConnected ? 'text-success' : 'text-text-tertiary'}>
+            {isConnected ? 'Connected' : 'Not connected'}
           </span>
-          <button
-            onClick={toggleFaults}
-            className={`
-              relative inline-flex items-center
-              h-6 w-12
-              rounded-full
-              transition
-              focus:outline-none focus:ring-2 focus:ring-blue-600
-              ${
-                hasFaults
-                  ? 'bg-red-600'
-                  : (receivedCanData.hasComms ? 'bg-green-600' : 'bg-slate-300 dark:bg-slate-600')
-              }
-            `}
-          >
-            <div
-              className={`
-                h-5 w-5
-                bg-white
-                rounded-full
-                shadow
-                transform transition
-                ${hasFaults ? 'translate-x-6' : 'translate-x-1'}
-              `}
-            />
-            <LightBulbIcon
-              className={`
-                absolute h-4 w-4
-                ${hasFaults ? 'text-white left-1' : 'text-slate-500 right-1'}
-                transition
-              `}
-            />
+          {legacyMode && matchCount > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-success/15 text-success border border-success/20 font-semibold">
+              {matchCount} match{matchCount !== 1 ? 'es' : ''}
+            </span>
+          )}
+          {legacyMode && frames.filter(f => f.direction === 'RX').length > 0 && (
+            <span className="text-[10px] text-text-tertiary">
+              {frames.filter(f => f.direction === 'RX').length} frames
+            </span>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setShowLog(v => !v)}
+            className="p-1 rounded-lg hover:bg-elevated transition-colors text-text-tertiary">
+            {showLog ? <ChevronUpIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
+          </button>
+          {!legacyMode && (
+            <button onClick={sendCanMessage} disabled={!isConnected} className="btn-primary text-xs px-2.5 py-1 flex items-center gap-1">
+              <ArrowDownTrayIcon className="h-3 w-3" /> Send
+            </button>
+          )}
+          <button onClick={clearLog} className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1">
+            <XCircleIcon className="h-3 w-3" /> Clear
           </button>
         </div>
       </div>
 
-      <div>
-        <div className="flex justify-between items-center mb-2">
-          <div className="flex items-center">
-            <button
-              onClick={() => setShowLog(!showLog)}
-              className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 mr-2 focus:outline-none transition-colors"
-              aria-label={showLog ? "Hide log" : "Show log"}
-            >
-              {showLog ? (
-                <ChevronUpIcon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-              ) : (
-                <ChevronDownIcon className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-              )}
-            </button>
-            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              CAN Communication Log
-            </h3>
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={sendCanMessage}
-              disabled={!isConnected}
-              className={`flex items-center px-2 py-1 text-xs rounded ${isConnected ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed'}`}
-            >
-              <ArrowDownTrayIcon className="h-3 w-3 mr-1" />
-              Send
-            </button>
-            <button
-              onClick={clearLog}
-              className="flex items-center px-2 py-1 text-xs btn-secondary"
-            >
-              <XCircleIcon className="h-3 w-3 mr-1" />
-              Clear
-            </button>
-          </div>
+      {/* ── Frame log ── */}
+      {showLog && (
+        <div
+          ref={logRef}
+          className="bg-elevated border border-border rounded-xl p-3 overflow-y-auto overscroll-y-contain font-mono text-xs space-y-1"
+          style={{ height: legacyMode ? '11rem' : '8rem' }}
+        >
+          {!isConnected ? (
+            <span className="text-text-tertiary italic">Not connected…</span>
+          ) : frames.length === 0 ? (
+            <span className="text-text-tertiary italic">
+              {legacyMode ? 'Waiting for CAN frames — select a bus speed above to start' : 'No messages yet'}
+            </span>
+          ) : frames.map((f, i) => (
+            <FrameRow key={i} frame={f} matchByte={matchByte} result={result} />
+          ))}
         </div>
-        {showLog && (
-          <div
-            ref={logContainerRef}
-            className="bg-slate-100 dark:bg-slate-700 p-4 rounded-xl h-32 overflow-auto font-mono text-sm text-slate-800 dark:text-slate-200 transition-colors"
-          >
-          {isConnected ? (
-            canMessages.length > 0 ? (
-              canMessages.map((msg, idx) => (
-                <div key={idx} className="mb-1">
-                  <span className="text-slate-500 dark:text-slate-400 text-xs mr-2">[{msg.timestamp}]</span>
-                  <span className={msg.direction === 'TX' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}>
-                    {msg.direction === 'TX' ? '➤ ' : '◀ '}
-                  </span>
-                  <span>{msg.message}</span>
-                </div>
-              ))
-            ) : (
-              <div className="italic text-slate-500 dark:text-slate-400">
-                No messages yet. Use the Send button to send a CAN message.
-              </div>
-            )
-          ) : (
-            <div className="italic text-slate-500 dark:text-slate-400">
-              Not connected to CAN bus...
-            </div>
-          )}
-        </div>
-        )}
+      )}
+
+      {/* Match legend (legacy only) */}
+      {legacyMode && result.canIdLine && (
+        <p className="text-[10px] text-text-tertiary mt-2 px-0.5">
+          <span className="text-success font-semibold">★</span> = frame ID matches selected entry
+          {result.canIdLine && ` (0x${hex(parseCanIdStr(result.canIdLine) ?? 0, 3)})`}
+          {result.canByte && `, byte [${result.canByte}]`}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── FrameRow ─────────────────────────────────────────────────────────────────
+
+function FrameRow({
+  frame,
+  matchByte,
+  result,
+}: {
+  frame: CanFrame;
+  matchByte: number | null;
+  result: { canValue: string; canIdLine: string; canByte: string };
+}) {
+  if (frame.direction === 'TX') {
+    return (
+      <div className="flex items-start gap-2">
+        <span className="text-text-tertiary shrink-0">[{frame.timestamp}]</span>
+        <span className="text-accent shrink-0 font-semibold">TX</span>
+        <span className="text-text-secondary">{frame.message}</span>
       </div>
+    );
+  }
+
+  // RX frame without parsed data (shouldn't happen in normal use)
+  if (frame.id === undefined || frame.data === undefined) {
+    return (
+      <div className="flex items-start gap-2">
+        <span className="text-text-tertiary shrink-0">[{frame.timestamp}]</span>
+        <span className="text-success shrink-0 font-semibold">RX</span>
+        <span className="text-text-secondary">{frame.message}</span>
+      </div>
+    );
+  }
+
+  const idHex = `0x${hex(frame.id, frame.id > 0x7FF ? 8 : 3)}`;
+  const dataHex = frame.data.map(b => hex(b)).join(' ');
+
+  // Highlight specific byte from the ABS DB entry
+  let dataDisplay: React.ReactNode = <span className="text-text-primary">{dataHex}</span>;
+  if (frame.isMatch && matchByte !== null && matchByte < frame.data.length) {
+    const bytes = frame.data.map(hex);
+    const expected = parseCanIdStr(result.canValue);
+    const actual = frame.data[matchByte];
+    const ok = expected !== null && actual === expected;
+    dataDisplay = (
+      <>
+        {bytes.slice(0, matchByte).join(' ')}{bytes.slice(0, matchByte).length > 0 ? ' ' : ''}
+        <span className={[
+          'px-0.5 rounded',
+          ok ? 'bg-success/25 text-success' : 'bg-warning/25 text-warning',
+        ].join(' ')}>
+          {bytes[matchByte]}
+        </span>
+        {bytes.slice(matchByte + 1).length > 0 ? ' ' : ''}{bytes.slice(matchByte + 1).join(' ')}
+      </>
+    );
+  }
+
+  return (
+    <div className={[
+      'flex items-start gap-2 rounded px-1',
+      frame.isMatch ? 'bg-success/5 ring-1 ring-success/20' : '',
+    ].join(' ')}>
+      <span className="text-text-tertiary shrink-0">[{frame.timestamp}]</span>
+      {frame.isMatch
+        ? <span className="text-success shrink-0 font-bold">★ RX</span>
+        : <span className="text-text-tertiary shrink-0">   RX</span>
+      }
+      <span className={['shrink-0 font-semibold w-14', frame.isMatch ? 'text-success' : 'text-text-secondary'].join(' ')}>
+        {idHex}
+      </span>
+      <span className="text-text-tertiary shrink-0">DLC:{frame.dlc}</span>
+      <span className="font-mono">{dataDisplay}</span>
+      {frame.isMatch && frame.matchByteValue !== undefined && (
+        <span className="ml-auto text-[10px] text-success shrink-0">
+          [{result.canByte}]={hex(frame.matchByteValue)}
+          {parseCanIdStr(result.canValue) !== null
+            && frame.matchByteValue === parseCanIdStr(result.canValue)
+            ? ' ✓' : ' ?'}
+        </span>
+      )}
     </div>
   );
 }
