@@ -24,8 +24,9 @@ export default defineConfig(async () => ({
   build: {
     // Tauri supports es2021
     target: process.env.TAURI_PLATFORM == "windows" ? "chrome105" : "safari13",
-    // Don't minify for debug builds
-    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
+    // Don't minify for debug builds; use Vite 8's default (Oxc) minifier
+    // otherwise (esbuild is no longer bundled with Vite 8).
+    minify: !process.env.TAURI_DEBUG,
     // Produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
   },
