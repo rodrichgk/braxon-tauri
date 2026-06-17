@@ -287,6 +287,18 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
       .then(setActuators).catch(() => setActuators([]));
   }, [selectedEcu]);
 
+  // Auto-configure ECU address and protocol from DB when an ECU is selected
+  useEffect(() => {
+    if (!selectedEcu) return;
+    if (selectedEcu.sendId) {
+      setEcuIdHex(selectedEcu.sendId.replace(/^0x/i, '').toUpperCase().padStart(3, '0'));
+      setUseBroadcast(false);
+    }
+    const prot = selectedEcu.protocol?.toUpperCase() ?? '';
+    if (prot.includes('KWP'))                                    setProtocol('KWP2000');
+    else if (prot.includes('UDS') || prot.includes('ISO15765')) setProtocol('UDS');
+  }, [selectedEcu?.ecuFile]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Silently enrich DTC descriptions from the ECU DB after a scan
   const enrichFromDb = useCallback(async (codes: DTCEntry[]): Promise<DTCEntry[]> => {
     if (!codes.length) return codes;
@@ -306,7 +318,8 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
   // Bosch: 0 265 25x xxx → Bosch 8.x,  0 265 9xx xxx → Bosch Gen 9
   const guessHardwareFamily = (pn: string): string | null => {
     const n = pn.replace(/[\s\-\.]/g, '').toUpperCase();
-    if (/^10(0960|0961|0962|0963|0175|0176)/.test(n)) return 'MK60';
+    if (/^10(0961)/.test(n))                           return 'MK61';
+    if (/^10(0960|0175|0176)/.test(n))                 return 'MK60';
     if (/^10(0970|0971|0972|0973)/.test(n))            return 'MK70';
     if (/^10(0200|0201|0202|0203)/.test(n))            return 'MK20';
     if (/^026595/.test(n))                             return 'Bosch Gen 9';
@@ -459,9 +472,16 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   const getResponseRange = (): [number, number] => {
     if (protocol === 'OBD2' && useBroadcast) return [0x7E0, 0x7EF];
+    // Use stored recvId from DB when an ECU is selected (most accurate)
+    if (selectedEcu?.recvId) {
+      const id = parseInt(selectedEcu.recvId, 16);
+      if (!isNaN(id)) return [id, id];
+    }
     const base = parseInt(ecuIdHex, 16);
     if (isNaN(base)) return [0x7E0, 0x7EF];
-    return [base + 8, base + 8];
+    // OBD-II uses +8 (standard); Renault/Nissan/Mitsubishi CAN uses +0x20
+    const offset = protocol === 'OBD2' ? 8 : 0x20;
+    return [base + offset, base + offset];
   };
 
   const stopScan = () => {
@@ -517,7 +537,14 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     payloadsRef.current = [];
     rawLinesRef.current = [];
 
-    const [respMin, respMax] = getResponseRange();
+    // Capture ECU addressing at scan start
+    const ecuRecvId  = selectedEcu?.recvId  ? parseInt(selectedEcu.recvId,  16) : null;
+    const ecuSendId  = selectedEcu?.sendId  ? parseInt(selectedEcu.sendId,  16) : null;
+    const fcOffset   = protocol === 'OBD2' ? 8 : 0x20; // OBD uses +8, Renault CAN uses +0x20
+
+    const [respMin, respMax] = (ecuRecvId && !isNaN(ecuRecvId))
+      ? [ecuRecvId, ecuRecvId]
+      : getResponseRange();
 
     const listener = (event: SerialEvent) => {
       if (!scanActiveRef.current || event.type !== 'data' || !event.data) return;
@@ -547,7 +574,8 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
       } else if (isoType === 1) {
         const totalLen = ((bytes[0] & 0x0F) << 8) | bytes[1];
         isoTpRef.current.set(id, { totalLen, data: bytes.slice(2), nextSeq: 1 });
-        const fcId = id - 8;
+        // Flow control goes to ECU's physical (tester) ID: sendId from DB or recv - offset
+        const fcId = ecuSendId ?? (id - fcOffset);
         sendRef.current(`CANTx : ${toHex3(fcId)} 30 00 00 00 00 00 00 00\n`);
       } else if (isoType === 2) {
         const seq   = bytes[0] & 0x0F;
@@ -627,8 +655,11 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   const respRangeLabel = (): string => {
     if (protocol === 'OBD2' && useBroadcast) return '0x7E0–0x7EF';
+    if (selectedEcu?.recvId) return `0x${selectedEcu.recvId.replace(/^0x/i, '').toUpperCase().padStart(3, '0')}`;
     const base = parseInt(ecuIdHex, 16);
-    return isNaN(base) ? '—' : `0x${(base + 8).toString(16).toUpperCase()}`;
+    if (isNaN(base)) return '—';
+    const offset = protocol === 'OBD2' ? 8 : 0x20;
+    return `0x${(base + offset).toString(16).toUpperCase()}`;
   };
 
   const isBusy = scanState === 'scanning' || scanState === 'clearing';
