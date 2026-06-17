@@ -46,11 +46,6 @@
         "asset": true,
         "assetScope": ["**"]
       },
-      "updater": {
-        "all": true,
-        "status": true,
-        "downloadAndInstall": true
-      },
       "process": {
         "all": false,
         "relaunch": true,
