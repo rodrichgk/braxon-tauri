@@ -96,6 +96,8 @@ pub struct ABSData {
     pub test_validated: Option<String>,
     #[serde(rename = "otherReferences")]
     pub other_references: Option<String>,
+    #[serde(rename = "kLine")]
+    pub k_line: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]

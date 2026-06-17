@@ -30,7 +30,12 @@ interface ABSDataRow {
   comments?: string;
   testValidated?: string;
   otherReferences?: string;
+  kLine?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+type EditMode = 'view' | 'edit' | 'add';
 
 /* ── animation variants ── */
 const sectionVariants = {
@@ -73,6 +78,12 @@ export default function SignalPage() {
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Edit / Add state
+  const [editMode, setEditMode] = useState<EditMode>('view');
+  const [draft, setDraft] = useState<Partial<ABSDataRow>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   // WSS calibration load/save state
   type CalStatus = 'idle' | 'loading' | 'loaded' | 'none' | 'saving' | 'saved' | 'error';
   const [calStatus, setCalStatus] = useState<CalStatus>('idle');
@@ -112,14 +123,12 @@ export default function SignalPage() {
 
     let waveformTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // ── CAN bus speed ──
     const canSpeedCmd = parseDbCanSpeed(selected.canSpeed);
     if (canSpeedCmd !== null) {
       setLegacyCanSpeed(canSpeedCmd);
       if (isConnected) handleSendMessage(`CANSpeed : ${canSpeedCmd}\n`);
     }
 
-    // ── Sensor type — delayed 300 ms so the Nano processes CAN speed first ──
     const sensorType = parseDbSensorType(selected.wssType);
     if (sensorType !== null) {
       setLegacySensorType(sensorType);
@@ -131,14 +140,12 @@ export default function SignalPage() {
       }
     }
 
-    // ── WSS channel calibration (channels + PPR + circ) ──
     setCalStatus('loading');
     invoke<string | null>('get_wss_calibration', { id: selected.id })
       .then(json => {
         if (json) {
           try {
             const data = JSON.parse(json);
-            // Support both old format (bare array) and new format ({ ppr, circ, channels })
             const channels: WSSChannels = Array.isArray(data) ? data : data.channels;
             if (channels?.some((ch: unknown) => ch !== null)) {
               setWssChannels(channels);
@@ -154,13 +161,9 @@ export default function SignalPage() {
         setWssChannels([null, null, null, null]);
         setCalStatus('none');
       })
-      .catch(() => {
-        setCalStatus('error');
-      });
+      .catch(() => setCalStatus('error'));
 
-    return () => {
-      if (waveformTimer !== null) clearTimeout(waveformTimer);
-    };
+    return () => { if (waveformTimer !== null) clearTimeout(waveformTimer); };
   }, [selected?.id, legacyMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveCalibration = async () => {
@@ -181,6 +184,76 @@ export default function SignalPage() {
   const handleSendMessage = async (message: string): Promise<boolean | void> => {
     if (serialConnected) return serialSendCommand(message);
     return wsSendMessage({ type: 1, data: message, timestamp: Date.now() });
+  };
+
+  /* ── Edit / Add handlers ── */
+
+  const startEdit = () => {
+    if (!selected) return;
+    setDraft({ ...selected });
+    setEditMode('edit');
+    setSaveError(null);
+  };
+
+  const startAdd = () => {
+    setSelected(null);
+    setDraft({ manufacturer: '' });
+    setEditMode('add');
+    setSaveError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditMode('view');
+    setDraft({});
+    setSaveError(null);
+  };
+
+  const handleSave = async () => {
+    const isAdd = editMode === 'add';
+    const ref = isAdd ? (draft.reference ?? '').trim() : selected!.reference;
+    if (!ref) { setSaveError('Reference is required'); return; }
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      // Use null (not undefined) for missing optional fields — Rust serde requires explicit null for Option<T>
+      const payload = {
+        id:              isAdd ? crypto.randomUUID() : selected!.id,
+        reference:       ref,
+        manufacturer:    (draft.manufacturer ?? '').trim() || 'Unknown',
+        wssType:         draft.wssType?.trim()         || null,
+        absAdapter:      draft.absAdapter?.trim()      || null,
+        absConnector:    draft.absConnector?.trim()    || null,
+        canSpeed:        draft.canSpeed?.trim()        || null,
+        canIdLine:       draft.canIdLine?.trim()       || null,
+        canByte:         draft.canByte?.trim()         || null,
+        canValue:        draft.canValue?.trim()        || null,
+        comments:        draft.comments?.trim()        || null,
+        testValidated:   draft.testValidated?.trim()   || null,
+        otherReferences: draft.otherReferences?.trim() || null,
+        kLine:           draft.kLine?.trim()           || null,
+        createdAt:       '',
+        updatedAt:       '',
+      };
+      const row = payload as unknown as ABSDataRow;
+
+      if (isAdd) {
+        await invoke('save_abs_data', { data: payload });
+        setSelected(row);
+        setResults(prev => [row, ...prev]);
+        setQuery(row.reference);
+      } else {
+        await invoke('update_abs_data', { data: payload });
+        setSelected(row);
+        setResults(prev => prev.map(r => r.id === row.id ? row : r));
+      }
+      setEditMode('view');
+      setDraft({});
+    } catch (e: any) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -214,7 +287,16 @@ export default function SignalPage() {
             animate="visible"
             className="card"
           >
-            <h2 className="card-header">ABS Reference Database</h2>
+            {/* Card header row */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-text-primary tracking-tight">ABS Reference Database</h2>
+              <button
+                onClick={startAdd}
+                className="text-[10px] btn-secondary px-2 py-0.5"
+              >
+                + Add
+              </button>
+            </div>
 
             {/* Search input */}
             <div className="relative mb-3">
@@ -222,12 +304,10 @@ export default function SignalPage() {
               <input
                 type="text"
                 value={query}
-                onChange={e => { setQuery(e.target.value); setSelected(null); }}
+                onChange={e => { setQuery(e.target.value); setSelected(null); setEditMode('view'); }}
                 placeholder="Part number, manufacturer, type…"
                 className="input-field pl-9 pr-9"
               />
-
-              {/* Spinner */}
               <AnimatePresence>
                 {searching && (
                   <motion.div
@@ -258,7 +338,7 @@ export default function SignalPage() {
                       animate="visible"
                       exit="exit"
                       layout
-                      onClick={() => setSelected(row)}
+                      onClick={() => { setSelected(row); setEditMode('view'); }}
                       className={[
                         'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors duration-150',
                         selected?.id === row.id
@@ -275,7 +355,6 @@ export default function SignalPage() {
                 </motion.div>
               )}
 
-              {/* No results hint */}
               {query.trim() && !searching && results.length === 0 && (
                 <motion.p
                   key="no-results"
@@ -289,101 +368,174 @@ export default function SignalPage() {
               )}
             </AnimatePresence>
 
-            {/* Selected detail card */}
+            {/* Selected detail card / Add form */}
             <AnimatePresence mode="wait">
-              {selected && (
+              {(selected || editMode === 'add') && (
                 <motion.div
-                  key={selected.id}
+                  key={editMode === 'add' ? '__add__' : selected!.id}
                   initial={{ opacity: 0, y: 6, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.98 }}
                   transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
                   className="mt-3 p-3 bg-elevated rounded-xl border border-border text-xs space-y-1.5"
                 >
-                  <div className="font-semibold text-text-primary text-[13px] mb-1 flex items-center justify-between">
-                    <span>{selected.reference}</span>
-                    {selected.testValidated && (
-                      <span className={[
-                        'text-[10px] font-medium px-2 py-0.5 rounded-full',
-                        selected.testValidated === 'yes'
-                          ? 'bg-success/15 text-success'
-                          : 'bg-warning/15 text-warning',
-                      ].join(' ')}>
-                        {selected.testValidated === 'yes' ? '✓ Validated' : '⚠ Not validated'}
-                      </span>
+                  {/* Header */}
+                  <div className="font-semibold text-text-primary text-[13px] flex items-center justify-between">
+                    {editMode === 'add'
+                      ? <span className="text-accent">New Entry</span>
+                      : <span>{selected!.reference}</span>
+                    }
+
+                    {editMode === 'view' ? (
+                      <div className="flex items-center gap-2">
+                        {selected!.testValidated && (
+                          <span className={[
+                            'text-[10px] font-medium px-2 py-0.5 rounded-full',
+                            selected!.testValidated.toLowerCase() === 'yes'
+                              ? 'bg-success/15 text-success'
+                              : 'bg-warning/15 text-warning',
+                          ].join(' ')}>
+                            {selected!.testValidated.toLowerCase() === 'yes' ? '✓ Validated' : '⚠ Not validated'}
+                          </span>
+                        )}
+                        <button onClick={startEdit} className="text-[10px] btn-secondary px-2 py-0.5">
+                          Edit
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <button onClick={cancelEdit} className="text-[10px] btn-secondary px-2 py-0.5">
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSave}
+                          disabled={saving}
+                          className="text-[10px] btn-primary px-2 py-0.5 disabled:opacity-50"
+                        >
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
                     )}
                   </div>
 
-                  {/* Active job link banner */}
-                  {currentJob && currentJob.status === 'in_progress' && (
-                    <div className="flex items-center justify-between text-[10px] py-1.5 px-2 mb-1 bg-app rounded-lg border border-border">
-                      <div className="flex items-center gap-1.5 text-text-tertiary">
-                        <BriefcaseIcon className="w-3 h-3 shrink-0" />
-                        <span>Job: <span className="font-medium text-text-secondary">{currentJob.jobNumber}</span></span>
-                      </div>
-                      {currentJob.absRefId !== selected.id ? (
-                        <button
-                          onClick={() => linkJobToRef(selected.reference, selected.id)}
-                          className="text-accent font-semibold hover:underline"
-                        >
-                          Link to job
-                        </button>
-                      ) : (
-                        <span className="text-success font-semibold">✓ Linked</span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    {selected.canSpeed    && <Row label="CAN Speed"  value={selected.canSpeed} />}
-                    {selected.canIdLine   && <Row label="CAN ID"     value={selected.canIdLine} />}
-                    {selected.canByte     && <Row label="CAN Byte"   value={selected.canByte} />}
-                    {selected.canValue    && <Row label="CAN Value"  value={selected.canValue} />}
-                    {selected.absAdapter  && <Row label="Adapter"    value={selected.absAdapter} />}
-                    {selected.absConnector && <Row label="Connector" value={selected.absConnector} />}
-                  </div>
-
-                  {selected.comments && (
-                    <p className="text-text-secondary pt-1 border-t border-border">{selected.comments}</p>
-                  )}
-
-                  {/* WSS Calibration — legacy mode only */}
-                  {legacyMode && (
-                    <div className="pt-2 mt-1 border-t border-border space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-text-primary text-[12px]">WSS Calibration</span>
-                        <div className="flex items-center gap-1.5">
-                          {calStatus === 'loading'  && <span className="text-[10px] text-text-tertiary animate-pulse">Loading…</span>}
-                          {calStatus === 'saving'   && <span className="text-[10px] text-text-tertiary animate-pulse">Saving…</span>}
-                          {calStatus === 'saved'    && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Saved!</span>}
-                          {calStatus === 'loaded'   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Loaded</span>}
-                          {calStatus === 'none'     && <span className="text-[10px] text-text-tertiary">Not saved yet</span>}
-                          {calStatus === 'error'    && <span className="text-[10px] text-warning">DB offline</span>}
-                          <button
-                            onClick={saveCalibration}
-                            disabled={calStatus === 'saving' || calStatus === 'loading' || !wssChannels.some(ch => ch !== null)}
-                            className="text-[10px] btn-secondary px-2 py-0.5 disabled:opacity-40"
-                          >
-                            Save to DB
-                          </button>
+                  {/* ── VIEW MODE ── */}
+                  {editMode === 'view' && selected && (
+                    <>
+                      {/* Active job link banner */}
+                      {currentJob && currentJob.status === 'in_progress' && (
+                        <div className="flex items-center justify-between text-[10px] py-1.5 px-2 mb-1 bg-app rounded-lg border border-border">
+                          <div className="flex items-center gap-1.5 text-text-tertiary">
+                            <BriefcaseIcon className="w-3 h-3 shrink-0" />
+                            <span>Job: <span className="font-medium text-text-secondary">{currentJob.jobNumber}</span></span>
+                          </div>
+                          {currentJob.absRefId !== selected.id ? (
+                            <button
+                              onClick={() => linkJobToRef(selected.reference, selected.id)}
+                              className="text-accent font-semibold hover:underline"
+                            >
+                              Link to job
+                            </button>
+                          ) : (
+                            <span className="text-success font-semibold">✓ Linked</span>
+                          )}
                         </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        {selected.canSpeed     && <Row label="CAN Speed"  value={selected.canSpeed} />}
+                        {selected.canIdLine    && <Row label="CAN ID"     value={selected.canIdLine} />}
+                        {selected.canByte      && <Row label="CAN Byte"   value={selected.canByte} />}
+                        {selected.canValue     && <Row label="CAN Value"  value={selected.canValue} />}
+                        {selected.absAdapter   && <Row label="Adapter"    value={selected.absAdapter} />}
+                        {selected.absConnector && <Row label="Connector"  value={selected.absConnector} />}
+                        {selected.kLine        && <Row label="K-Line"     value={selected.kLine} />}
                       </div>
-                      <div className="grid grid-cols-4 gap-1">
-                        {WHEEL_LABELS.map((label, i) => {
-                          const ch = wssChannels[i];
-                          return (
-                            <div key={label} className={[
-                              'rounded-lg px-2 py-1 text-center border',
-                              ch ? 'bg-success/5 border-success/20' : 'bg-app border-border/50 opacity-50',
-                            ].join(' ')}>
-                              <div className="text-[10px] font-semibold text-text-secondary">{label}</div>
-                              <div className="font-mono text-[9px] text-text-tertiary truncate">
-                                {ch ? `0x${ch.canId.toString(16).toUpperCase().padStart(3,'0')}[${ch.byteIdx}]` : '—'}
-                              </div>
+
+                      {selected.comments && (
+                        <p className="text-text-secondary pt-1 border-t border-border">{selected.comments}</p>
+                      )}
+
+                      {/* WSS Calibration — legacy mode only */}
+                      {legacyMode && (
+                        <div className="pt-2 mt-1 border-t border-border space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-text-primary text-[12px]">WSS Calibration</span>
+                            <div className="flex items-center gap-1.5">
+                              {calStatus === 'loading'  && <span className="text-[10px] text-text-tertiary animate-pulse">Loading…</span>}
+                              {calStatus === 'saving'   && <span className="text-[10px] text-text-tertiary animate-pulse">Saving…</span>}
+                              {calStatus === 'saved'    && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Saved!</span>}
+                              {calStatus === 'loaded'   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Loaded</span>}
+                              {calStatus === 'none'     && <span className="text-[10px] text-text-tertiary">Not saved yet</span>}
+                              {calStatus === 'error'    && <span className="text-[10px] text-warning">DB offline</span>}
+                              <button
+                                onClick={saveCalibration}
+                                disabled={calStatus === 'saving' || calStatus === 'loading' || !wssChannels.some(ch => ch !== null)}
+                                className="text-[10px] btn-secondary px-2 py-0.5 disabled:opacity-40"
+                              >
+                                Save to DB
+                              </button>
                             </div>
-                          );
-                        })}
+                          </div>
+                          <div className="grid grid-cols-4 gap-1">
+                            {WHEEL_LABELS.map((label, i) => {
+                              const ch = wssChannels[i];
+                              return (
+                                <div key={label} className={[
+                                  'rounded-lg px-2 py-1 text-center border',
+                                  ch ? 'bg-success/5 border-success/20' : 'bg-app border-border/50 opacity-50',
+                                ].join(' ')}>
+                                  <div className="text-[10px] font-semibold text-text-secondary">{label}</div>
+                                  <div className="font-mono text-[9px] text-text-tertiary truncate">
+                                    {ch ? `0x${ch.canId.toString(16).toUpperCase().padStart(3,'0')}[${ch.byteIdx}]` : '—'}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* ── EDIT / ADD FORM ── */}
+                  {(editMode === 'edit' || editMode === 'add') && (
+                    <div className="space-y-1.5 pt-1">
+                      {editMode === 'add' && (
+                        <EditField
+                          label="Reference *"
+                          value={draft.reference ?? ''}
+                          onChange={v => setDraft(d => ({ ...d, reference: v }))}
+                        />
+                      )}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <EditField label="Manufacturer"    value={draft.manufacturer    ?? ''} onChange={v => setDraft(d => ({ ...d, manufacturer:    v }))} />
+                        <EditField label="WSS Type"        value={draft.wssType         ?? ''} onChange={v => setDraft(d => ({ ...d, wssType:         v }))} />
+                        <EditField label="Adapter"         value={draft.absAdapter      ?? ''} onChange={v => setDraft(d => ({ ...d, absAdapter:      v }))} />
+                        <EditField label="Connector"       value={draft.absConnector    ?? ''} onChange={v => setDraft(d => ({ ...d, absConnector:    v }))} />
+                        <EditField label="CAN Speed"       value={draft.canSpeed        ?? ''} onChange={v => setDraft(d => ({ ...d, canSpeed:        v }))} />
+                        <EditField label="CAN ID"          value={draft.canIdLine       ?? ''} onChange={v => setDraft(d => ({ ...d, canIdLine:       v }))} />
+                        <EditField label="CAN Byte"        value={draft.canByte         ?? ''} onChange={v => setDraft(d => ({ ...d, canByte:         v }))} />
+                        <EditField label="CAN Value"       value={draft.canValue        ?? ''} onChange={v => setDraft(d => ({ ...d, canValue:        v }))} />
+                        <EditField label="K-Line"          value={draft.kLine           ?? ''} onChange={v => setDraft(d => ({ ...d, kLine:           v }))} />
+                        <EditField label="Validated"       value={draft.testValidated   ?? ''} onChange={v => setDraft(d => ({ ...d, testValidated:   v }))} placeholder="Yes / No / -" />
                       </div>
+                      <EditField
+                        label="Other References"
+                        value={draft.otherReferences ?? ''}
+                        onChange={v => setDraft(d => ({ ...d, otherReferences: v }))}
+                      />
+                      <div>
+                        <span className="text-text-tertiary block mb-0.5">Comments</span>
+                        <textarea
+                          value={draft.comments ?? ''}
+                          onChange={e => setDraft(d => ({ ...d, comments: e.target.value }))}
+                          rows={3}
+                          className="input-field text-[11px] resize-none"
+                        />
+                      </div>
+                      {saveError && (
+                        <p className="text-[10px] text-danger pt-0.5">{saveError}</p>
+                      )}
                     </div>
                   )}
                 </motion.div>
@@ -402,7 +554,7 @@ export default function SignalPage() {
             />
           </motion.div>
 
-          {/* DTC Scanner — always visible in left column */}
+          {/* DTC Scanner */}
           <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
             <DTCScanner sendMessage={handleSendMessage} isConnected={isConnected} absReference={selected?.reference} />
           </motion.div>
@@ -449,7 +601,6 @@ export default function SignalPage() {
   );
 }
 
-/* small helper to keep the detail grid clean */
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -459,10 +610,28 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-/**
- * Map a human-readable CAN speed string from the DB to the value sent to the Nano.
- * The Nano receives the literal kbps value: 250, 500, or 1000.
- */
+function EditField({
+  label, value, onChange, placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <span className="text-text-tertiary block mb-0.5">{label}</span>
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="input-field py-1 text-[11px]"
+      />
+    </div>
+  );
+}
+
 function parseDbCanSpeed(s: string | undefined): number | null {
   if (!s) return null;
   const lower = s.toLowerCase();
@@ -472,10 +641,6 @@ function parseDbCanSpeed(s: string | undefined): number | null {
   return null;
 }
 
-/**
- * Map a WSS type string from the DB to a Nano waveform type.
- * 1 = DF11 1.5kΩ active (square), 2 = DF6 passive (sine).
- */
 function parseDbSensorType(s: string | undefined): number | null {
   if (!s) return null;
   const lower = s.toLowerCase();

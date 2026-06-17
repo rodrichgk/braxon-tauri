@@ -11,6 +11,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppSettingsProvider } from "./contexts/AppSettingsContext";
 import { SessionProvider } from "./contexts/SessionContext";
 import LoginModal from "./components/LoginModal";
+import UpdateChecker from "./components/UpdateChecker";
 import type { Page } from "./components/Navigation";
 
 import HomePage from "./pages/Home";
@@ -116,6 +117,7 @@ function App() {
             transition={{ duration: 0.3 }}
           >
             <TitleBar />
+            <UpdateChecker />
 
             <div className="flex flex-1 min-h-0">
               <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />

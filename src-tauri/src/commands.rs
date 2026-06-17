@@ -236,7 +236,7 @@ pub async fn get_abs_data(state: State<'_, AppState>) -> Result<Vec<ABSData>, St
     let client = database::connect(&config).await?;
     let rows = client
         .query(
-            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "createdAt"::text, "updatedAt"::text FROM "ABSData" ORDER BY reference LIMIT 100"#,
+            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt"::text, "updatedAt"::text FROM "ABSData" ORDER BY reference LIMIT 100"#,
             &[],
         )
         .await
@@ -258,8 +258,9 @@ pub async fn get_abs_data(state: State<'_, AppState>) -> Result<Vec<ABSData>, St
             comments: row.get(10),
             test_validated: row.get(11),
             other_references: row.get(12),
-            created_at: row.get(13),
-            updated_at: row.get(14),
+            k_line: row.get(13),
+            created_at: row.get(14),
+            updated_at: row.get(15),
         })
         .collect();
     Ok(data)
@@ -272,7 +273,7 @@ pub async fn search_abs_data(query: String, state: State<'_, AppState>) -> Resul
     let pattern = format!("%{}%", query);
     let rows = client
         .query(
-            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "createdAt"::text, "updatedAt"::text FROM "ABSData" WHERE reference ILIKE $1 OR manufacturer ILIKE $1 OR "wssType" ILIKE $1 ORDER BY reference LIMIT 50"#,
+            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt"::text, "updatedAt"::text FROM "ABSData" WHERE reference ILIKE $1 OR manufacturer ILIKE $1 OR "wssType" ILIKE $1 ORDER BY reference LIMIT 50"#,
             &[&pattern],
         )
         .await
@@ -294,8 +295,9 @@ pub async fn search_abs_data(query: String, state: State<'_, AppState>) -> Resul
             comments: row.get(10),
             test_validated: row.get(11),
             other_references: row.get(12),
-            created_at: row.get(13),
-            updated_at: row.get(14),
+            k_line: row.get(13),
+            created_at: row.get(14),
+            updated_at: row.get(15),
         })
         .collect();
     Ok(data)
@@ -308,8 +310,8 @@ pub async fn save_abs_data(data: ABSData, state: State<'_, AppState>) -> Result<
     let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"INSERT INTO "ABSData" (id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::timestamptz,$15::timestamptz)"#,
-            &[&data.id, &data.reference, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &now, &now],
+            r#"INSERT INTO "ABSData" (id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::timestamptz,$16::timestamptz)"#,
+            &[&data.id, &data.reference, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line, &now, &now],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -323,8 +325,8 @@ pub async fn update_abs_data(data: ABSData, state: State<'_, AppState>) -> Resul
     let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"UPDATE "ABSData" SET manufacturer=$2, "wssType"=$3, "absAdapter"=$4, "absConnector"=$5, "canSpeed"=$6, "canIdLine"=$7, "canByte"=$8, "canValue"=$9, comments=$10, "testValidated"=$11, "otherReferences"=$12, "updatedAt"=$13::timestamptz WHERE id=$1"#,
-            &[&data.id, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &now],
+            r#"UPDATE "ABSData" SET manufacturer=$2, "wssType"=$3, "absAdapter"=$4, "absConnector"=$5, "canSpeed"=$6, "canIdLine"=$7, "canByte"=$8, "canValue"=$9, comments=$10, "testValidated"=$11, "otherReferences"=$12, "kLine"=$13, "updatedAt"=$14::timestamptz WHERE id=$1"#,
+            &[&data.id, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line, &now],
         )
         .await
         .map_err(|e| e.to_string())?;
