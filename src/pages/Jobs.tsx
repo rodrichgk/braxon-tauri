@@ -483,7 +483,19 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
 }
 
 export default function JobsPage() {
-  const { currentUser, currentJob, setCurrentJob } = useSession();
+  const { currentUser, currentJob, isGuest, setCurrentJob } = useSession();
+
+  if (isGuest) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
+        <BriefcaseIcon className="w-12 h-12 text-text-tertiary opacity-40" />
+        <p className="text-sm font-medium text-text-primary">Sign in to manage repair jobs</p>
+        <p className="text-xs text-text-tertiary max-w-xs">
+          Guest mode gives you read-only access to the diagnostics UI. Create an account or log in to track repair jobs and save results.
+        </p>
+      </div>
+    );
+  }
   const [jobs, setJobs] = useState<RepairJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewForm, setShowNewForm] = useState(false);

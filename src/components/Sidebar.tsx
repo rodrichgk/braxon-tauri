@@ -49,7 +49,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
   const { devices, selectedDeviceId, selectDevice, isConnectedToDevice } = useWebSocketContext();
   const { legacyMode, setLegacyMode } = useAppSettings();
-  const { currentUser, currentJob, logout } = useSession();
+  const { currentUser, currentJob, isGuest, logout } = useSession();
 
   const {
     isConnected: serialConnected,
@@ -128,8 +128,11 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             <span className="flex-1 text-xs font-medium text-text-primary truncate">{currentUser.name}</span>
             <button
               onClick={logout}
-              title="Log out"
-              className="p-1 text-text-tertiary hover:text-danger transition-colors shrink-0"
+              title={isGuest ? 'Sign in' : 'Log out'}
+              className={[
+                'p-1 transition-colors shrink-0',
+                isGuest ? 'text-accent hover:text-accent/70' : 'text-text-tertiary hover:text-danger',
+              ].join(' ')}
             >
               <ArrowRightOnRectangleIcon className="w-3.5 h-3.5" />
             </button>

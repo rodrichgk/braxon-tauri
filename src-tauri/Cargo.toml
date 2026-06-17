@@ -1,6 +1,6 @@
 [package]
 name = "braxon"
-version = "1.0.0"
+version = "1.0.2"
 description = "BRAXON — ABS Hydraulic Diagnostics Platform"
 authors = ["Gabhy Rodrich KIBA"]
 license = ""

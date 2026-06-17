@@ -96,7 +96,7 @@ function DbConfigPanel({ onConnected }: { onConnected: () => void }) {
 
 /* ── Login Modal ───────────────────────────────────────────── */
 export default function LoginModal() {
-  const { login, register, isLoggedIn } = useSession();
+  const { login, loginAsGuest, register, isLoggedIn } = useSession();
   const [tab, setTab] = useState<Tab>('login');
   const [users, setUsers] = useState<AppUser[]>([]);
   const [name, setName] = useState('');
@@ -382,6 +382,17 @@ export default function LoginModal() {
               )}
             </AnimatePresence>
           </div>
+        </div>
+
+        {/* Guest access */}
+        <div className="mt-5 text-center">
+          <button
+            onClick={loginAsGuest}
+            className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+          >
+            Continue as Guest
+            <span className="ml-1 opacity-50">— view only, no DB required</span>
+          </button>
         </div>
       </motion.div>
       </div>{/* end inner scroll container */}

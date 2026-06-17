@@ -24,7 +24,9 @@ interface SessionContextType {
   currentUser: AppUser | null;
   currentJob: RepairJob | null;
   isLoggedIn: boolean;
+  isGuest: boolean;
   login: (name: string, password: string) => Promise<void>;
+  loginAsGuest: () => void;
   register: (name: string, password: string) => Promise<AppUser>;
   logout: () => void;
   startJob: (jobNumber: string, absRef?: string, absRefId?: string) => Promise<void>;
@@ -33,11 +35,15 @@ interface SessionContextType {
   setCurrentJob: (job: RepairJob | null) => void;
 }
 
+const GUEST_ID = '__guest__';
+
 const SessionContext = createContext<SessionContextType>({
   currentUser: null,
   currentJob: null,
   isLoggedIn: false,
+  isGuest: false,
   login: async () => {},
+  loginAsGuest: () => {},
   register: async () => ({ id: '', name: '' }),
   logout: () => {},
   startJob: async () => {},
@@ -74,6 +80,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(USER_NAME_KEY, user.name);
     setCurrentUser(user);
     return user;
+  };
+
+  const loginAsGuest = () => {
+    setCurrentUser({ id: GUEST_ID, name: 'Guest' });
+    // Guest is never persisted to localStorage — always resets on next launch
   };
 
   const logout = () => {
@@ -119,12 +130,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setCurrentJob({ ...currentJob, absRef, absRefId });
   };
 
+  const isGuest = currentUser?.id === GUEST_ID;
+
   return (
     <SessionContext.Provider value={{
       currentUser,
       currentJob,
       isLoggedIn: currentUser !== null,
+      isGuest,
       login,
+      loginAsGuest,
       register,
       logout,
       startJob,

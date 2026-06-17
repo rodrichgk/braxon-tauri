@@ -6,20 +6,20 @@
 
 /* Light mode (default) */
 :root {
-  --color-app:            #f2f2f7;
-  --color-sidebar:        #ffffff;
-  --color-sidebar-border: #e5e5ea;
+  --color-app:            #f0f0f5;
+  --color-sidebar:        #fafafc;
+  --color-sidebar-border: #dadadf;
   --color-card:           #ffffff;
-  --color-elevated:       #f2f2f7;
-  --color-border:         #d1d1d6;
-  --color-text-primary:   #1c1c1e;
-  --color-text-secondary: #6e6e73;
+  --color-elevated:       #e8e8ed;   /* clearly distinct from card so inputs/chips read as inset */
+  --color-border:         #c6c6cc;
+  --color-text-primary:   #111113;
+  --color-text-secondary: #56565e;
   /* RGB channels — lets Tailwind compute bg-X/15, ring-X/40, etc. */
-  --color-text-tertiary-rgb:  174 174 178; /* #aeaeb2 */
+  --color-text-tertiary-rgb:  156 156 164; /* medium grey */
   --color-accent-rgb:         0 122 255;   /* #007aff */
-  --color-success-rgb:        52 199 89;   /* #34c759 */
-  --color-warning-rgb:        255 159 10;  /* #ff9f0a */
-  --color-danger-rgb:         255 59 48;   /* #ff3b30 */
+  --color-success-rgb:        36 180 72;
+  --color-warning-rgb:        215 132 0;
+  --color-danger-rgb:         235 52 42;
 }
 
 /* Dark mode */
@@ -71,6 +71,10 @@
 
   * { user-select: none; }
   input, textarea, select, [contenteditable] { user-select: text; }
+
+  /* Suppress the native black outline everywhere — our custom ring/hover states handle focus */
+  input, textarea, select, button, a { outline: none; }
+  :focus-visible { outline: none; }
 }
 
 /* ─── Components ─────────────────────────────────────────────── */
@@ -79,6 +83,17 @@
   /* ── Cards ── */
   .card {
     @apply bg-card rounded-xl border border-border p-5 transition-colors duration-200;
+  }
+
+  /* In light mode, add shadow so white cards lift off the grey background */
+  html:not(.dark) .card {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.05);
+    border-color: rgba(0,0,0,0.08);
+  }
+
+  /* Light-mode inputs use a slightly off-white so they read as inset inside white cards */
+  html:not(.dark) .input-field {
+    background: #f4f4f8;
   }
 
   .card-header {
@@ -139,8 +154,8 @@
       bg-elevated border border-border rounded-lg
       text-sm text-text-primary
       placeholder-text-tertiary
-      focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent/50
-      transition-all duration-150;
+      focus:ring-2 focus:ring-accent/40 focus:border-accent/50
+      transition-[border-color,box-shadow,background-color] duration-150;
   }
 
   .input-label {
@@ -179,4 +194,4 @@
 ::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
 
 /* ─── Selection ─────────────────────────────────────────────── */
-::selection { background: var(--color-accent); color: #fff; opacity: 0.3; }
+::selection { background: rgb(var(--color-accent-rgb) / 0.35); }
