@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
+import { useTranslation } from 'react-i18next';
 
 export default function ConnectionBar() {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const {
@@ -118,7 +120,7 @@ export default function ConnectionBar() {
                 ESP32 Devices ({esp32Devices.length})
               </p>
               {esp32Devices.length === 0 ? (
-                <p className="text-xs text-slate-500">No devices detected. Check network.</p>
+                <p className="text-xs text-slate-500">{t('conn_bar.no_devices')}</p>
               ) : (
                 <div className="space-y-1">
                   {esp32Devices.map(d => {
@@ -128,8 +130,8 @@ export default function ConnectionBar() {
                       <div key={d.id} className="flex items-center justify-between bg-slate-700 rounded px-3 py-1.5">
                         <div>
                           <span className="text-white text-xs">{d.id}</span>
-                          {isSelected && <span className="ml-2 text-xs text-green-400">● Active</span>}
-                          {inUse && <span className="ml-2 text-xs text-yellow-400">● In use</span>}
+                          {isSelected && <span className="ml-2 text-xs text-green-400">● {t('conn_bar.active')}</span>}
+                          {inUse && <span className="ml-2 text-xs text-yellow-400">● {t('conn_bar.in_use')}</span>}
                         </div>
                         <button
                           onClick={() => selectDevice(isSelected ? null : d.id)}
@@ -141,7 +143,7 @@ export default function ConnectionBar() {
                             'bg-green-700 hover:bg-green-600'
                           ].join(' ')}
                         >
-                          {isSelected ? 'Disconnect' : inUse ? 'Busy' : 'Connect'}
+                          {isSelected ? t('connection.disconnect') : inUse ? t('conn_bar.busy') : t('connection.connect')}
                         </button>
                       </div>
                     );
@@ -184,7 +186,7 @@ export default function ConnectionBar() {
 
                   {/* Baud rate */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 w-14 shrink-0">Baud rate</span>
+                    <span className="text-xs text-slate-500 w-14 shrink-0">{t('conn_bar.baud_rate')}</span>
                     <select
                       value={baudRate}
                       onChange={e => setBaudRate(e.target.value)}

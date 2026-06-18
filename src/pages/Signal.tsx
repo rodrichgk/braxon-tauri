@@ -15,6 +15,7 @@ import PowerIndicators from '@/components/PowerIndicators';
 import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useSession } from '@/contexts/SessionContext';
+import { useTranslation } from 'react-i18next';
 
 interface ABSDataRow {
   id: string;
@@ -58,6 +59,7 @@ const resultItemVariants = {
 };
 
 export default function SignalPage() {
+  const { t } = useTranslation();
   const { sendMessage: wsSendMessage, isConnectedToDevice } = useWebSocketContext();
   const { isConnected: serialConnected, sendCommand: serialSendCommand } = useClientSerialConnection();
   const isConnected = isConnectedToDevice || serialConnected;
@@ -128,6 +130,9 @@ export default function SignalPage() {
       setLegacyCanSpeed(canSpeedCmd);
       if (isConnected) handleSendMessage(`CANSpeed : ${canSpeedCmd}\n`);
     }
+
+    //wait 300ms before sending waveform command
+    waitfor(300);
 
     const sensorType = parseDbSensorType(selected.wssType);
     if (sensorType !== null) {
@@ -211,7 +216,7 @@ export default function SignalPage() {
   const handleSave = async () => {
     const isAdd = editMode === 'add';
     const ref = isAdd ? (draft.reference ?? '').trim() : selected!.reference;
-    if (!ref) { setSaveError('Reference is required'); return; }
+    if (!ref) { setSaveError(t('signal.ref_required')); return; }
 
     setSaving(true);
     setSaveError(null);
@@ -267,10 +272,10 @@ export default function SignalPage() {
         transition={{ duration: 0.2 }}
       >
         <h1 className="text-xl font-semibold text-text-primary tracking-tight">
-          Wheel Speed Sensor — HIL Simulation
+          {t('signal.title')}
         </h1>
         <p className="text-sm text-text-secondary mt-0.5">
-          ABS ECU diagnostics via CAN / K-Line / Wheel speed signals
+          {t('signal.subtitle')}
         </p>
       </motion.div>
 
@@ -289,12 +294,12 @@ export default function SignalPage() {
           >
             {/* Card header row */}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-text-primary tracking-tight">ABS Reference Database</h2>
+              <h2 className="text-sm font-semibold text-text-primary tracking-tight">{t('signal.db_title')}</h2>
               <button
                 onClick={startAdd}
                 className="text-[10px] btn-secondary px-2 py-0.5"
               >
-                + Add
+                {t('common.add')}
               </button>
             </div>
 
@@ -305,7 +310,7 @@ export default function SignalPage() {
                 type="text"
                 value={query}
                 onChange={e => { setQuery(e.target.value); setSelected(null); setEditMode('view'); }}
-                placeholder="Part number, manufacturer, type…"
+                placeholder={t('signal.search_placeholder')}
                 className="input-field pl-9 pr-9"
               />
               <AnimatePresence>
@@ -363,7 +368,7 @@ export default function SignalPage() {
                   exit={{ opacity: 0 }}
                   className="text-xs text-text-tertiary px-1 py-2 text-center"
                 >
-                  No results for "{query}"
+                  {t('common.no_results')} "{query}"
                 </motion.p>
               )}
             </AnimatePresence>
@@ -382,7 +387,7 @@ export default function SignalPage() {
                   {/* Header */}
                   <div className="font-semibold text-text-primary text-[13px] flex items-center justify-between">
                     {editMode === 'add'
-                      ? <span className="text-accent">New Entry</span>
+                      ? <span className="text-accent">{t('signal.new_entry')}</span>
                       : <span>{selected!.reference}</span>
                     }
 
@@ -395,24 +400,24 @@ export default function SignalPage() {
                               ? 'bg-success/15 text-success'
                               : 'bg-warning/15 text-warning',
                           ].join(' ')}>
-                            {selected!.testValidated.toLowerCase() === 'yes' ? '✓ Validated' : '⚠ Not validated'}
+                            {selected!.testValidated.toLowerCase() === 'yes' ? t('signal.validated_yes') : t('signal.validated_no')}
                           </span>
                         )}
                         <button onClick={startEdit} className="text-[10px] btn-secondary px-2 py-0.5">
-                          Edit
+                          {t('common.edit')}
                         </button>
                       </div>
                     ) : (
                       <div className="flex gap-1.5">
                         <button onClick={cancelEdit} className="text-[10px] btn-secondary px-2 py-0.5">
-                          Cancel
+                          {t('common.cancel')}
                         </button>
                         <button
                           onClick={handleSave}
                           disabled={saving}
                           className="text-[10px] btn-primary px-2 py-0.5 disabled:opacity-50"
                         >
-                          {saving ? 'Saving…' : 'Save'}
+                          {saving ? t('signal.saving') : t('common.save')}
                         </button>
                       </div>
                     )}
@@ -433,22 +438,22 @@ export default function SignalPage() {
                               onClick={() => linkJobToRef(selected.reference, selected.id)}
                               className="text-accent font-semibold hover:underline"
                             >
-                              Link to job
+                              {t('signal.link_to_job')}
                             </button>
                           ) : (
-                            <span className="text-success font-semibold">✓ Linked</span>
+                            <span className="text-success font-semibold">{t('signal.linked')}</span>
                           )}
                         </div>
                       )}
 
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        {selected.canSpeed     && <Row label="CAN Speed"  value={selected.canSpeed} />}
-                        {selected.canIdLine    && <Row label="CAN ID"     value={selected.canIdLine} />}
-                        {selected.canByte      && <Row label="CAN Byte"   value={selected.canByte} />}
-                        {selected.canValue     && <Row label="CAN Value"  value={selected.canValue} />}
-                        {selected.absAdapter   && <Row label="Adapter"    value={selected.absAdapter} />}
-                        {selected.absConnector && <Row label="Connector"  value={selected.absConnector} />}
-                        {selected.kLine        && <Row label="K-Line"     value={selected.kLine} />}
+                        {selected.canSpeed     && <Row label={t('signal.can_speed')}  value={selected.canSpeed} />}
+                        {selected.canIdLine    && <Row label={t('signal.can_id')}     value={selected.canIdLine} />}
+                        {selected.canByte      && <Row label={t('signal.can_byte')}   value={selected.canByte} />}
+                        {selected.canValue     && <Row label={t('signal.can_value')}  value={selected.canValue} />}
+                        {selected.absAdapter   && <Row label={t('signal.adapter')}    value={selected.absAdapter} />}
+                        {selected.absConnector && <Row label={t('signal.connector')}  value={selected.absConnector} />}
+                        {selected.kLine        && <Row label={t('signal.k_line')}     value={selected.kLine} />}
                       </div>
 
                       {selected.comments && (
@@ -459,20 +464,20 @@ export default function SignalPage() {
                       {legacyMode && (
                         <div className="pt-2 mt-1 border-t border-border space-y-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-semibold text-text-primary text-[12px]">WSS Calibration</span>
+                            <span className="font-semibold text-text-primary text-[12px]">{t('signal.wss_calibration')}</span>
                             <div className="flex items-center gap-1.5">
-                              {calStatus === 'loading'  && <span className="text-[10px] text-text-tertiary animate-pulse">Loading…</span>}
-                              {calStatus === 'saving'   && <span className="text-[10px] text-text-tertiary animate-pulse">Saving…</span>}
-                              {calStatus === 'saved'    && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Saved!</span>}
-                              {calStatus === 'loaded'   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ Loaded</span>}
-                              {calStatus === 'none'     && <span className="text-[10px] text-text-tertiary">Not saved yet</span>}
-                              {calStatus === 'error'    && <span className="text-[10px] text-warning">DB offline</span>}
+                              {calStatus === 'loading'  && <span className="text-[10px] text-text-tertiary animate-pulse">{t('common.loading')}</span>}
+                              {calStatus === 'saving'   && <span className="text-[10px] text-text-tertiary animate-pulse">{t('signal.saving')}</span>}
+                              {calStatus === 'saved'    && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">{t('signal.saved')}</span>}
+                              {calStatus === 'loaded'   && <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">{t('signal.loaded')}</span>}
+                              {calStatus === 'none'     && <span className="text-[10px] text-text-tertiary">{t('signal.not_saved_yet')}</span>}
+                              {calStatus === 'error'    && <span className="text-[10px] text-warning">{t('signal.db_offline')}</span>}
                               <button
                                 onClick={saveCalibration}
                                 disabled={calStatus === 'saving' || calStatus === 'loading' || !wssChannels.some(ch => ch !== null)}
                                 className="text-[10px] btn-secondary px-2 py-0.5 disabled:opacity-40"
                               >
-                                Save to DB
+                                {t('common.save_to_db')}
                               </button>
                             </div>
                           </div>
@@ -502,30 +507,30 @@ export default function SignalPage() {
                     <div className="space-y-1.5 pt-1">
                       {editMode === 'add' && (
                         <EditField
-                          label="Reference *"
+                          label={t('signal.ref_placeholder')}
                           value={draft.reference ?? ''}
                           onChange={v => setDraft(d => ({ ...d, reference: v }))}
                         />
                       )}
                       <div className="grid grid-cols-2 gap-1.5">
-                        <EditField label="Manufacturer"    value={draft.manufacturer    ?? ''} onChange={v => setDraft(d => ({ ...d, manufacturer:    v }))} />
-                        <EditField label="WSS Type"        value={draft.wssType         ?? ''} onChange={v => setDraft(d => ({ ...d, wssType:         v }))} />
-                        <EditField label="Adapter"         value={draft.absAdapter      ?? ''} onChange={v => setDraft(d => ({ ...d, absAdapter:      v }))} />
-                        <EditField label="Connector"       value={draft.absConnector    ?? ''} onChange={v => setDraft(d => ({ ...d, absConnector:    v }))} />
-                        <EditField label="CAN Speed"       value={draft.canSpeed        ?? ''} onChange={v => setDraft(d => ({ ...d, canSpeed:        v }))} />
-                        <EditField label="CAN ID"          value={draft.canIdLine       ?? ''} onChange={v => setDraft(d => ({ ...d, canIdLine:       v }))} />
-                        <EditField label="CAN Byte"        value={draft.canByte         ?? ''} onChange={v => setDraft(d => ({ ...d, canByte:         v }))} />
-                        <EditField label="CAN Value"       value={draft.canValue        ?? ''} onChange={v => setDraft(d => ({ ...d, canValue:        v }))} />
-                        <EditField label="K-Line"          value={draft.kLine           ?? ''} onChange={v => setDraft(d => ({ ...d, kLine:           v }))} />
-                        <EditField label="Validated"       value={draft.testValidated   ?? ''} onChange={v => setDraft(d => ({ ...d, testValidated:   v }))} placeholder="Yes / No / -" />
+                        <EditField label={t('signal.manufacturer')}  value={draft.manufacturer    ?? ''} onChange={v => setDraft(d => ({ ...d, manufacturer:    v }))} />
+                        <EditField label={t('signal.wss_type')}      value={draft.wssType         ?? ''} onChange={v => setDraft(d => ({ ...d, wssType:         v }))} />
+                        <EditField label={t('signal.adapter')}       value={draft.absAdapter      ?? ''} onChange={v => setDraft(d => ({ ...d, absAdapter:      v }))} />
+                        <EditField label={t('signal.connector')}     value={draft.absConnector    ?? ''} onChange={v => setDraft(d => ({ ...d, absConnector:    v }))} />
+                        <EditField label={t('signal.can_speed')}     value={draft.canSpeed        ?? ''} onChange={v => setDraft(d => ({ ...d, canSpeed:        v }))} />
+                        <EditField label={t('signal.can_id')}        value={draft.canIdLine       ?? ''} onChange={v => setDraft(d => ({ ...d, canIdLine:       v }))} />
+                        <EditField label={t('signal.can_byte')}      value={draft.canByte         ?? ''} onChange={v => setDraft(d => ({ ...d, canByte:         v }))} />
+                        <EditField label={t('signal.can_value')}     value={draft.canValue        ?? ''} onChange={v => setDraft(d => ({ ...d, canValue:        v }))} />
+                        <EditField label={t('signal.k_line')}        value={draft.kLine           ?? ''} onChange={v => setDraft(d => ({ ...d, kLine:           v }))} />
+                        <EditField label={t('signal.validated')}     value={draft.testValidated   ?? ''} onChange={v => setDraft(d => ({ ...d, testValidated:   v }))} placeholder="Yes / No / -" />
                       </div>
                       <EditField
-                        label="Other References"
+                        label={t('signal.other_refs')}
                         value={draft.otherReferences ?? ''}
                         onChange={v => setDraft(d => ({ ...d, otherReferences: v }))}
                       />
                       <div>
-                        <span className="text-text-tertiary block mb-0.5">Comments</span>
+                        <span className="text-text-tertiary block mb-0.5">{t('signal.comments')}</span>
                         <textarea
                           value={draft.comments ?? ''}
                           onChange={e => setDraft(d => ({ ...d, comments: e.target.value }))}
@@ -562,41 +567,34 @@ export default function SignalPage() {
 
         {/* ── Right column ── */}
         <div className="space-y-6">
-          <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
-            <PowerIndicators sendMessage={handleSendMessage} />
-          </motion.div>
-          <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
-            <BenchPower sendMessage={handleSendMessage} />
-          </motion.div>
+          {legacyMode ? (
+            <>
+              <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
+                <LegacySignalPanel sendMessage={handleSendMessage} isConnected={isConnected} />
+              </motion.div>
+              <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
+                <CANAnalyzer result={canData} />
+              </motion.div>
+            </>
+          ) : (
+            <>
+              <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
+                <PowerIndicators sendMessage={handleSendMessage} />
+              </motion.div>
+              <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
+                <BenchPower sendMessage={handleSendMessage} />
+              </motion.div>
+            </>
+          )}
         </div>
       </div>
 
-      {/* CAN Analyzer — full-width, legacy mode only */}
-      {legacyMode && (
-        <motion.div
-          custom={3}
-          variants={sectionVariants}
-          initial="hidden"
-          animate="visible"
-          className="mt-6"
-        >
-          <CANAnalyzer result={canData} />
+      {/* Signal Tester — full width, normal mode only */}
+      {!legacyMode && (
+        <motion.div custom={4} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
+          <SignalTester sendMessage={handleSendMessage} />
         </motion.div>
       )}
-
-      {/* Signal Tester / Legacy Signal Panel */}
-      <motion.div
-        custom={5}
-        variants={sectionVariants}
-        initial="hidden"
-        animate="visible"
-        className="mt-6"
-      >
-        {legacyMode
-          ? <LegacySignalPanel sendMessage={handleSendMessage} isConnected={isConnected} />
-          : <SignalTester sendMessage={handleSendMessage} />
-        }
-      </motion.div>
     </div>
   );
 }
@@ -648,3 +646,9 @@ function parseDbSensorType(s: string | undefined): number | null {
   if (lower.includes('active') || lower.includes('df11') || lower.includes('1.5')) return 1;
   return null;
 }
+
+function waitfor(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+

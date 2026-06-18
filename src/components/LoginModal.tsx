@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/tauri';
 import { useSession, AppUser } from '@/contexts/SessionContext';
@@ -97,6 +98,7 @@ function DbConfigPanel({ onConnected }: { onConnected: () => void }) {
 /* ── Login Modal ───────────────────────────────────────────── */
 export default function LoginModal() {
   const { login, loginAsGuest, register, isLoggedIn } = useSession();
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('login');
   const [users, setUsers] = useState<AppUser[]>([]);
   const [name, setName] = useState('');
@@ -192,18 +194,18 @@ export default function LoginModal() {
           <div className="p-6">
             {/* Tabs */}
             <div className="flex bg-elevated rounded-xl p-1 mb-6">
-              {(['login', 'register'] as Tab[]).map(t => (
+              {(['login', 'register'] as Tab[]).map(tabId => (
                 <button
-                  key={t}
-                  onClick={() => switchTab(t)}
+                  key={tabId}
+                  onClick={() => switchTab(tabId)}
                   disabled={!dbReady}
                   className={[
                     'flex-1 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-150',
-                    tab === t ? 'bg-card text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary',
+                    tab === tabId ? 'bg-card text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary',
                     !dbReady ? 'opacity-40 cursor-not-allowed' : '',
                   ].join(' ')}
                 >
-                  {t === 'login' ? 'Log In' : 'New Account'}
+                  {tabId === 'login' ? t('auth.sign_in_tab') : t('auth.register_tab')}
                 </button>
               ))}
             </div>
@@ -246,7 +248,7 @@ export default function LoginModal() {
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-text-secondary mb-1.5">Password</label>
+                      <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('auth.password')}</label>
                       <input
                         type="password"
                         value={password}
@@ -260,18 +262,13 @@ export default function LoginModal() {
                     {error && (
                       <p className="text-xs text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</p>
                     )}
-                    {users.length === 0 && dbReady && (
-                      <p className="text-xs text-text-tertiary bg-elevated rounded-lg px-3 py-2 border border-border">
-                        No accounts yet — create one with "New Account".
-                      </p>
-                    )}
                     <button
                       type="submit"
                       disabled={loading || !dbReady}
                       className="w-full py-2.5 bg-accent text-white text-sm font-semibold rounded-xl
                         hover:bg-accent/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                     >
-                      {loading ? 'Logging in…' : 'Log In'}
+                      {loading ? t('auth.signing_in') : t('auth.sign_in_btn')}
                     </button>
                   </form>
                 ) : (
@@ -304,7 +301,7 @@ export default function LoginModal() {
                           <p className="text-[10px] text-text-tertiary mt-1 px-1">An ID will be generated automatically.</p>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-text-secondary mb-1.5">Password</label>
+                          <label className="block text-xs font-medium text-text-secondary mb-1.5">{t('auth.password')}</label>
                           <input
                             type="password"
                             value={password}
@@ -316,7 +313,7 @@ export default function LoginModal() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-text-secondary mb-1.5">Confirm Password</label>
+                          <label className="block text-xs font-medium text-text-secondary mb-1.5">Confirm</label>
                           <input
                             type="password"
                             value={confirmPassword}
@@ -336,7 +333,7 @@ export default function LoginModal() {
                           className="w-full py-2.5 bg-accent text-white text-sm font-semibold rounded-xl
                             hover:bg-accent/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                         >
-                          {loading ? 'Creating account…' : 'Create Account'}
+                          {loading ? t('auth.registering') : t('auth.register_btn')}
                         </button>
                       </>
                     )}
@@ -355,10 +352,10 @@ export default function LoginModal() {
             >
               <div className="flex items-center gap-2">
                 <CircleStackIcon className="w-3.5 h-3.5" />
-                <span className="font-medium">Database Connection</span>
+                <span className="font-medium">{t('auth.db_config')}</span>
                 {dbReady
-                  ? <span className="text-[10px] text-success">● Connected</span>
-                  : <span className="text-[10px] text-danger">● Not connected</span>
+                  ? <span className="text-[10px] text-success">● {t('common.connected')}</span>
+                  : <span className="text-[10px] text-danger">● {t('common.not_connected')}</span>
                 }
               </div>
               <motion.span animate={{ rotate: dbOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
@@ -390,8 +387,8 @@ export default function LoginModal() {
             onClick={loginAsGuest}
             className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
           >
-            Continue as Guest
-            <span className="ml-1 opacity-50">— view only, no DB required</span>
+            {t('auth.continue_guest')}
+            <span className="ml-1 opacity-50">— {t('auth.guest_hint')}</span>
           </button>
         </div>
       </motion.div>

@@ -52,23 +52,23 @@ const DEFAULT_CHANNELS: WSSChannels = [null, null, null, null];
 const AppSettingsContext = createContext<AppSettingsContextType>({
   legacyMode: false,             setLegacyMode: () => {},
   legacySensorType: 0,           setLegacySensorType: () => {},
-  legacyFreq: 50,                setLegacyFreq: () => {},
+  legacyFreq: 0,                setLegacyFreq: () => {},
   legacyCanSpeed: null,          setLegacyCanSpeed: () => {},
   wssChannels: DEFAULT_CHANNELS, setWssChannels: () => {},
   wssCalPpr: 48,                 setWssCalPpr: () => {},
   wssCalCirc: 2.0,               setWssCalCirc: () => {},
-  analyzerOpen: true,            setAnalyzerOpen: () => {},
+  analyzerOpen: false,           setAnalyzerOpen: () => {},
 });
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [readMode,     saveMode    ] = persisted<boolean>('legacyMode', false);
   const [readType,     saveType    ] = persisted<number>('legacySensorType', 0);
-  const [readFreq,     saveFreq    ] = persisted<number>('legacyFreq', 50);
+  const [readFreq,     saveFreq    ] = persisted<number>('legacyFreq', 0);
   const [readSpeed,    saveSpeed   ] = persisted<number | null>('legacyCanSpeed', null);
   const [readChannels, saveChannels] = persisted<WSSChannels>('wssChannels', DEFAULT_CHANNELS);
   const [readPpr,      savePpr     ] = persisted<number>('wssCalPpr', 48);
   const [readCirc,     saveCirc    ] = persisted<number>('wssCalCirc', 2.0);
-  const [readAnalyzer, saveAnalyzer] = persisted<boolean>('analyzerOpen', true);
+  const [readAnalyzer, saveAnalyzer] = persisted<boolean>('analyzerOpen', false);
 
   const [legacyMode,       setLegacyModeState      ] = useState(readMode);
   const [legacySensorType, setLegacySensorTypeState ] = useState(readType);

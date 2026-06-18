@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { SignalIcon, ArrowDownTrayIcon, XCircleIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -89,7 +90,8 @@ export default function CANSettings({
   sendMessage,
   legacyMode = false,
 }: CANSettingsProps) {
-  const { legacyCanSpeed, setLegacyCanSpeed } = useAppSettings();
+  const { legacyCanSpeed, setLegacyCanSpeed, legacySensorType, legacyFreq } = useAppSettings();
+  const { t } = useTranslation();
 
   const [canData, setCanData] = useState({
     speed: result.canSpeed,
@@ -100,7 +102,20 @@ export default function CANSettings({
   const [frames, setFrames] = useState<CanFrame[]>([]);
   const [showLog, setShowLog] = useState(true);
   const [matchCount, setMatchCount] = useState(0);
+  const [hasCan, setHasCan] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // Stable refs so interval/timeout callbacks never see stale values
+  const canTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasCanRef      = useRef(false);
+  const prevHasCanRef  = useRef(false);
+  const sendMsgRef     = useRef(sendMessage);
+  const sensorTypeRef  = useRef(legacySensorType);
+  const freqRef        = useRef(legacyFreq);
+  hasCanRef.current    = hasCan;
+  sendMsgRef.current   = sendMessage;
+  sensorTypeRef.current = legacySensorType;
+  freqRef.current      = legacyFreq;
 
   // The selected ABS entry's CAN ID and byte, parsed for matching
   const matchId = parseCanIdStr(result.canIdLine);
@@ -128,6 +143,11 @@ export default function CANSettings({
       const parsed = parseNanoFrame(line);
       if (!parsed) return; // not a CAN frame (e.g. "Freq : 12.3" or "init")
 
+      // CAN activity tracking — green for 2 s after last frame
+      setHasCan(true);
+      if (canTimeoutRef.current) clearTimeout(canTimeoutRef.current);
+      canTimeoutRef.current = setTimeout(() => setHasCan(false), 2000);
+
       const isMatch = matchId !== null && parsed.id === matchId;
       const matchByteValue =
         isMatch && matchByte !== null && matchByte < parsed.data.length
@@ -150,8 +170,38 @@ export default function CANSettings({
       });
       if (isMatch) setMatchCount(c => c + 1);
     });
-    return () => { unsub.then(u => u()); };
+    return () => {
+      unsub.then(u => u());
+      if (canTimeoutRef.current) clearTimeout(canTimeoutRef.current);
+    };
   }, [legacyMode, matchId, matchByte]);
+
+  // Retry CAN speed every second while no CAN frames are arriving
+  useEffect(() => {
+    if (!legacyMode || !isConnected || legacyCanSpeed === null) return;
+    const iv = setInterval(() => {
+      if (!hasCanRef.current) {
+        sendMsgRef.current?.(`CANSpeed : ${legacyCanSpeed}\n`);
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [legacyMode, isConnected, legacyCanSpeed]);
+
+  // When CAN goes from inactive → active, wait 300 ms then resend the sensor waveform
+  useEffect(() => {
+    if (!legacyMode) { prevHasCanRef.current = false; return; }
+    if (hasCan && !prevHasCanRef.current) {
+      prevHasCanRef.current = true;
+      const type = sensorTypeRef.current;
+      const t = setTimeout(() => {
+        if (type > 0) {
+          sendMsgRef.current?.(`Waveform : ${type},${freqRef.current}\n`);
+        }
+      }, 300);
+      return () => clearTimeout(t);
+    }
+    if (!hasCan) prevHasCanRef.current = false;
+  }, [hasCan, legacyMode]);
 
   // Pico mode: send handshake ping
   useEffect(() => {
@@ -200,7 +250,27 @@ export default function CANSettings({
       {/* Header */}
       <h2 className="card-header flex items-center gap-2">
         <SignalIcon className="h-4 w-4 text-text-tertiary" />
-        {legacyMode ? 'CAN Bus Monitor' : 'CAN Settings'}
+        {legacyMode ? t('can.monitor') : t('can.settings')}
+
+        {/* CAN activity indicator */}
+        <span
+          title={
+            hasCan
+              ? t('can.active')
+              : legacyCanSpeed !== null
+              ? t('can.no_can')
+              : t('can.not_started')
+          }
+          className={[
+            'w-2.5 h-2.5 rounded-full transition-colors',
+            hasCan
+              ? 'bg-success animate-pulse-slow'
+              : legacyCanSpeed !== null
+              ? 'bg-danger animate-pulse-slow'
+              : 'bg-text-tertiary/40',
+          ].join(' ')}
+        />
+
         {legacyMode && (
           <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-warning/15 text-warning border border-warning/20">
             NANO
@@ -212,14 +282,14 @@ export default function CANSettings({
       {legacyMode ? (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-text-secondary">CAN Bus Speed</span>
+            <span className="text-xs font-medium text-text-secondary">{t('can.bus_speed')}</span>
             {legacyCanSpeed !== null && (
               <button
                 onClick={() => setLegacyCanSpeed(null)}
                 disabled={!isConnected}
                 className="text-[10px] text-danger hover:text-danger/80 disabled:opacity-40 transition-colors"
               >
-                Stop CAN ✕
+                {t('can.stop_can')}
               </button>
             )}
           </div>
@@ -263,16 +333,16 @@ export default function CANSettings({
         <div className="flex items-center gap-2 text-xs">
           <span className={['w-2 h-2 rounded-full shrink-0', isConnected ? 'bg-success' : 'bg-text-tertiary'].join(' ')} />
           <span className={isConnected ? 'text-success' : 'text-text-tertiary'}>
-            {isConnected ? 'Connected' : 'Not connected'}
+            {isConnected ? t('common.connected') : t('common.not_connected')}
           </span>
           {legacyMode && matchCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-success/15 text-success border border-success/20 font-semibold">
-              {matchCount} match{matchCount !== 1 ? 'es' : ''}
+              {matchCount} {matchCount !== 1 ? t('can.matches') : t('can.match')}
             </span>
           )}
           {legacyMode && frames.filter(f => f.direction === 'RX').length > 0 && (
             <span className="text-[10px] text-text-tertiary">
-              {frames.filter(f => f.direction === 'RX').length} frames
+              {frames.filter(f => f.direction === 'RX').length} {t('can.frames')}
             </span>
           )}
         </div>
@@ -302,10 +372,10 @@ export default function CANSettings({
           style={{ height: legacyMode ? '11rem' : '8rem' }}
         >
           {!isConnected ? (
-            <span className="text-text-tertiary italic">Not connected…</span>
+            <span className="text-text-tertiary italic">{t('common.not_connected')}…</span>
           ) : frames.length === 0 ? (
             <span className="text-text-tertiary italic">
-              {legacyMode ? 'Waiting for CAN frames — select a bus speed above to start' : 'No messages yet'}
+              {legacyMode ? t('can.waiting') : t('can.no_messages')}
             </span>
           ) : frames.map((f, i) => (
             <FrameRow key={i} frame={f} matchByte={matchByte} result={result} />

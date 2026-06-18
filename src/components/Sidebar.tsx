@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   HomeIcon,
@@ -25,18 +27,18 @@ import type { Page } from './Navigation';
 
 const BAUD_RATES = ['9600', '19200', '38400', '57600', '115200', '230400', '460800', '500000', '921600'];
 
-const TABS: {
+const TAB_DEFS: {
   id: Page;
-  label: string;
-  sub: string;
+  labelKey: string;
+  subKey: string;
   Outline: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   Solid: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 }[] = [
-  { id: 'home',   label: 'Dashboard',    sub: 'Info & config',       Outline: HomeIcon,      Solid: HomeSolid     },
-  { id: 'valves', label: 'Valve Testing', sub: 'Hydraulic modulator', Outline: Cog6ToothIcon, Solid: CogSolid      },
-  { id: 'motors', label: 'Motor Testing', sub: 'ABS block motor',     Outline: BoltIcon,      Solid: BoltSolid     },
-  { id: 'signal', label: 'Signal HIL',    sub: 'WSS simulation',      Outline: SignalIcon,    Solid: SignalSolid   },
-  { id: 'jobs',   label: 'Repair Jobs',   sub: 'Job tracking',        Outline: BriefcaseIcon, Solid: BriefcaseSolid },
+  { id: 'home',   labelKey: 'nav.dashboard', subKey: 'nav.dashboard_sub', Outline: HomeIcon,      Solid: HomeSolid      },
+  { id: 'valves', labelKey: 'nav.valves',    subKey: 'nav.valves_sub',    Outline: Cog6ToothIcon, Solid: CogSolid       },
+  { id: 'motors', labelKey: 'nav.motors',    subKey: 'nav.motors_sub',    Outline: BoltIcon,      Solid: BoltSolid      },
+  { id: 'signal', labelKey: 'nav.signal',    subKey: 'nav.signal_sub',    Outline: SignalIcon,    Solid: SignalSolid    },
+  { id: 'jobs',   labelKey: 'nav.jobs',      subKey: 'nav.jobs_sub',      Outline: BriefcaseIcon, Solid: BriefcaseSolid },
 ];
 
 interface SidebarProps {
@@ -46,6 +48,7 @@ interface SidebarProps {
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
   const [esp32Expanded, setEsp32Expanded] = useState(false);
+  const { t } = useTranslation();
 
   const { devices, selectedDeviceId, selectDevice, isConnectedToDevice } = useWebSocketContext();
   const { legacyMode, setLegacyMode } = useAppSettings();
@@ -76,7 +79,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
       {/* ── Navigation ── */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {TABS.map(({ id, label, sub, Outline, Solid }) => {
+        {TAB_DEFS.map(({ id, labelKey, subKey, Outline, Solid }) => {
           const active = currentPage === id;
           return (
             <button
@@ -93,8 +96,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               {active && (
                 <motion.div
                   layoutId="nav-pill"
-                  className="absolute left-0 w-[3px] h-5 bg-accent rounded-r-full"
-                  style={{ top: '50%', y: '-50%' }}
+                  className="absolute left-0 inset-y-0 my-auto w-[3px] h-5 bg-accent rounded-r-full"
                   transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                 />
               )}
@@ -102,12 +104,12 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                 {active ? <Solid className="w-4 h-4" /> : <Outline className="w-4 h-4" />}
               </span>
               <span className="flex flex-col min-w-0">
-                <span className="text-[13px] font-medium leading-tight truncate">{label}</span>
+                <span className="text-[13px] font-medium leading-tight truncate">{t(labelKey)}</span>
                 <span className={[
                   'text-[10px] leading-tight truncate mt-0.5',
                   active ? 'text-accent/60' : 'text-text-tertiary',
                 ].join(' ')}>
-                  {sub}
+                  {t(subKey)}
                 </span>
               </span>
             </button>
@@ -128,7 +130,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             <span className="flex-1 text-xs font-medium text-text-primary truncate">{currentUser.name}</span>
             <button
               onClick={logout}
-              title={isGuest ? 'Sign in' : 'Log out'}
+              title={isGuest ? t('common.sign_in') : t('common.sign_out')}
               className={[
                 'p-1 transition-colors shrink-0',
                 isGuest ? 'text-accent hover:text-accent/70' : 'text-text-tertiary hover:text-danger',
@@ -145,7 +147,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             >
               <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse-slow shrink-0" />
               <span className="text-[11px] text-accent font-medium truncate flex-1">{currentJob.jobNumber}</span>
-              <span className="text-[9px] text-text-tertiary shrink-0">active</span>
+              <span className="text-[9px] text-text-tertiary shrink-0">{t('common.active')}</span>
             </button>
           )}
         </div>
@@ -167,9 +169,9 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             ].join(' ')}>
               {connected
                 ? isConnectedToDevice
-                  ? 'ESP32 Connected'
+                  ? t('connection.esp32_connected')
                   : `${selectedPort ?? 'Serial'} · ${baudRate}`
-                : 'No connection'}
+                : t('connection.no_connection')}
             </span>
           </div>
           {legacyMode && (
@@ -197,7 +199,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                   focus:border-accent/50 transition-all"
               >
                 <option value="">
-                  {ports.length === 0 ? '— no ports —' : '— select port —'}
+                  {ports.length === 0 ? t('connection.no_ports') : t('connection.select_port')}
                 </option>
                 {ports.map(p => (
                   <option key={p.port_name} value={p.port_name}>{p.port_name}</option>
@@ -251,13 +253,13 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               : 'bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20',
           ].join(' ')}
         >
-          {serialConnected ? 'Disconnect Serial' : 'Connect Serial'}
+          {serialConnected ? t('connection.disconnect') : t('connection.connect')}
         </button>
 
         {/* Legacy mode toggle */}
         <div className="flex items-center justify-between px-1 pt-1 border-t border-sidebar-border">
           <div>
-            <span className="text-[11px] font-medium text-text-secondary">Legacy (Arduino Nano)</span>
+            <span className="text-[11px] font-medium text-text-secondary">{t('connection.legacy_mode')}</span>
             {legacyMode && (
               <p className="text-[9px] text-warning mt-0.5 leading-tight">500 000 baud · AD9833+MCP2515</p>
             )}
@@ -343,6 +345,27 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
             </AnimatePresence>
           </div>
         )}
+      </div>
+
+      {/* ── Language switcher ── */}
+      <div className="border-t border-sidebar-border shrink-0 px-3 py-2 flex items-center justify-between">
+        <span className="text-[10px] text-text-tertiary">{t('lang.language')}</span>
+        <div className="flex rounded-lg overflow-hidden border border-border text-[10px] font-semibold">
+          {(['en', 'fr'] as const).map(lng => (
+            <button
+              key={lng}
+              onClick={() => i18n.changeLanguage(lng)}
+              className={[
+                'px-2.5 py-1 transition-colors',
+                i18n.language === lng
+                  ? 'bg-accent text-white'
+                  : 'text-text-tertiary hover:text-text-primary hover:bg-elevated',
+              ].join(' ')}
+            >
+              {lng.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
     </aside>
   );

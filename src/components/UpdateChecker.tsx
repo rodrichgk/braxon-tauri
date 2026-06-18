@@ -3,10 +3,12 @@ import { checkUpdate, installUpdate, onUpdaterEvent } from '@tauri-apps/api/upda
 import { relaunch } from '@tauri-apps/api/process';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowDownTrayIcon, XMarkIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { useTranslation } from 'react-i18next';
 
 type Status = 'idle' | 'available' | 'downloading' | 'ready' | 'error';
 
 export default function UpdateChecker() {
+  const { t } = useTranslation();
   const [status, setStatus]       = useState<Status>('idle');
   const [version, setVersion]     = useState('');
   const [notes, setNotes]         = useState('');
@@ -59,13 +61,13 @@ export default function UpdateChecker() {
               <>
                 <ArrowPathIcon className="w-4 h-4 text-success shrink-0" />
                 <span className="text-success font-medium flex-1">
-                  Update ready — restart to apply BRAXON v{version}
+                  {t('update.ready')} — BRAXON v{version}
                 </span>
                 <button
                   onClick={() => relaunch()}
                   className="btn-success text-[11px] px-3 py-1"
                 >
-                  Restart now
+                  {t('update.restart')}
                 </button>
               </>
             )}
@@ -74,16 +76,16 @@ export default function UpdateChecker() {
               <>
                 <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
                 <span className="text-accent flex-1">
-                  Downloading BRAXON v{version}…
+                  {t('update.downloading')} BRAXON v{version}
                 </span>
               </>
             )}
 
             {status === 'error' && (
               <>
-                <span className="text-danger flex-1">Update failed — check your connection and try again.</span>
+                <span className="text-danger flex-1">{t('update.error')}</span>
                 <button onClick={() => setStatus('available')} className="btn-secondary text-[11px] px-2 py-0.5">
-                  Retry
+                  {t('update.retry')}
                 </button>
                 <button onClick={() => setDismissed(true)} className="text-text-tertiary hover:text-text-primary p-1 ml-1">
                   <XMarkIcon className="w-3.5 h-3.5" />
@@ -95,7 +97,7 @@ export default function UpdateChecker() {
               <>
                 <ArrowDownTrayIcon className="w-4 h-4 text-accent shrink-0" />
                 <span className="text-text-primary flex-1">
-                  Update available:{' '}
+                  {t('update.available')}{' '}
                   <span className="font-semibold text-accent">BRAXON v{version}</span>
                   {notes && (
                     <span className="text-text-secondary ml-2 hidden sm:inline">— {notes}</span>
@@ -105,7 +107,7 @@ export default function UpdateChecker() {
                   onClick={handleInstall}
                   className="btn-primary text-[11px] px-3 py-1"
                 >
-                  Update Now
+                  {t('update.download')}
                 </button>
                 <button
                   onClick={() => setDismissed(true)}

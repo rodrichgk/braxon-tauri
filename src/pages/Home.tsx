@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { useTranslation } from 'react-i18next';
 
 interface DbConfig {
   host: string;
@@ -10,6 +11,7 @@ interface DbConfig {
 }
 
 export default function HomePage() {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<DbConfig>({
     host: '192.168.77.182',
     port: 5432,
@@ -31,7 +33,7 @@ export default function HomePage() {
     setSaving(true);
     try {
       await invoke('save_db_config', { config });
-      setTestStatus({ msg: 'Configuration saved.', ok: true });
+      setTestStatus({ msg: t('home.config_saved'), ok: true });
     } catch (e: any) {
       setTestStatus({ msg: String(e), ok: false });
     } finally {
@@ -43,7 +45,6 @@ export default function HomePage() {
     setTesting(true);
     setTestStatus(null);
     try {
-      // Save first so backend uses latest values
       await invoke('save_db_config', { config });
       const msg = await invoke<string>('test_db_connection');
       setTestStatus({ msg, ok: true });
@@ -56,39 +57,39 @@ export default function HomePage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-2xl font-semibold text-text-primary mb-1 tracking-tight">Dashboard</h1>
-      <p className="text-sm text-text-secondary mb-8">Application info and configuration</p>
+      <h1 className="text-2xl font-semibold text-text-primary mb-1 tracking-tight">{t('home.title')}</h1>
+      <p className="text-sm text-text-secondary mb-8">{t('home.subtitle')}</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
         {/* About */}
         <div className="card">
-          <h2 className="text-sm font-semibold text-text-primary mb-4 tracking-tight">About</h2>
+          <h2 className="text-sm font-semibold text-text-primary mb-4 tracking-tight">{t('home.about')}</h2>
           <div className="space-y-3 text-sm text-text-secondary">
             <div className="flex justify-between items-center">
               <span>Application</span>
               <span className="font-medium text-text-primary">BRAXON</span>
             </div>
             <div className="flex justify-between items-center">
-              <span>Version</span>
+              <span>{t('home.version')}</span>
               <span className="font-medium text-text-primary">1.0.0</span>
             </div>
             <div className="flex justify-between items-center">
-              <span>Platform</span>
+              <span>{t('home.platform')}</span>
               <span className="font-medium text-text-primary">Tauri Desktop</span>
             </div>
             <div className="flex justify-between items-center">
-              <span>WebSocket Server</span>
+              <span>{t('home.ws_server')}</span>
               <span className="font-medium text-success">127.0.0.1:8765</span>
             </div>
           </div>
 
           <div className="mt-5 pt-4 border-t border-border">
-            <h3 className="text-xs font-semibold text-text-secondary mb-3 tracking-wide uppercase">Pages</h3>
+            <h3 className="text-xs font-semibold text-text-secondary mb-3 tracking-wide uppercase">{t('home.pages')}</h3>
             <div className="space-y-2 text-sm text-text-secondary">
-              <div><span className="text-text-primary font-medium">Valve Testing</span> — Solenoid valves on the hydraulic modulator block</div>
-              <div><span className="text-text-primary font-medium">Motor Testing</span> — Pump motor on the ABS block</div>
-              <div><span className="text-text-primary font-medium">Signal HIL</span> — Wheel Speed Sensor hardware-in-the-loop simulation</div>
+              <div><span className="text-text-primary font-medium">{t('nav.valves')}</span> — {t('home.valve_desc')}</div>
+              <div><span className="text-text-primary font-medium">{t('nav.motors')}</span> — {t('home.motor_desc')}</div>
+              <div><span className="text-text-primary font-medium">{t('nav.signal')}</span> — {t('home.signal_desc')}</div>
             </div>
           </div>
         </div>
@@ -96,16 +97,16 @@ export default function HomePage() {
         {/* DB Config */}
         <div className="card">
           <h2 className="text-sm font-semibold text-text-primary mb-1 tracking-tight">
-            Database Connection
+            {t('auth.db_config')}
           </h2>
           <p className="text-xs text-text-tertiary mb-4">
-            Direct PostgreSQL — no web server needed.
+            {t('home.db_subtitle')}
           </p>
 
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
-                <label className="input-label">Host</label>
+                <label className="input-label">{t('home.host')}</label>
                 <input
                   type="text"
                   value={config.host}
@@ -115,7 +116,7 @@ export default function HomePage() {
                 />
               </div>
               <div>
-                <label className="input-label">Port</label>
+                <label className="input-label">{t('home.port')}</label>
                 <input
                   type="number"
                   value={config.port}
@@ -126,7 +127,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="input-label">Database</label>
+              <label className="input-label">{t('home.database')}</label>
               <input
                 type="text"
                 value={config.database}
@@ -136,7 +137,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="input-label">Username</label>
+              <label className="input-label">{t('home.username')}</label>
               <input
                 type="text"
                 value={config.username}
@@ -146,7 +147,7 @@ export default function HomePage() {
             </div>
 
             <div>
-              <label className="input-label">Password</label>
+              <label className="input-label">{t('auth.password')}</label>
               <input
                 type="password"
                 value={config.password}
@@ -162,14 +163,14 @@ export default function HomePage() {
                 disabled={saving}
                 className="btn-primary text-sm flex-1"
               >
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? t('common.loading') : t('common.save')}
               </button>
               <button
                 onClick={handleTest}
                 disabled={testing}
                 className="btn-secondary text-sm flex-1"
               >
-                {testing ? 'Testing…' : 'Test Connection'}
+                {testing ? t('home.testing') : t('home.test_connection')}
               </button>
             </div>
 

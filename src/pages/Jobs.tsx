@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession, RepairJob } from '@/contexts/SessionContext';
@@ -41,11 +42,12 @@ function formatDuration(start: string, end?: string) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const cfg: Record<string, { label: string; cls: string }> = {
-    in_progress: { label: 'Active',     cls: 'bg-accent/10 text-accent border-accent/20' },
-    completed:   { label: 'Completed',  cls: 'bg-success/10 text-success border-success/20' },
-    failed:      { label: 'Failed',     cls: 'bg-danger/10 text-danger border-danger/20' },
-    closed:      { label: 'Closed',     cls: 'bg-text-tertiary/10 text-text-tertiary border-text-tertiary/20' },
+    in_progress: { label: t('jobs.in_progress'), cls: 'bg-accent/10 text-accent border-accent/20' },
+    completed:   { label: t('jobs.completed'),   cls: 'bg-success/10 text-success border-success/20' },
+    failed:      { label: t('jobs.failed'),       cls: 'bg-danger/10 text-danger border-danger/20' },
+    closed:      { label: t('jobs.closed'),       cls: 'bg-text-tertiary/10 text-text-tertiary border-text-tertiary/20' },
   };
   const { label, cls } = cfg[status] ?? { label: status, cls: 'bg-elevated text-text-secondary border-border' };
   return (
@@ -65,6 +67,7 @@ interface NewJobFormProps {
 }
 
 function NewJobForm({ onCreated, onCancel }: NewJobFormProps) {
+  const { t } = useTranslation();
   const { currentUser, startJob } = useSession();
   const [jobNumber, setJobNumber] = useState('');
   const [loading, setLoading] = useState(false);
@@ -72,7 +75,7 @@ function NewJobForm({ onCreated, onCancel }: NewJobFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!jobNumber.trim()) { setError('Job number is required'); return; }
+    if (!jobNumber.trim()) { setError(t('jobs.job_number') + ' requis'); return; }
     setLoading(true);
     setError('');
     try {
@@ -89,23 +92,23 @@ function NewJobForm({ onCreated, onCancel }: NewJobFormProps) {
     <form onSubmit={handleSubmit} className="bg-card border border-accent/30 rounded-xl p-4 space-y-3">
       <div className="flex items-center gap-2 mb-1">
         <BriefcaseIcon className="w-4 h-4 text-accent" />
-        <span className="text-sm font-semibold text-text-primary">New Repair Job</span>
+        <span className="text-sm font-semibold text-text-primary">{t('jobs.new_job_title')}</span>
       </div>
       <div>
-        <label className="block text-xs font-medium text-text-secondary mb-1">Job / Work Order Number</label>
+        <label className="block text-xs font-medium text-text-secondary mb-1">{t('jobs.job_order_label')}</label>
         <input
           autoFocus
           type="text"
           value={jobNumber}
           onChange={e => setJobNumber(e.target.value)}
-          placeholder="e.g. WO-2024-0123"
+          placeholder={t('jobs.wo_placeholder')}
           className="w-full bg-elevated border border-border rounded-lg px-3 py-2
             text-sm text-text-primary placeholder:text-text-tertiary
             focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent/50 transition-all"
         />
       </div>
       <div className="flex items-center gap-2 text-xs text-text-tertiary px-0.5">
-        <span>Operator:</span>
+        <span>{t('jobs.operator')} :</span>
         <span className="text-text-secondary font-medium">{currentUser?.name}</span>
       </div>
       {error && (
@@ -118,7 +121,7 @@ function NewJobForm({ onCreated, onCancel }: NewJobFormProps) {
           className="flex-1 py-2 bg-accent text-white text-xs font-semibold rounded-lg
             hover:bg-accent/90 transition-all disabled:opacity-50"
         >
-          {loading ? 'Creating…' : 'Start Job'}
+          {loading ? t('jobs.creating') : t('jobs.start_job')}
         </button>
         <button
           type="button"
@@ -126,7 +129,7 @@ function NewJobForm({ onCreated, onCancel }: NewJobFormProps) {
           className="px-4 py-2 text-xs font-medium text-text-secondary bg-elevated border border-border
             rounded-lg hover:text-text-primary transition-all"
         >
-          Cancel
+          {t('common.cancel')}
         </button>
       </div>
     </form>
@@ -142,6 +145,7 @@ interface JobRowProps {
 }
 
 function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRowProps) {
+  const { t } = useTranslation();
   const { currentJob: activeJob, setCurrentJob } = useSession();
 
   const [expanded, setExpanded] = useState(false);
@@ -282,21 +286,21 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
               {/* Details grid */}
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-1">
                 <div>
-                  <span className="text-text-tertiary">Operator</span>
+                  <span className="text-text-tertiary">{t('jobs.operator')}</span>
                   <p className="text-text-secondary font-medium mt-0.5">{job.userName}</p>
                 </div>
                 <div>
-                  <span className="text-text-tertiary">Started</span>
+                  <span className="text-text-tertiary">{t('jobs.started')}</span>
                   <p className="text-text-secondary mt-0.5">{formatDate(job.startedAt)}</p>
                 </div>
                 {job.completedAt && (
                   <div>
-                    <span className="text-text-tertiary">Closed</span>
+                    <span className="text-text-tertiary">{t('jobs.closed')}</span>
                     <p className="text-text-secondary mt-0.5">{formatDate(job.completedAt)}</p>
                   </div>
                 )}
                 <div>
-                  <span className="text-text-tertiary">Duration</span>
+                  <span className="text-text-tertiary">{t('jobs.duration')}</span>
                   <p className="text-text-secondary mt-0.5">{formatDuration(job.startedAt, job.completedAt)}</p>
                 </div>
               </div>
@@ -304,14 +308,14 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
               {/* ABS Reference — editable */}
               <div className="text-xs">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-text-tertiary font-medium">ABS Reference</span>
+                  <span className="text-text-tertiary font-medium">{t('jobs.abs_ref')}</span>
                   {!editingRef && (
                     <button
                       onClick={e => { e.stopPropagation(); setEditingRef(true); }}
                       className="text-[10px] text-accent hover:underline flex items-center gap-1"
                     >
                       <PencilSquareIcon className="w-3 h-3" />
-                      {job.absRef ? 'Edit' : 'Set reference'}
+                      {job.absRef ? t('common.edit') : t('jobs.set_ref')}
                     </button>
                   )}
                 </div>
@@ -332,7 +336,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                       disabled={saving}
                       className="text-xs px-3 py-1.5 bg-accent text-white font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-all"
                     >
-                      {saving ? '…' : 'Save'}
+                      {saving ? '…' : t('common.save')}
                     </button>
                     <button
                       onClick={() => { setEditingRef(false); setRefValue(job.absRef ?? ''); }}
@@ -343,7 +347,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                   </div>
                 ) : (
                   <p className="text-text-secondary">
-                    {job.absRef || <span className="text-text-tertiary italic">Not set — link from Signal page or set manually</span>}
+                    {job.absRef || <span className="text-text-tertiary italic">{t('jobs.ref_not_set')}</span>}
                   </p>
                 )}
               </div>
@@ -351,13 +355,13 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
               {/* Notes — editable */}
               <div className="text-xs">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-text-tertiary font-medium">Notes</span>
+                  <span className="text-text-tertiary font-medium">{t('jobs.notes')}</span>
                   {!editingNotes && (
                     <button
                       onClick={e => { e.stopPropagation(); setEditingNotes(true); }}
                       className="text-[10px] text-accent hover:underline flex items-center gap-1"
                     >
-                      <PencilSquareIcon className="w-3 h-3" /> Edit
+                      <PencilSquareIcon className="w-3 h-3" /> {t('common.edit')}
                     </button>
                   )}
                 </div>
@@ -367,7 +371,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                       value={notes}
                       onChange={e => setNotes(e.target.value)}
                       rows={3}
-                      placeholder="Add notes about this repair job…"
+                      placeholder={t('jobs.notes_placeholder')}
                       className="w-full bg-elevated border border-border rounded-lg px-3 py-2
                         text-xs text-text-primary placeholder:text-text-tertiary resize-none
                         focus:outline-none focus:ring-1 focus:ring-accent/50 focus:border-accent/50"
@@ -378,19 +382,19 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                         disabled={saving}
                         className="text-xs px-3 py-1.5 bg-accent text-white font-medium rounded-lg hover:bg-accent/90 transition-all disabled:opacity-50"
                       >
-                        {saving ? 'Saving…' : 'Save'}
+                        {saving ? t('common.saving') : t('common.save')}
                       </button>
                       <button
                         onClick={() => { setEditingNotes(false); setNotes(job.notes ?? ''); }}
                         className="text-xs px-3 py-1.5 bg-elevated border border-border text-text-secondary rounded-lg hover:text-text-primary transition-all"
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <p className="text-text-secondary min-h-[20px]">
-                    {job.notes || <span className="text-text-tertiary italic">No notes</span>}
+                    {job.notes || <span className="text-text-tertiary italic">{t('jobs.no_notes')}</span>}
                   </p>
                 )}
               </div>
@@ -404,21 +408,21 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-success/10 text-success
                         border border-success/20 rounded-lg hover:bg-success/20 transition-all font-medium"
                     >
-                      <CheckCircleIcon className="w-3.5 h-3.5" /> Completed
+                      <CheckCircleIcon className="w-3.5 h-3.5" /> {t('jobs.completed')}
                     </button>
                     <button
                       onClick={() => setStatus('failed')}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-danger/10 text-danger
                         border border-danger/20 rounded-lg hover:bg-danger/20 transition-all font-medium"
                     >
-                      <XCircleIcon className="w-3.5 h-3.5" /> Failed
+                      <XCircleIcon className="w-3.5 h-3.5" /> {t('jobs.failed')}
                     </button>
                     <button
                       onClick={() => setStatus('closed')}
                       className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-elevated text-text-secondary
                         border border-border rounded-lg hover:text-text-primary hover:bg-text-tertiary/10 transition-all font-medium"
                     >
-                      <ArchiveBoxIcon className="w-3.5 h-3.5" /> Close
+                      <ArchiveBoxIcon className="w-3.5 h-3.5" /> {t('jobs.close')}
                     </button>
                     {!isCurrentJob && (
                       <button
@@ -426,7 +430,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                         className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-accent/10 text-accent
                           border border-accent/20 rounded-lg hover:bg-accent/20 transition-all font-medium"
                       >
-                        Set as Active
+                        {t('jobs.set_as_active')}
                       </button>
                     )}
                   </>
@@ -437,7 +441,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                     className="text-xs px-3 py-1.5 bg-elevated border border-border text-text-secondary
                       rounded-lg hover:text-text-primary transition-all"
                   >
-                    Reopen
+                    {t('jobs.reopen')}
                   </button>
                 )}
 
@@ -445,21 +449,21 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                 <div className="ml-auto flex items-center gap-1.5">
                   {confirmDelete ? (
                     <>
-                      <span className="text-[10px] text-danger font-medium">Delete this job?</span>
+                      <span className="text-[10px] text-danger font-medium">{t('jobs.confirm_delete')}</span>
                       <button
                         onClick={handleDelete}
                         disabled={deleting}
                         className="text-xs px-2.5 py-1.5 bg-danger/10 text-danger border border-danger/20
                           rounded-lg hover:bg-danger/20 transition-all font-medium disabled:opacity-50"
                       >
-                        {deleting ? '…' : 'Yes, delete'}
+                        {deleting ? '…' : t('jobs.yes_delete')}
                       </button>
                       <button
                         onClick={() => setConfirmDelete(false)}
                         className="text-xs px-2.5 py-1.5 bg-elevated border border-border text-text-secondary
                           rounded-lg hover:text-text-primary transition-all"
                       >
-                        Cancel
+                        {t('common.cancel')}
                       </button>
                     </>
                   ) : (
@@ -469,7 +473,7 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
                         hover:text-danger hover:bg-danger/10 border border-transparent hover:border-danger/20
                         rounded-lg transition-all"
                     >
-                      <TrashIcon className="w-3.5 h-3.5" /> Delete
+                      <TrashIcon className="w-3.5 h-3.5" /> {t('jobs.delete')}
                     </button>
                   )}
                 </div>
@@ -484,15 +488,14 @@ function JobRow({ job, isCurrentJob, onRefresh, onSetCurrent, onDelete }: JobRow
 
 export default function JobsPage() {
   const { currentUser, currentJob, isGuest, setCurrentJob } = useSession();
+  const { t } = useTranslation();
 
   if (isGuest) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-6">
         <BriefcaseIcon className="w-12 h-12 text-text-tertiary opacity-40" />
-        <p className="text-sm font-medium text-text-primary">Sign in to manage repair jobs</p>
-        <p className="text-xs text-text-tertiary max-w-xs">
-          Guest mode gives you read-only access to the diagnostics UI. Create an account or log in to track repair jobs and save results.
-        </p>
+        <p className="text-sm font-medium text-text-primary">{t('jobs.guest_message')}</p>
+        <p className="text-xs text-text-tertiary max-w-xs">{t('jobs.guest_description')}</p>
       </div>
     );
   }
@@ -544,9 +547,9 @@ export default function JobsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-text-primary">Repair Jobs</h1>
+          <h1 className="text-xl font-bold text-text-primary">{t('jobs.title')}</h1>
           <p className="text-xs text-text-tertiary mt-0.5">
-            Logged in as <span className="text-text-secondary font-medium">{currentUser?.name}</span>
+            {t('jobs.logged_in_as')} <span className="text-text-secondary font-medium">{currentUser?.name}</span>
           </p>
         </div>
         {!showNewForm && (
@@ -555,7 +558,7 @@ export default function JobsPage() {
             className="flex items-center gap-1.5 px-3 py-2 bg-accent text-white text-xs font-semibold
               rounded-lg hover:bg-accent/90 active:scale-95 transition-all"
           >
-            <PlusIcon className="w-4 h-4" /> New Job
+            <PlusIcon className="w-4 h-4" /> {t('jobs.new_job')}
           </button>
         )}
       </div>
@@ -563,10 +566,10 @@ export default function JobsPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">
         {[
-          { label: 'Total',     value: stats.total,     cls: 'text-text-primary' },
-          { label: 'Active',    value: stats.active,    cls: 'text-accent' },
-          { label: 'Completed', value: stats.completed, cls: 'text-success' },
-          { label: 'Failed',    value: stats.failed,    cls: 'text-danger' },
+          { label: t('jobs.total'),       value: stats.total,     cls: 'text-text-primary' },
+          { label: t('jobs.in_progress'), value: stats.active,    cls: 'text-accent' },
+          { label: t('jobs.completed'),   value: stats.completed, cls: 'text-success' },
+          { label: t('jobs.failed'),      value: stats.failed,    cls: 'text-danger' },
         ].map(({ label, value, cls }) => (
           <div key={label} className="bg-card border border-border rounded-xl px-3 py-2.5 text-center">
             <p className={`text-xl font-bold ${cls}`}>{value}</p>
@@ -581,7 +584,7 @@ export default function JobsPage() {
           <span className="w-2 h-2 rounded-full bg-accent animate-pulse-slow shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-text-primary">
-              Active: <span className="text-accent">{currentJob.jobNumber}</span>
+              {t('jobs.active_indicator')} <span className="text-accent">{currentJob.jobNumber}</span>
             </p>
             {currentJob.absRef && (
               <p className="text-[10px] text-text-tertiary mt-0.5 truncate">{currentJob.absRef}</p>
@@ -615,7 +618,7 @@ export default function JobsPage() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search by job number, operator, ABS ref…"
+            placeholder={t('jobs.search_placeholder')}
             className="w-full bg-card border border-border rounded-lg pl-8 pr-3 py-2
               text-xs text-text-primary placeholder:text-text-tertiary
               focus:outline-none focus:ring-1 focus:ring-accent/40 focus:border-accent/40 transition-all"
@@ -627,11 +630,11 @@ export default function JobsPage() {
           className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary
             focus:outline-none focus:ring-1 focus:ring-accent/40 focus:border-accent/40 transition-all"
         >
-          <option value="all">All Status</option>
-          <option value="in_progress">Active</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="closed">Closed</option>
+          <option value="all">{t('jobs.all_statuses')}</option>
+          <option value="in_progress">{t('jobs.in_progress')}</option>
+          <option value="completed">{t('jobs.completed')}</option>
+          <option value="failed">{t('jobs.failed')}</option>
+          <option value="closed">{t('jobs.closed')}</option>
         </select>
       </div>
 
@@ -644,12 +647,12 @@ export default function JobsPage() {
 
       {/* Job list */}
       {loading ? (
-        <div className="text-center py-12 text-text-tertiary text-sm">Loading jobs…</div>
+        <div className="text-center py-12 text-text-tertiary text-sm">{t('jobs.loading')}</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12">
           <BriefcaseIcon className="w-10 h-10 text-text-tertiary mx-auto mb-3 opacity-40" />
           <p className="text-sm text-text-tertiary">
-            {jobs.length === 0 ? 'No jobs yet — start one above.' : 'No jobs match the current filters.'}
+            {jobs.length === 0 ? t('jobs.no_jobs_yet') : t('jobs.no_match')}
           </p>
         </div>
       ) : (

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 import { ABSTester } from '@/components/ABSTester';
 import { ABSModule, ABSProfile } from '@/types/abs';
+import { useTranslation } from 'react-i18next';
 
 const moduleItemVariants = {
   hidden:  { opacity: 0, x: -8 },
@@ -16,6 +17,7 @@ const moduleItemVariants = {
 };
 
 export default function ValvesPage() {
+  const { t } = useTranslation();
   const [modules, setModules]           = useState<ABSModule[]>([]);
   const [selectedModule, setSelectedModule] = useState<ABSModule | null>(null);
   const [profile, setProfile]           = useState<ABSProfile | null>(null);
@@ -110,8 +112,8 @@ export default function ValvesPage() {
         transition={{ duration: 0.2 }}
       >
         <div>
-          <h1 className="text-xl font-semibold text-text-primary tracking-tight">Valve Testing</h1>
-          <p className="text-sm text-text-secondary mt-0.5">Hydraulic modulator solenoid valves</p>
+          <h1 className="text-xl font-semibold text-text-primary tracking-tight">{t('valves.title')}</h1>
+          <p className="text-sm text-text-secondary mt-0.5">{t('valves.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <AnimatePresence>
@@ -131,7 +133,7 @@ export default function ValvesPage() {
             className="btn-primary"
           >
             <PlusIcon className="h-4 w-4" />
-            Add Module
+            {t('valves.add_module')}
           </button>
         </div>
       </motion.div>
@@ -165,10 +167,10 @@ export default function ValvesPage() {
             exit={{ opacity: 0 }}
             className="mb-4 p-4 rounded-xl bg-danger/10 border border-danger/20 text-danger text-sm"
           >
-            <strong>Database error:</strong> {dbError}
+            <strong>{t('valves.db_error')}</strong> {dbError}
             <br />
-            <span className="text-xs opacity-80">Go to Dashboard to configure your database connection.</span>
-            <button onClick={fetchModules} className="ml-4 underline text-xs opacity-80 hover:opacity-100">Retry</button>
+            <span className="text-xs opacity-80">{t('valves.db_error_hint')}</span>
+            <button onClick={fetchModules} className="ml-4 underline text-xs opacity-80 hover:opacity-100">{t('valves.retry')}</button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -182,12 +184,12 @@ export default function ValvesPage() {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.22, delay: 0.05 }}
         >
-          <h2 className="card-header">ABS Modules</h2>
+          <h2 className="card-header">{t('valves.abs_modules')}</h2>
 
           {modules.length === 0 && !dbError && (
             <p className="text-sm text-text-tertiary text-center py-4">
-              No modules found.<br />
-              <span className="text-xs">Add one or check DB connection.</span>
+              {t('valves.no_modules')}<br />
+              <span className="text-xs">{t('valves.no_modules_hint')}</span>
             </p>
           )}
 
@@ -218,7 +220,7 @@ export default function ValvesPage() {
                       ].join(' ')}>
                         {module.name}
                       </p>
-                      <p className="text-xs text-text-tertiary mt-0.5">{module.valveCount} valves</p>
+                      <p className="text-xs text-text-tertiary mt-0.5">{module.valveCount} {t('valves.valve_count_unit')}</p>
                     </div>
                     {isAdminMode && (
                       <button
@@ -262,7 +264,7 @@ export default function ValvesPage() {
                 className="card flex items-center justify-center min-h-[200px]"
               >
                 <p className="text-text-tertiary text-sm">
-                  {dbError ? 'Configure database connection in Dashboard.' : 'Select a module to begin valve testing.'}
+                  {dbError ? t('valves.configure_db') : t('valves.select_module')}
                 </p>
               </motion.div>
             )}
@@ -291,32 +293,32 @@ export default function ValvesPage() {
               className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
             >
               <div className="card max-w-md w-full mx-4 pointer-events-auto shadow-2xl">
-                <h2 className="card-header text-base">Add ABS Module</h2>
+                <h2 className="card-header text-base">{t('valves.add_module_title')}</h2>
                 <form onSubmit={handleAddModule} className="space-y-4">
                   <div>
-                    <label className="input-label">Module Name</label>
+                    <label className="input-label">{t('valves.module_name')}</label>
                     <input
                       type="text"
                       value={newModule.name}
                       onChange={e => setNewModule(p => ({ ...p, name: e.target.value }))}
                       className="input-field"
-                      placeholder="e.g., MK60, Bosch 8.0"
+                      placeholder={t('valves.module_name_ph')}
                       required
                     />
                   </div>
                   <div>
-                    <label className="input-label">Valve Count</label>
+                    <label className="input-label">{t('valves.valve_count')}</label>
                     <select
                       value={newModule.valveCount}
                       onChange={e => setNewModule(p => ({ ...p, valveCount: parseInt(e.target.value) }))}
                       className="input-field"
                     >
-                      <option value={8}>8 Valves</option>
-                      <option value={12}>12 Valves</option>
+                      <option value={8}>{t('valves.valves_8')}</option>
+                      <option value={12}>{t('valves.valves_12')}</option>
                     </select>
                   </div>
                   <div>
-                    <label className="input-label">Description</label>
+                    <label className="input-label">{t('valves.description')}</label>
                     <textarea
                       value={newModule.description}
                       onChange={e => setNewModule(p => ({ ...p, description: e.target.value }))}
@@ -326,8 +328,8 @@ export default function ValvesPage() {
                     />
                   </div>
                   <div className="flex gap-3 justify-end pt-1">
-                    <button type="button" onClick={() => setIsAddingModule(false)} className="btn-secondary">Cancel</button>
-                    <button type="submit" className="btn-primary">Add Module</button>
+                    <button type="button" onClick={() => setIsAddingModule(false)} className="btn-secondary">{t('common.cancel')}</button>
+                    <button type="submit" className="btn-primary">{t('valves.add_module')}</button>
                   </div>
                 </form>
               </div>
