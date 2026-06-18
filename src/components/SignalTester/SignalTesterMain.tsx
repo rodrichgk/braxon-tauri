@@ -1,9 +1,5 @@
-"use client";
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
-import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useWheelSpeedControl } from '@/hooks/useWheelSpeedControl';
 import { useProfileManagement } from '@/hooks/useProfileManagement';
 import { useRecording } from '@/hooks/useRecording';
@@ -15,6 +11,7 @@ import { PlayIcon, PauseIcon } from '@heroicons/react/24/solid';
 
 interface SignalTesterProps {
   sendMessage: (message: string) => void;
+  isConnected: boolean;
 }
 
 interface WheelSpeeds {
@@ -35,10 +32,7 @@ const VARIANTS = [
 
 const QUICK_SPEEDS_KMH = [0, 5, 20, 50, 80, 120, 180, 250];
 
-export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
-  const { isConnectedToDevice } = useWebSocketContext();
-  const { isConnected: serialConnected } = useClientSerialConnection();
-  const isConnected = isConnectedToDevice || serialConnected;
+export default function SignalTesterMain({ sendMessage, isConnected }: SignalTesterProps) {
 
   // Wheel model — used for km/h ↔ Hz conversion
   const [circumference, setCircumference] = useState(2.0);   // tyre circumference in metres
@@ -208,10 +202,6 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
   const handleStopRecording = () => recording.stopRecording(wheelSpeedControl.masterSpeed);
 
   const handlePlayRecorded = () => {
-    if (recording.recordedProfile.length < 2) {
-      alert('Please record a profile first (at least 2 points)!');
-      return;
-    }
     setRemainingTime(900);
     loggedSend('R\n');
     setIsPlayingRecorded(true);
@@ -222,12 +212,10 @@ export default function SignalTesterMain({ sendMessage }: SignalTesterProps) {
     loggedSend('X\n');
   };
 
-  const handleSaveRecorded = async () => {
-    const profileName = await recording.saveRecordedProfile();
-    if (profileName) {
-      await profileManagement.fetchProfiles();
-      profileManagement.setActiveProfile(recording.recordedProfile);
-    }
+  const handleSaveRecorded = async (name: string) => {
+    await recording.saveRecordedProfile(name);
+    await profileManagement.fetchProfiles();
+    profileManagement.setActiveProfile(recording.recordedProfile);
   };
 
   const handleProfileCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {

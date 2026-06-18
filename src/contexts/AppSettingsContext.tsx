@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 
 export interface WSSChannel {
   canId: number;
@@ -29,23 +29,26 @@ interface AppSettingsContextType {
   setWssCalPpr: (v: number) => void;
   wssCalCirc: number;
   setWssCalCirc: (v: number) => void;
-  // CAN Analyzer collapse state
-  analyzerOpen: boolean;
-  setAnalyzerOpen: (v: boolean) => void;
 }
 
-function persisted<T>(key: string, fallback: T): [() => T, (v: T) => void] {
-  const read = (): T => {
-    try {
-      const s = localStorage.getItem(key);
-      return s !== null ? JSON.parse(s) as T : fallback;
-    } catch { return fallback; }
-  };
-  const write = (v: T) => {
-    try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
-  };
-  return [read, write];
+function persistedRead<T>(key: string, fallback: T): T {
+  try {
+    const s = localStorage.getItem(key);
+    return s !== null ? JSON.parse(s) as T : fallback;
+  } catch { return fallback; }
 }
+
+// Module-level write functions — stable references, no component captures
+function persistedWrite<T>(key: string) {
+  return (v: T) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} };
+}
+const writeMode     = persistedWrite<boolean>('legacyMode');
+const writeType     = persistedWrite<number>('legacySensorType');
+const writeFreq     = persistedWrite<number>('legacyFreq');
+const writeSpeed    = persistedWrite<number | null>('legacyCanSpeed');
+const writeChannels = persistedWrite<WSSChannels>('wssChannels');
+const writePpr      = persistedWrite<number>('wssCalPpr');
+const writeCirc     = persistedWrite<number>('wssCalCirc');
 
 const DEFAULT_CHANNELS: WSSChannels = [null, null, null, null];
 
@@ -57,42 +60,40 @@ const AppSettingsContext = createContext<AppSettingsContextType>({
   wssChannels: DEFAULT_CHANNELS, setWssChannels: () => {},
   wssCalPpr: 48,                 setWssCalPpr: () => {},
   wssCalCirc: 2.0,               setWssCalCirc: () => {},
-  analyzerOpen: false,           setAnalyzerOpen: () => {},
 });
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
-  const [readMode,     saveMode    ] = persisted<boolean>('legacyMode', false);
-  const [readType,     saveType    ] = persisted<number>('legacySensorType', 0);
-  const [readFreq,     saveFreq    ] = persisted<number>('legacyFreq', 0);
-  const [readSpeed,    saveSpeed   ] = persisted<number | null>('legacyCanSpeed', null);
-  const [readChannels, saveChannels] = persisted<WSSChannels>('wssChannels', DEFAULT_CHANNELS);
-  const [readPpr,      savePpr     ] = persisted<number>('wssCalPpr', 48);
-  const [readCirc,     saveCirc    ] = persisted<number>('wssCalCirc', 2.0);
-  const [readAnalyzer, saveAnalyzer] = persisted<boolean>('analyzerOpen', false);
+  const [legacyMode,       setLegacyModeState      ] = useState(() => persistedRead<boolean>('legacyMode', false));
+  const [legacySensorType, setLegacySensorTypeState ] = useState(() => persistedRead<number>('legacySensorType', 0));
+  const [legacyFreq,       setLegacyFreqState       ] = useState(() => persistedRead<number>('legacyFreq', 0));
+  const [legacyCanSpeed,   setLegacyCanSpeedState   ] = useState(() => persistedRead<number | null>('legacyCanSpeed', null));
+  const [wssChannels,      setWssChannelsState      ] = useState<WSSChannels>(() => persistedRead<WSSChannels>('wssChannels', DEFAULT_CHANNELS));
+  const [wssCalPpr,        setWssCalPprState        ] = useState(() => persistedRead<number>('wssCalPpr', 48));
+  const [wssCalCirc,       setWssCalCircState       ] = useState(() => persistedRead<number>('wssCalCirc', 2.0));
 
-  const [legacyMode,       setLegacyModeState      ] = useState(readMode);
-  const [legacySensorType, setLegacySensorTypeState ] = useState(readType);
-  const [legacyFreq,       setLegacyFreqState       ] = useState(readFreq);
-  const [legacyCanSpeed,   setLegacyCanSpeedState   ] = useState(readSpeed);
-  const [wssChannels,      setWssChannelsState      ] = useState<WSSChannels>(readChannels);
-  const [wssCalPpr,        setWssCalPprState        ] = useState(readPpr);
-  const [wssCalCirc,       setWssCalCircState       ] = useState(readCirc);
-  const [analyzerOpen,     setAnalyzerOpenState     ] = useState(readAnalyzer);
+  const setLegacyMode       = useCallback((v: boolean)           => { setLegacyModeState(v);       writeMode(v);     }, []);
+  const setLegacySensorType = useCallback((v: number)            => { setLegacySensorTypeState(v); writeType(v);     }, []);
+  const setLegacyFreq       = useCallback((v: number)            => { setLegacyFreqState(v);       writeFreq(v);     }, []);
+  const setLegacyCanSpeed   = useCallback((v: number | null)     => { setLegacyCanSpeedState(v);   writeSpeed(v);    }, []);
+  const setWssChannels      = useCallback((v: WSSChannels)       => { setWssChannelsState(v);      writeChannels(v); }, []);
+  const setWssCalPpr        = useCallback((v: number)            => { setWssCalPprState(v);        writePpr(v);      }, []);
+  const setWssCalCirc       = useCallback((v: number)            => { setWssCalCircState(v);       writeCirc(v);     }, []);
 
-  const mk = <T,>(setState: (v: T) => void, save: (v: T) => void) =>
-    (v: T) => { setState(v); save(v); };
+  const value = useMemo(() => ({
+    legacyMode,       setLegacyMode,
+    legacySensorType, setLegacySensorType,
+    legacyFreq,       setLegacyFreq,
+    legacyCanSpeed,   setLegacyCanSpeed,
+    wssChannels,      setWssChannels,
+    wssCalPpr,        setWssCalPpr,
+    wssCalCirc,       setWssCalCirc,
+  }), [
+    legacyMode, legacySensorType, legacyFreq, legacyCanSpeed, wssChannels, wssCalPpr, wssCalCirc,
+    setLegacyMode, setLegacySensorType, setLegacyFreq, setLegacyCanSpeed, setWssChannels, setWssCalPpr, setWssCalCirc,
+  ]);
 
   return (
-    <AppSettingsContext.Provider value={{
-      legacyMode,       setLegacyMode:       mk(setLegacyModeState,       saveMode),
-      legacySensorType, setLegacySensorType: mk(setLegacySensorTypeState,  saveType),
-      legacyFreq,       setLegacyFreq:       mk(setLegacyFreqState,        saveFreq),
-      legacyCanSpeed,   setLegacyCanSpeed:   mk(setLegacyCanSpeedState,    saveSpeed),
-      wssChannels,      setWssChannels:      mk(setWssChannelsState,       saveChannels),
-      wssCalPpr,        setWssCalPpr:        mk(setWssCalPprState,         savePpr),
-      wssCalCirc,       setWssCalCirc:       mk(setWssCalCircState,        saveCirc),
-      analyzerOpen,     setAnalyzerOpen:     mk(setAnalyzerOpenState,      saveAnalyzer),
-    }}>
+    <AppSettingsContext.Provider value={value}>
       {children}
     </AppSettingsContext.Provider>
   );

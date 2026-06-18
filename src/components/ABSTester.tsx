@@ -1,18 +1,16 @@
-"use client";
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ValveIndicator } from './ValveIndicator';
 import { ABSProfile, Valve, ValveStatus } from '@/types/abs';
 import { ChartBarIcon, ClipboardDocumentListIcon, PlayIcon, InformationCircleIcon, StopIcon } from '@heroicons/react/24/outline';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import clsx from 'clsx';
 
 interface ABSTesterProps {
   profile: ABSProfile;
 }
 
-// Commands for the ABS tester
+// Commands for the ABS tester — placeholder: actual valve protocol TBD
 const ABSCommands = {
   START_TEST: 'START',
   STOP_TEST: 'STOP',
@@ -20,44 +18,29 @@ const ABSCommands = {
   TEST_VALVES: (valveIds: number[]) => `TEST ${valveIds.join(',')}`
 } as const;
 
+interface RawMessage {
+  msg: string;
+  time: string;
+}
+
 export function ABSTester({ profile }: ABSTesterProps) {
   const [selectedValves, setSelectedValves] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<'test' | 'sequence' | 'report'>('test');
   const [testingAll, setTestingAll] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  // WebSocket connection
   const {
-    sendMessage: wsSendMessage,
-    isConnectedToDevice
-  } = useWebSocketContext();
-
-  // Serial connection — read-only, ConnectionBar owns connect/disconnect
-  const {
-    isConnected: serialConnected,
+    isConnected,
     sendCommand,
     errorMessage,
   } = useClientSerialConnection({
     onDataReceived: (data) => {
       if (typeof data === 'string') {
-        setRawMessages(prev => [...prev, data].slice(-100));
+        const time = new Date().toTimeString().split(' ')[0];
+        setRawMessages(prev => [...prev, { msg: data, time }].slice(-100));
       }
     },
   });
 
-  const isConnected = Boolean(isConnectedToDevice || serialConnected);
-  
-  const sendMessage = async (message: string): Promise<boolean | void> => {
-    if (isConnectedToDevice) {
-      return wsSendMessage({
-        type: 'raw_message',
-        data: message,
-        timestamp: Date.now()
-      });
-    } else if (serialConnected) {
-      return sendCommand(message);
-    }
-    return false;
-  };
   const [valveStates, setValveStates] = useState<Array<Valve>>(() => {
     const count = profile.module.valveCount;
     return Array.from({ length: count }, (_, i) => ({
@@ -67,54 +50,29 @@ export function ABSTester({ profile }: ABSTesterProps) {
       status: 'inactive' as ValveStatus,
     }));
   });
-  const [isTestMode, setIsTestMode] = useState(false);
-  // Add state for raw messages and debug view toggle
-  const [rawMessages, setRawMessages] = useState<string[]>([]);
+  const [rawMessages, setRawMessages] = useState<RawMessage[]>([]);
   const [showDebugConsole, setShowDebugConsole] = useState(false);
   const [errorState, setErrorState] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Handle incoming data for valve status updates
-  useEffect(() => {
-    // This would be handled by the data received callback in the serial connection
-    // For now, we'll simulate valve status updates based on test commands
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [rawMessages]);
 
   useEffect(() => {
-    // Re-create the valve array to match the new count
     const count = profile.module.valveCount;
     setValveStates(
       Array.from({ length: count }, (_, i) => ({
         id: i + 1,
         name: `Valve ${i + 1}`,
-        health: 100, // Or fetch initial health/status if needed
+        health: 100,
         status: 'inactive' as ValveStatus,
       }))
     );
-  
-    // Reset other states as you were doing
     setSelectedValves([]);
     setTestingAll(false);
     setIsTesting(false);
-  }, [profile.module.valveCount]); // Dependency array is correct
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.code === 'Space') {
-        setIsTestMode(prev => !prev);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  }, [profile.module.valveCount]);
 
   const handleValveClick = (valve: Valve) => {
     if (isTesting || testingAll) return;
@@ -128,13 +86,13 @@ export function ABSTester({ profile }: ABSTesterProps) {
   };
 
   const handleTestSelected = async () => {
-    if (!isTestMode && !isConnected) {
+    if (!isConnected) {
       setErrorState('Not connected to ABS tester board. Please check the USB connection.');
       return;
     }
 
     if (isTesting) {
-      const success = await sendMessage(ABSCommands.STOP_TEST);
+      const success = await sendCommand(ABSCommands.STOP_TEST);
       if (success) {
         setIsTesting(false);
         setValveStates(prev => prev.map(v =>
@@ -146,11 +104,9 @@ export function ABSTester({ profile }: ABSTesterProps) {
     } else {
       if (selectedValves.length === 0) return;
 
-      // First send START command
-      const startSuccess = await sendMessage(ABSCommands.START_TEST);
+      const startSuccess = await sendCommand(ABSCommands.START_TEST);
       if (startSuccess) {
-        // Then send the valve test command
-        const success = await sendMessage(ABSCommands.TEST_VALVES(selectedValves));
+        const success = await sendCommand(ABSCommands.TEST_VALVES(selectedValves));
         if (success) {
           setIsTesting(true);
           setValveStates(prev => prev.map(v =>
@@ -164,13 +120,13 @@ export function ABSTester({ profile }: ABSTesterProps) {
   };
 
   const handleTestAll = async () => {
-    if (!isTestMode && !isConnected) {
+    if (!isConnected) {
       setErrorState('Not connected to ABS tester board. Please check the USB connection.');
       return;
     }
 
     if (testingAll) {
-      const success = await sendMessage(ABSCommands.STOP_TEST);
+      const success = await sendCommand(ABSCommands.STOP_TEST);
       if (success) {
         setTestingAll(false);
         setValveStates(prev => prev.map(v => ({
@@ -179,7 +135,7 @@ export function ABSTester({ profile }: ABSTesterProps) {
         })));
       }
     } else {
-      const success = await sendMessage(ABSCommands.START_TEST);
+      const success = await sendCommand(ABSCommands.START_TEST);
       if (success) {
         setTestingAll(true);
         setSelectedValves([]);
@@ -217,27 +173,15 @@ export function ABSTester({ profile }: ABSTesterProps) {
     return 'grid-cols-2 sm:grid-cols-4 md:grid-cols-6';
   };
 
-  // Maps ABS module names to corresponding image filenames
   const getABSModuleImage = (moduleName: string): string => {
-    console.log('Getting image for module:', moduleName);
-    // Extract module type from name
     if (moduleName.includes('MK60')) return '/images/MK60.png';
     if (moduleName.includes('MK61')) return '/images/MK61.png';
     if (moduleName.includes('MK70')) return '/images/MK70.png';
     if (moduleName.includes('MK100')) return '/images/MK100.png';
     if (moduleName.includes('Bosch 8.0') || moduleName.includes('Bosch8.0')) return '/images/Bosch80.png';
     if (moduleName.includes('Bosch 9.0') || moduleName.includes('Bosch9.0')) return '/images/Bosch90.png';
-    
-    // Fallback: try with the name directly (remove spaces)
     const normalized = moduleName.replace(/[\s.-]/g, '');
-    if (normalized) {
-      // Check if we have an exact match for the filename
-      console.log(normalized)
-      return `/images/${normalized}.png`;
-    }
-    
-    // Default fallback image if no match found
-    return '';
+    return normalized ? `/images/${normalized}.png` : '';
   };
 
   return (
@@ -259,11 +203,6 @@ export function ABSTester({ profile }: ABSTesterProps) {
             <h2 className="card-header">
               {profile.module.name} Configuration
             </h2>
-            {isTestMode && (
-              <span className="ml-2 text-sm font-medium status-info">
-                (Test Mode Active)
-              </span>
-            )}
             <p className="mt-1 text-gray-600 dark:text-gray-400">
               {profile.module.description}
             </p>
@@ -308,10 +247,10 @@ export function ABSTester({ profile }: ABSTesterProps) {
             {rawMessages.length === 0 ? (
               <p className="text-gray-500">No messages received yet...</p>
             ) : (
-              rawMessages.map((msg, idx) => (
+              rawMessages.map((entry, idx) => (
                 <div key={idx} className="mb-1">
-                  <span className="text-gray-500 text-xs mr-2">{new Date().toTimeString().split(' ')[0]}</span>
-                  <span>{msg}</span>
+                  <span className="text-gray-500 text-xs mr-2">{entry.time}</span>
+                  <span>{entry.msg}</span>
                 </div>
               ))
             )}
@@ -363,13 +302,13 @@ export function ABSTester({ profile }: ABSTesterProps) {
                         disabled={
                           selectedValves.length === 0 ||
                           testingAll ||
-                          (!isTestMode && !isConnected)
+                          !isConnected
                         }
                         className={clsx(
                           'flex items-center gap-2',
-                          !isConnected && !isTestMode && 'btn-secondary opacity-50 cursor-not-allowed',
-                          (isTestMode || isConnected) && !isTesting && selectedValves.length > 0 && 'btn-primary',
-                          (isTestMode || isConnected) && isTesting && 'btn-danger'
+                          !isConnected && 'btn-secondary opacity-50 cursor-not-allowed',
+                          isConnected && !isTesting && selectedValves.length > 0 && 'btn-primary',
+                          isConnected && isTesting && 'btn-danger'
                         )}
                       >
                         {isTesting ? (
@@ -385,12 +324,12 @@ export function ABSTester({ profile }: ABSTesterProps) {
                       </button>
                       <button
                         onClick={handleTestAll}
-                        disabled={!isTestMode && !isConnected}
+                        disabled={!isConnected}
                         className={clsx(
                           'flex items-center gap-2',
-                          !isConnected && !isTestMode && 'btn-secondary opacity-50 cursor-not-allowed',
-                          (isTestMode || isConnected) && !testingAll && 'btn-primary',
-                          (isTestMode || isConnected) && testingAll && 'btn-danger'
+                          !isConnected && 'btn-secondary opacity-50 cursor-not-allowed',
+                          isConnected && !testingAll && 'btn-primary',
+                          isConnected && testingAll && 'btn-danger'
                         )}
                       >
                         {testingAll ? (
@@ -421,13 +360,11 @@ export function ABSTester({ profile }: ABSTesterProps) {
                       alt={profile.module.name}
                       className="w-full h-full object-contain max-h-96"
                       onLoad={(e) => {
-                        // Reset display style on successful load
                         const target = e.target as HTMLImageElement;
                         target.style.display = 'block';
                         (target.parentNode as HTMLElement).style.display = 'block';
                       }}
                       onError={(e) => {
-                        // Hide the image container if the image fails to load
                         const target = e.target as HTMLImageElement;
                         target.style.display = 'none';
                         (target.parentNode as HTMLElement).style.display = 'none';
@@ -441,7 +378,7 @@ export function ABSTester({ profile }: ABSTesterProps) {
         </div>
       </div>
 
-      {/* Testing Progress */}
+      {/* Testing Progress — indeterminate, shown while test is running */}
       {(selectedValves.length > 0 && isTesting && activeTab === 'test') && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -459,10 +396,9 @@ export function ABSTester({ profile }: ABSTesterProps) {
           <div className="space-y-4">
             <div className="h-2 bg-slate-200/20 dark:bg-slate-700/20 rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-gradient-to-r from-primary-500 to-primary-600"
-                initial={{ width: "0%" }}
-                animate={{ width: "100%" }}
-                transition={{ duration: 2, repeat: Infinity }}
+                className="h-full w-1/3 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full"
+                animate={{ x: ['-100%', '300%'] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
               />
             </div>
           </div>
@@ -486,10 +422,9 @@ export function ABSTester({ profile }: ABSTesterProps) {
           <div className="space-y-4">
             <div className="h-2 bg-slate-200/20 dark:bg-slate-700/20 rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-gradient-to-r from-primary-500 to-primary-600"
-                initial={{ width: "0%" }}
-                animate={{ width: "100%" }}
-                transition={{ duration: 2, repeat: Infinity }}
+                className="h-full w-1/3 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full"
+                animate={{ x: ['-100%', '300%'] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
               />
             </div>
           </div>

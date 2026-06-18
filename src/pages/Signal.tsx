@@ -12,7 +12,6 @@ import type { WSSChannels } from '@/contexts/AppSettingsContext';
 import { WHEEL_LABELS } from '@/contexts/AppSettingsContext';
 import BenchPower from '@/components/BenchPower';
 import PowerIndicators from '@/components/PowerIndicators';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useSession } from '@/contexts/SessionContext';
 import { useTranslation } from 'react-i18next';
@@ -60,9 +59,7 @@ const resultItemVariants = {
 
 export default function SignalPage() {
   const { t } = useTranslation();
-  const { sendMessage: wsSendMessage, isConnectedToDevice } = useWebSocketContext();
-  const { isConnected: serialConnected, sendCommand: serialSendCommand } = useClientSerialConnection();
-  const isConnected = isConnectedToDevice || serialConnected;
+  const { isConnected, sendCommand: serialSendCommand } = useClientSerialConnection();
   const { currentJob, linkJobToRef } = useSession();
   const {
     legacyMode,
@@ -79,6 +76,12 @@ export default function SignalPage() {
   const [selected, setSelected] = useState<ABSDataRow | null>(null);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const legacyFreqRef = useRef(legacyFreq);
+  legacyFreqRef.current = legacyFreq;
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
+  const sendCommandRef = useRef(serialSendCommand);
+  sendCommandRef.current = serialSendCommand;
 
   // Edit / Add state
   const [editMode, setEditMode] = useState<EditMode>('view');
@@ -128,20 +131,17 @@ export default function SignalPage() {
     const canSpeedCmd = parseDbCanSpeed(selected.canSpeed);
     if (canSpeedCmd !== null) {
       setLegacyCanSpeed(canSpeedCmd);
-      if (isConnected) handleSendMessage(`CANSpeed : ${canSpeedCmd}\n`);
+      if (isConnectedRef.current) sendCommandRef.current(`CANSpeed : ${canSpeedCmd}\n`);
     }
-
-    //wait 300ms before sending waveform command
-    waitfor(300);
 
     const sensorType = parseDbSensorType(selected.wssType);
     if (sensorType !== null) {
       setLegacySensorType(sensorType);
-      if (isConnected) {
+      if (isConnectedRef.current) {
         const msg = sensorType === 0
           ? `Waveform : 0,0\n`
-          : `Waveform : ${sensorType},${legacyFreq}\n`;
-        waveformTimer = setTimeout(() => handleSendMessage(msg), 300);
+          : `Waveform : ${sensorType},${legacyFreqRef.current}\n`;
+        waveformTimer = setTimeout(() => sendCommandRef.current(msg), 300);
       }
     }
 
@@ -169,7 +169,7 @@ export default function SignalPage() {
       .catch(() => setCalStatus('error'));
 
     return () => { if (waveformTimer !== null) clearTimeout(waveformTimer); };
-  }, [selected?.id, legacyMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id, legacyMode]);
 
   const saveCalibration = async () => {
     if (!selected) return;
@@ -186,10 +186,7 @@ export default function SignalPage() {
     }
   };
 
-  const handleSendMessage = async (message: string): Promise<boolean | void> => {
-    if (serialConnected) return serialSendCommand(message);
-    return wsSendMessage({ type: 1, data: message, timestamp: Date.now() });
-  };
+  const handleSendMessage = (message: string) => serialSendCommand(message);
 
   /* ── Edit / Add handlers ── */
 
@@ -592,7 +589,7 @@ export default function SignalPage() {
       {/* Signal Tester — full width, normal mode only */}
       {!legacyMode && (
         <motion.div custom={4} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
-          <SignalTester sendMessage={handleSendMessage} />
+          <SignalTester sendMessage={handleSendMessage} isConnected={isConnected} />
         </motion.div>
       )}
     </div>
@@ -630,25 +627,31 @@ function EditField({
   );
 }
 
+// Ordered most-specific first. First match wins.
+const CAN_SPEED_PATTERNS: [RegExp, number][] = [
+  [/\b1\s*m(bps?)?\b|1000\s*k(bps?)?/i, 1000],
+  [/\b500\s*k?(bps?)?\b/i,               500],
+  [/\b250\s*k?(bps?)?\b/i,               250],
+];
+
+const SENSOR_TYPE_PATTERNS: [RegExp, number][] = [
+  [/passive|df[-_\s]?6|sine/i,       2],
+  [/active|df[-_\s]?11|1\.5\s*k/i,  1],
+];
+
 function parseDbCanSpeed(s: string | undefined): number | null {
   if (!s) return null;
-  const lower = s.toLowerCase();
-  if (lower.includes('1m') || lower.includes('1000') || lower.includes('1 m')) return 1000;
-  if (lower.includes('500')) return 500;
-  if (lower.includes('250')) return 250;
+  for (const [re, speed] of CAN_SPEED_PATTERNS) {
+    if (re.test(s)) return speed;
+  }
   return null;
 }
 
 function parseDbSensorType(s: string | undefined): number | null {
   if (!s) return null;
-  const lower = s.toLowerCase();
-  if (lower.includes('passive') || lower.includes('df6') || lower.includes('sine')) return 2;
-  if (lower.includes('active') || lower.includes('df11') || lower.includes('1.5')) return 1;
+  for (const [re, type] of SENSOR_TYPE_PATTERNS) {
+    if (re.test(s)) return type;
+  }
   return null;
-}
-
-function waitfor(ms: number): Promise<void> {
-  if (ms <= 0) return Promise.resolve();
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
