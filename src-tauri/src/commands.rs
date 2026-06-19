@@ -192,8 +192,8 @@ pub async fn create_module(name: String, valve_count: i32, description: String, 
     let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"INSERT INTO "ABSModule" (id, name, "valveCount", description, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz)"#,
-            &[&id, &name, &valve_count, &description, &now, &now],
+            r#"INSERT INTO "ABSModule" (id, name, "valveCount", description, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, NOW(), NOW())"#,
+            &[&id, &name, &valve_count, &description],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -290,11 +290,10 @@ pub async fn search_abs_data(query: String, state: State<'_, AppState>) -> Resul
 pub async fn save_abs_data(data: ABSData, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
-    let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"INSERT INTO "ABSData" (id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::timestamptz,$16::timestamptz)"#,
-            &[&data.id, &data.reference, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line, &now, &now],
+            r#"INSERT INTO "ABSData" (id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())"#,
+            &[&data.id, &data.reference, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -305,11 +304,10 @@ pub async fn save_abs_data(data: ABSData, state: State<'_, AppState>) -> Result<
 pub async fn update_abs_data(data: ABSData, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
-    let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"UPDATE "ABSData" SET manufacturer=$2, "wssType"=$3, "absAdapter"=$4, "absConnector"=$5, "canSpeed"=$6, "canIdLine"=$7, "canByte"=$8, "canValue"=$9, comments=$10, "testValidated"=$11, "otherReferences"=$12, "kLine"=$13, "updatedAt"=$14::timestamptz WHERE id=$1"#,
-            &[&data.id, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line, &now],
+            r#"UPDATE "ABSData" SET manufacturer=$2, "wssType"=$3, "absAdapter"=$4, "absConnector"=$5, "canSpeed"=$6, "canIdLine"=$7, "canByte"=$8, "canValue"=$9, comments=$10, "testValidated"=$11, "otherReferences"=$12, "kLine"=$13, "updatedAt"=NOW() WHERE id=$1"#,
+            &[&data.id, &data.manufacturer, &data.wss_type, &data.abs_adapter, &data.abs_connector, &data.can_speed, &data.can_id_line, &data.can_byte, &data.can_value, &data.comments, &data.test_validated, &data.other_references, &data.k_line],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -359,11 +357,10 @@ pub async fn get_profiles(state: State<'_, AppState>) -> Result<Vec<SignalProfil
 pub async fn save_profile(profile: SignalProfile, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
-    let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"INSERT INTO "SignalProfile" (id, name, points, "isDefault", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5::timestamptz,$6::timestamptz) ON CONFLICT (id) DO UPDATE SET name=$2, points=$3, "isDefault"=$4, "updatedAt"=$6::timestamptz"#,
-            &[&profile.id, &profile.name, &profile.points, &profile.is_default, &now, &now],
+            r#"INSERT INTO "SignalProfile" (id, name, points, "isDefault", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,NOW(),NOW()) ON CONFLICT (id) DO UPDATE SET name=$2, points=$3, "isDefault"=$4, "updatedAt"=NOW()"#,
+            &[&profile.id, &profile.name, &profile.points, &profile.is_default],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -374,11 +371,10 @@ pub async fn save_profile(profile: SignalProfile, state: State<'_, AppState>) ->
 pub async fn update_profile(profile: SignalProfile, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
-    let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"UPDATE "SignalProfile" SET name=$2, points=$3, "isDefault"=$4, "updatedAt"=$5::timestamptz WHERE id=$1"#,
-            &[&profile.id, &profile.name, &profile.points, &profile.is_default, &now],
+            r#"UPDATE "SignalProfile" SET name=$2, points=$3, "isDefault"=$4, "updatedAt"=NOW() WHERE id=$1"#,
+            &[&profile.id, &profile.name, &profile.points, &profile.is_default],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -488,11 +484,10 @@ pub async fn get_wss_calibration(
 pub async fn save_motor_test(test: MotorTest, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
-    let now = Utc::now().to_rfc3339();
     client
         .execute(
-            r#"INSERT INTO "MotorTest" (id, "motorType", "jobNumber", report, "testResult", "testDuration", category, "testData", "excludeZones", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz,$11::timestamptz)"#,
-            &[&test.id, &test.motor_type, &test.job_number, &test.report, &test.test_result, &test.test_duration, &test.category, &test.test_data, &test.exclude_zones, &now, &now],
+            r#"INSERT INTO "MotorTest" (id, "motorType", "jobNumber", report, "testResult", "testDuration", category, "testData", "excludeZones", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())"#,
+            &[&test.id, &test.motor_type, &test.job_number, &test.report, &test.test_result, &test.test_duration, &test.category, &test.test_data, &test.exclude_zones],
         )
         .await
         .map_err(|e| e.to_string())?;
