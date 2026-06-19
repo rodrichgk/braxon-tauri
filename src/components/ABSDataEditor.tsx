@@ -1,7 +1,5 @@
 ﻿
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
-import { open as openDialog } from '@tauri-apps/api/dialog';
 import {
   ABSData,
   saveABSData,
@@ -28,7 +26,6 @@ export default function ABSDataEditor({
     null
   );
   const [isSaving, setIsSaving] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [showEditor, setShowEditor] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
@@ -268,28 +265,6 @@ export default function ABSDataEditor({
     setNewItem((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleImportXml = async () => {
-    const selected = await openDialog({
-      filters: [{ name: 'XML', extensions: ['xml'] }],
-      multiple: false,
-      title: 'Select ABSTests.xml',
-    });
-    if (!selected || typeof selected !== 'string') return;
-    setIsImporting(true);
-    setMessage({ text: '', type: '' });
-    try {
-      const [imported, skipped] = await invoke<[number, number]>('import_abs_xml', { filePath: selected });
-      setMessage({ text: `Import complete: ${imported} added, ${skipped} skipped (already in DB).`, type: 'success' });
-      const fresh = await invoke<ABSData[]>('get_abs_data');
-      setEditableData(fresh);
-      onDataSaved(fresh);
-    } catch (err: any) {
-      setMessage({ text: `Import failed: ${String(err)}`, type: 'error' });
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
   return (
     <div className="card">
       <div className="flex justify-between items-center mb-4">
@@ -317,13 +292,6 @@ export default function ABSDataEditor({
       )}
 
       <div className="flex justify-end mb-4 space-x-2">
-        <button
-          onClick={handleImportXml}
-          disabled={isImporting}
-          className="btn-secondary"
-        >
-          {isImporting ? 'Importing…' : 'Import XML'}
-        </button>
         <button
           onClick={() => setShowEditor((v) => !v)}
           className="btn-primary"
