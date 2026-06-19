@@ -125,23 +125,6 @@ pub async fn is_serial_connected(state: State<'_, AppState>) -> Result<bool, Str
     Ok(conn.is_connected())
 }
 
-// ---- WebSocket Device Commands ----
-
-#[tauri::command]
-pub async fn get_devices() -> Result<Vec<String>, String> {
-    Ok(vec![])
-}
-
-#[tauri::command]
-pub async fn select_device(_device_id: String) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn send_device_message(_device_id: String, _message: String) -> Result<(), String> {
-    Ok(())
-}
-
 // ---- DB Config Commands ----
 
 #[tauri::command]
@@ -774,10 +757,31 @@ pub async fn match_ecu_ident(
 
 // ── Auth / User Commands ──────────────────────────────────────
 
+// New salted format: "$sha256v2$<uuid-salt>$<sha256(salt+password)>"
 fn hash_password(password: &str) -> String {
+    let salt = Uuid::new_v4().to_string();
     let mut h = Sha256::new();
+    h.update(salt.as_bytes());
     h.update(password.as_bytes());
-    format!("{:x}", h.finalize())
+    format!("$sha256v2${}${:x}", salt, h.finalize())
+}
+
+// Verifies against both old (unsalted) and new (salted) stored hashes.
+fn verify_password(password: &str, stored: &str) -> bool {
+    if let Some(rest) = stored.strip_prefix("$sha256v2$") {
+        // New format: strip prefix then split on '$' → [salt, hash]
+        let mut parts = rest.splitn(2, '$');
+        let (Some(salt), Some(expected)) = (parts.next(), parts.next()) else { return false };
+        let mut h = Sha256::new();
+        h.update(salt.as_bytes());
+        h.update(password.as_bytes());
+        format!("{:x}", h.finalize()) == expected
+    } else {
+        // Legacy unsalted SHA-256 — keeps existing accounts working
+        let mut h = Sha256::new();
+        h.update(password.as_bytes());
+        format!("{:x}", h.finalize()) == stored
+    }
 }
 
 async fn ensure_auth_tables(client: &tokio_postgres::Client) -> Result<(), String> {
@@ -883,16 +887,22 @@ pub async fn login_user(name: String, password: String, state: State<'_, AppStat
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
     ensure_auth_tables(&client).await?;
-    let hash = hash_password(&password);
     let row = client
         .query_opt(
-            r#"SELECT id, name FROM "AppUser" WHERE name = $1 AND password_hash = $2"#,
-            &[&name, &hash],
+            r#"SELECT id, name, password_hash FROM "AppUser" WHERE name = $1"#,
+            &[&name],
         )
         .await
         .map_err(|e| e.to_string())?;
     match row {
-        Some(r) => Ok(AppUserInfo { id: r.get(0), name: r.get(1) }),
+        Some(r) => {
+            let stored_hash: String = r.get(2);
+            if verify_password(&password, &stored_hash) {
+                Ok(AppUserInfo { id: r.get(0), name: r.get(1) })
+            } else {
+                Err("Invalid name or password".to_string())
+            }
+        }
         None => Err("Invalid name or password".to_string()),
     }
 }

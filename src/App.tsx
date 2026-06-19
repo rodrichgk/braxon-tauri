@@ -5,8 +5,6 @@ import { appWindow } from "@tauri-apps/api/window";
 import Sidebar from "./components/Sidebar";
 import TitleBar from "./components/TitleBar";
 import { LogoSymbol, LogoName } from "./components/Logo";
-import { WebSocketProvider } from "./contexts/WebSocketContext";
-import { ToastProvider } from "./contexts/ToastContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppSettingsProvider } from "./contexts/AppSettingsContext";
 import { SessionProvider } from "./contexts/SessionContext";
@@ -92,8 +90,6 @@ function App() {
     <ThemeProvider>
     <SessionProvider>
     <AppSettingsProvider>
-    <ToastProvider>
-      <WebSocketProvider>
         <div className={[
           "h-screen flex bg-app overflow-hidden",
           windowed ? "rounded-xl ring-1 ring-white/[0.06]" : "",
@@ -163,8 +159,6 @@ function App() {
             error:   { iconTheme: { primary: '#ff453a', secondary: '#1c1c1e' } },
           }}
         />
-      </WebSocketProvider>
-    </ToastProvider>
     </AppSettingsProvider>
     </SessionProvider>
     </ThemeProvider>

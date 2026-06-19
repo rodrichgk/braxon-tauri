@@ -1,6 +1,4 @@
-"use client";
-
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { ProfilePoint, ServerProfile } from '@/hooks/useProfileManagement';
 
 interface ProfileEditorProps {
@@ -11,7 +9,7 @@ interface ProfileEditorProps {
   editingPoint: number | null;
   maxFrequency: number;
   onLoadProfile: (id: string) => void;
-  onSaveProfile: () => void;
+  onSaveProfile: (name: string) => void;
   onAddPoint: () => void;
   onRemovePoint: () => void;
   onCanvasClick: (e: React.MouseEvent<HTMLCanvasElement>) => void;
@@ -23,6 +21,13 @@ export default function ProfileEditor({
   onLoadProfile, onSaveProfile, onAddPoint, onRemovePoint, onCanvasClick,
 }: ProfileEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [saveName, setSaveName] = useState(() =>
+    profiles.find(p => p.id === selectedProfileId)?.name ?? ''
+  );
+
+  useEffect(() => {
+    setSaveName(profiles.find(p => p.id === selectedProfileId)?.name ?? '');
+  }, [selectedProfileId, profiles]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,20 +117,31 @@ export default function ProfileEditor({
       <h3 className="text-sm font-semibold text-text-primary mb-4">Test Profile Editor</h3>
 
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           <select
             value={selectedProfileId || ''}
             onChange={e => onLoadProfile(e.target.value)}
             disabled={isLoadingProfiles}
-            className="input-field text-xs py-1.5 w-auto"
+            className="input-field text-xs py-1.5 w-auto shrink-0"
           >
             {isLoadingProfiles ? <option>Loading…</option>
               : profiles.length === 0 ? <option>No profiles</option>
               : profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button onClick={onSaveProfile} className="btn-success text-xs py-1.5 px-3">Save</button>
+          <input
+            type="text"
+            value={saveName}
+            onChange={e => setSaveName(e.target.value)}
+            placeholder="Profile name"
+            className="input-field text-xs py-1.5 flex-1 min-w-0"
+          />
+          <button
+            onClick={() => { if (saveName.trim()) onSaveProfile(saveName.trim()); }}
+            disabled={!saveName.trim()}
+            className="btn-success text-xs py-1.5 px-3 disabled:opacity-40 shrink-0"
+          >Save</button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button onClick={onAddPoint} className="btn-primary text-xs py-1.5 px-3">Add Point</button>
           <button onClick={onRemovePoint} disabled={editingPoint === null || activeProfile.length <= 2}
             className="btn-danger text-xs py-1.5 px-3 disabled:opacity-40">Remove</button>

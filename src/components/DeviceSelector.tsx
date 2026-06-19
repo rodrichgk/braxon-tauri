@@ -1,5 +1,4 @@
-"use client";
-
+﻿
 import React, { useState, useEffect } from 'react';
 import {
   WifiIcon,
@@ -92,11 +91,11 @@ export default function DeviceSelector({
     const timeSinceLastSeen = now.getTime() - lastSeen.getTime();
     
     if (timeSinceLastSeen < 10000) { // Less than 10 seconds
-      return { status: 'healthy', color: 'text-green-600', indicator: '●' };
+      return { status: 'healthy', color: 'text-green-600', indicator: 'â—' };
     } else if (timeSinceLastSeen < 30000) { // Less than 30 seconds
-      return { status: 'warning', color: 'text-yellow-600', indicator: '●' };
+      return { status: 'warning', color: 'text-yellow-600', indicator: 'â—' };
     } else {
-      return { status: 'stale', color: 'text-red-600', indicator: '●' };
+      return { status: 'stale', color: 'text-red-600', indicator: 'â—' };
     }
   };
 

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 use tokio_postgres::{Client, NoTls};
 use tauri::async_runtime;
 
@@ -16,16 +15,14 @@ pub struct DbConfig {
 impl Default for DbConfig {
     fn default() -> Self {
         Self {
-            host: "192.168.77.182".to_string(),
+            host: String::new(),
             port: 5432,
-            database: "abs_tester".to_string(),
-            username: "abs_user".to_string(),
+            database: String::new(),
+            username: String::new(),
             password: String::new(),
         }
     }
 }
-
-pub type SharedDbConfig = Arc<Mutex<DbConfig>>;
 
 /// Returns the path to db_config.json stored in %APPDATA%\pic-abs-tester\
 /// This keeps it outside src-tauri/ so Tauri's dev watcher doesn't trigger a hot-reload.

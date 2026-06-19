@@ -1,5 +1,4 @@
-"use client";
-
+import { useState } from 'react';
 import { PlayIcon, PauseIcon, ArrowPathIcon } from '@heroicons/react/24/solid';
 import { BookmarkSquareIcon } from '@heroicons/react/24/outline';
 import { ProfilePoint } from '@/hooks/useProfileManagement';
@@ -16,7 +15,7 @@ interface RecordingControlsProps {
   onStopRecording: () => void;
   onPlayRecorded: () => void;
   onStopPlayback: () => void;
-  onSaveRecorded: () => void;
+  onSaveRecorded: (name: string) => void;
 }
 
 export default function RecordingControls({
@@ -24,8 +23,10 @@ export default function RecordingControls({
   isConnected, isAutoTesting, profileEditorOpen,
   onStartRecording, onStopRecording, onPlayRecorded, onStopPlayback, onSaveRecorded,
 }: RecordingControlsProps) {
+  const [saveName, setSaveName] = useState('');
   const elapsed = recordingStartTime ? ((Date.now() - recordingStartTime) / 1000).toFixed(1) : '0.0';
   const duration = recordedProfile.length > 1 ? recordedProfile[recordedProfile.length - 1].time.toFixed(1) : '0.0';
+  const canSave = recordedProfile.length >= 2 && !isRecording && !isPlayingRecorded;
 
   return (
     <div className="mt-6 pt-6 border-t border-border">
@@ -45,7 +46,7 @@ export default function RecordingControls({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button
           onClick={isRecording ? onStopRecording : onStartRecording}
           disabled={!isConnected || isAutoTesting || isPlayingRecorded || profileEditorOpen}
@@ -69,13 +70,26 @@ export default function RecordingControls({
             <PauseIcon className="w-3.5 h-3.5" /> Stop
           </button>
         )}
-
-        <button onClick={onSaveRecorded}
-          disabled={recordedProfile.length < 2 || isRecording || isPlayingRecorded}
-          className="btn-secondary py-2 text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40">
-          <BookmarkSquareIcon className="w-3.5 h-3.5" /> Save
-        </button>
       </div>
+
+      {canSave && (
+        <div className="flex gap-2 mt-2">
+          <input
+            type="text"
+            value={saveName}
+            onChange={e => setSaveName(e.target.value)}
+            placeholder="Profile name…"
+            className="input-field text-xs py-1.5 flex-1 min-w-0"
+          />
+          <button
+            onClick={() => { if (saveName.trim()) { onSaveRecorded(saveName.trim()); setSaveName(''); } }}
+            disabled={!saveName.trim()}
+            className="btn-secondary py-1.5 px-2.5 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 shrink-0"
+          >
+            <BookmarkSquareIcon className="w-3.5 h-3.5" /> Save
+          </button>
+        </div>
+      )}
 
       {!isRecording && recordedProfile.length === 0 && (
         <p className="text-xs text-text-tertiary mt-3 text-center">

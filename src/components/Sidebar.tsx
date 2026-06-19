@@ -1,14 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   HomeIcon,
   Cog6ToothIcon,
   BoltIcon,
   SignalIcon,
   ArrowPathIcon,
-  ChevronDownIcon,
   BriefcaseIcon,
   ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
@@ -19,7 +18,6 @@ import {
   SignalIcon as SignalSolid,
   BriefcaseIcon as BriefcaseSolid,
 } from '@heroicons/react/24/solid';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useSession } from '@/contexts/SessionContext';
@@ -47,10 +45,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-  const [esp32Expanded, setEsp32Expanded] = useState(false);
   const { t } = useTranslation();
 
-  const { devices, selectedDeviceId, selectDevice, isConnectedToDevice } = useWebSocketContext();
   const { legacyMode, setLegacyMode } = useAppSettings();
   const { currentUser, currentJob, isGuest, logout } = useSession();
 
@@ -71,8 +67,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
   // Refresh ports on mount
   useEffect(() => { refreshPorts(); }, []);
 
-  const esp32Devices = devices.filter(d => d.device_type === 'esp32');
-  const connected = isConnectedToDevice || serialConnected;
+  const connected = serialConnected;
 
   return (
     <aside className="w-[220px] h-full flex flex-col bg-sidebar border-r border-sidebar-border shrink-0 select-none">
@@ -168,9 +163,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               connected ? 'text-success' : 'text-text-tertiary',
             ].join(' ')}>
               {connected
-                ? isConnectedToDevice
-                  ? t('connection.esp32_connected')
-                  : `${selectedPort ?? 'Serial'} · ${baudRate}`
+                ? `${selectedPort ?? 'Serial'} · ${baudRate}`
                 : t('connection.no_connection')}
             </span>
           </div>
@@ -283,68 +276,6 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           </button>
         </div>
 
-        {/* ESP32 section — collapsible since it's less common */}
-        {esp32Devices.length > 0 && (
-          <div>
-            <button
-              onClick={() => setEsp32Expanded(v => !v)}
-              className="w-full flex items-center justify-between px-1 py-1 text-[10px] font-semibold
-                text-text-tertiary uppercase tracking-widest hover:text-text-secondary transition-colors"
-            >
-              <span>ESP32 ({esp32Devices.length})</span>
-              <motion.span
-                animate={{ rotate: esp32Expanded ? 180 : 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <ChevronDownIcon className="w-3 h-3" />
-              </motion.span>
-            </button>
-
-            <AnimatePresence initial={false}>
-              {esp32Expanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-1.5 space-y-1">
-                    {esp32Devices.map(d => {
-                      const isSelected = d.id === selectedDeviceId;
-                      const inUse = !!d.paired_with_client && !isSelected;
-                      return (
-                        <div
-                          key={d.id}
-                          className="flex items-center justify-between bg-elevated rounded-lg px-2.5 py-1.5 border border-border"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className={[
-                              'w-1.5 h-1.5 rounded-full shrink-0',
-                              isSelected ? 'bg-success' : inUse ? 'bg-warning' : 'bg-text-tertiary',
-                            ].join(' ')} />
-                            <span className="text-xs text-text-primary truncate">{d.id}</span>
-                          </div>
-                          <button
-                            onClick={() => selectDevice(isSelected ? null : d.id)}
-                            disabled={inUse}
-                            className={[
-                              'text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 ml-1',
-                              'transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-                              isSelected ? 'text-danger hover:bg-danger/10' : 'text-accent hover:bg-accent/10',
-                            ].join(' ')}
-                          >
-                            {isSelected ? 'Drop' : inUse ? 'Busy' : 'Use'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
       </div>
 
       {/* ── Language switcher ── */}

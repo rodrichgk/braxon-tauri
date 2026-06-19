@@ -5,21 +5,14 @@ import { invoke } from '@tauri-apps/api/tauri';
 import { useSession, AppUser } from '@/contexts/SessionContext';
 import { LogoSymbol, LogoName } from '@/components/Logo';
 import { ChevronDownIcon, CircleStackIcon } from '@heroicons/react/24/outline';
+import type { DbConfig } from '@/lib/types';
 
 type Tab = 'login' | 'register';
-
-interface DbConfig {
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-}
 
 /* ── DB Config Panel ───────────────────────────────────────── */
 function DbConfigPanel({ onConnected }: { onConnected: () => void }) {
   const [cfg, setCfg] = useState<DbConfig>({
-    host: '192.168.77.182', port: 5432, database: 'abs_tester', username: 'abs_user', password: '',
+    host: '', port: 5432, database: '', username: '', password: '',
   });
   const [status, setStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [errMsg, setErrMsg] = useState('');
@@ -139,7 +132,7 @@ export default function LoginModal() {
     e.preventDefault();
     if (!name.trim() || !password) { setError('Please fill in all fields'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
-    if (password.length < 4) { setError('Password must be at least 4 characters'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
     setLoading(true); setError('');
     try {
       const user = await register(name.trim(), password);

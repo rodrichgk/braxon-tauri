@@ -2,21 +2,15 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { useTranslation } from 'react-i18next';
 
-interface DbConfig {
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password: string;
-}
+import type { DbConfig } from '@/lib/types';
 
 export default function HomePage() {
   const { t } = useTranslation();
   const [config, setConfig] = useState<DbConfig>({
-    host: '192.168.77.182',
+    host: '',
     port: 5432,
-    database: 'abs_tester',
-    username: 'abs_user',
+    database: '',
+    username: '',
     password: '',
   });
   const [testStatus, setTestStatus] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -79,8 +73,8 @@ export default function HomePage() {
               <span className="font-medium text-text-primary">Tauri Desktop</span>
             </div>
             <div className="flex justify-between items-center">
-              <span>{t('home.ws_server')}</span>
-              <span className="font-medium text-success">127.0.0.1:8765</span>
+              <span>Connection</span>
+              <span className="font-medium text-text-primary">USB Serial</span>
             </div>
           </div>
 

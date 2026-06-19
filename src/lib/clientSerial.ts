@@ -24,6 +24,7 @@ class TauriSerial {
   private unlistenData: UnlistenFn | null = null;
   private unlistenDisconnect: UnlistenFn | null = null;
   private _isConnected = false;
+  private _readingStarted = false;
 
   getIsConnected(): boolean {
     return this._isConnected;
@@ -84,10 +85,9 @@ class TauriSerial {
     }
   }
 
-  send = this.write.bind(this);
-
   startReading() {
-    if (this.unlistenData) return;
+    if (this._readingStarted) return;
+    this._readingStarted = true;
 
     listen<string>('serial-data', (event) => {
       this.emit({ type: 'data', data: event.payload });
@@ -104,6 +104,7 @@ class TauriSerial {
   }
 
   private _teardownListeners() {
+    this._readingStarted = false;
     if (this.unlistenData) { this.unlistenData(); this.unlistenData = null; }
     if (this.unlistenDisconnect) { this.unlistenDisconnect(); this.unlistenDisconnect = null; }
   }
@@ -115,9 +116,6 @@ class TauriSerial {
   removeEventListener(cb: EventCallback) {
     this.listeners = this.listeners.filter(l => l !== cb);
   }
-
-  onData = () => {};
-  onError = () => {};
 }
 
 const clientSerial = new TauriSerial();

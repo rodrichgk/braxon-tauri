@@ -47,14 +47,8 @@ export function useRecording() {
     });
   }, [isRecording]);
 
-  const saveRecordedProfile = useCallback(async () => {
-    if (recordedProfile.length < 2) {
-      alert('Please record a profile first (at least 2 points)!');
-      return;
-    }
-
-    const profileName = prompt('Enter a name for this recorded profile:');
-    if (!profileName) return;
+  const saveRecordedProfile = useCallback(async (name: string) => {
+    if (recordedProfile.length < 2 || !name.trim()) return;
 
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -62,17 +56,15 @@ export function useRecording() {
       const now = new Date().toISOString();
       const newProfile = {
         id: crypto.randomUUID(),
-        name: profileName,
+        name: name.trim(),
         points: JSON.stringify(recordedProfile),
         isDefault: false,
         createdAt: now,
         updatedAt: now,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...existing, newProfile]));
-      return profileName;
     } catch (err) {
       console.error('Error saving recorded profile:', err);
-      alert('Failed to save profile');
     }
   }, [recordedProfile]);
 

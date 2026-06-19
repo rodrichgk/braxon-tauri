@@ -52,15 +52,35 @@ const SessionContext = createContext<SessionContextType>({
   setCurrentJob: () => {},
 });
 
-const USER_KEY = 'session_user_id';
+const USER_KEY     = 'session_user_id';
 const USER_NAME_KEY = 'session_user_name';
+const EXPIRES_KEY  = 'session_expires_at';
+const SESSION_TTL  = 8 * 60 * 60 * 1000; // 8 hours in ms
+
+function clearStoredSession() {
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(USER_NAME_KEY);
+  localStorage.removeItem(EXPIRES_KEY);
+}
+
+function persistSession(user: AppUser) {
+  localStorage.setItem(USER_KEY,      user.id);
+  localStorage.setItem(USER_NAME_KEY, user.name);
+  localStorage.setItem(EXPIRES_KEY,   String(Date.now() + SESSION_TTL));
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
     try {
-      const id = localStorage.getItem(USER_KEY);
-      const name = localStorage.getItem(USER_NAME_KEY);
-      return id && name ? { id, name } : null;
+      const id      = localStorage.getItem(USER_KEY);
+      const name    = localStorage.getItem(USER_NAME_KEY);
+      const expires = localStorage.getItem(EXPIRES_KEY);
+      if (!id || !name) return null;
+      if (!expires || Date.now() > parseInt(expires, 10)) {
+        clearStoredSession();
+        return null;
+      }
+      return { id, name };
     } catch {
       return null;
     }
@@ -69,15 +89,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const login = async (name: string, password: string) => {
     const user = await invoke<AppUser>('login_user', { name, password });
-    localStorage.setItem(USER_KEY, user.id);
-    localStorage.setItem(USER_NAME_KEY, user.name);
+    persistSession(user);
     setCurrentUser(user);
   };
 
   const register = async (name: string, password: string): Promise<AppUser> => {
     const user = await invoke<AppUser>('create_user', { name, password });
-    localStorage.setItem(USER_KEY, user.id);
-    localStorage.setItem(USER_NAME_KEY, user.name);
+    persistSession(user);
     setCurrentUser(user);
     return user;
   };
@@ -88,8 +106,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(USER_NAME_KEY);
+    clearStoredSession();
     setCurrentUser(null);
     setCurrentJob(null);
   };

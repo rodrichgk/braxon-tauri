@@ -1,5 +1,4 @@
-"use client";
-import { Valve } from '@/types/abs';
+﻿import { Valve } from '@/types/abs';
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import { BeakerIcon } from '@heroicons/react/24/outline';

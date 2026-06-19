@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface ProfilePoint {
   time: number;
@@ -52,9 +52,8 @@ export function useProfileManagement() {
     setIsLoadingProfiles(false);
   }, [selectedProfileId]);
 
-  const saveProfile = useCallback(async () => {
-    const profileName = prompt('Enter a name for this profile:', selectedProfileName);
-    if (!profileName) return;
+  const saveProfile = useCallback(async (profileName: string) => {
+    if (!profileName.trim()) return;
 
     const now = new Date().toISOString();
     const existing = loadFromStorage();
@@ -62,16 +61,16 @@ export function useProfileManagement() {
     if (selectedProfileId) {
       const updated = existing.map(p =>
         p.id === selectedProfileId
-          ? { ...p, name: profileName, points: JSON.stringify(activeProfile), updatedAt: now }
+          ? { ...p, name: profileName.trim(), points: JSON.stringify(activeProfile), updatedAt: now }
           : p
       );
       saveToStorage(updated);
       setProfiles(updated);
-      setSelectedProfileName(profileName);
+      setSelectedProfileName(profileName.trim());
     } else {
       const newProfile: ServerProfile = {
         id: crypto.randomUUID(),
-        name: profileName,
+        name: profileName.trim(),
         points: JSON.stringify(activeProfile),
         isDefault: false,
         createdAt: now,
@@ -81,9 +80,9 @@ export function useProfileManagement() {
       saveToStorage(updated);
       setProfiles(updated);
       setSelectedProfileId(newProfile.id);
-      setSelectedProfileName(profileName);
+      setSelectedProfileName(profileName.trim());
     }
-  }, [selectedProfileId, selectedProfileName, activeProfile]);
+  }, [selectedProfileId, activeProfile]);
 
   const loadProfile = useCallback((profileId: string) => {
     const profile = profiles.find(p => p.id === profileId);
@@ -116,10 +115,12 @@ export function useProfileManagement() {
     });
   }, []);
 
+  const fetchProfilesRef = useRef(fetchProfiles);
+  fetchProfilesRef.current = fetchProfiles;
+
   useEffect(() => {
-    fetchProfiles();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fetchProfilesRef.current();
+  }, []); // mount only
 
   return {
     profiles,

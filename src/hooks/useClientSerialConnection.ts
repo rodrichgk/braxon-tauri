@@ -1,6 +1,4 @@
-"use client";
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import clientSerial, { SerialEvent, SerialOptions, SerialPortInfo } from '@/lib/clientSerial';
 
@@ -20,9 +18,6 @@ export interface UseClientSerialConnectionResult {
   clearError: () => void;
   baudRate: string;
   setBaudRate: (rate: string) => void;
-  autoScroll: boolean;
-  setAutoScroll: (scroll: boolean) => void;
-  dataLog: string[];
   ports: SerialPortInfo[];
   refreshPorts: () => Promise<void>;
   selectedPort: string | null;
@@ -33,12 +28,13 @@ export interface UseClientSerialConnectionResult {
 export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks): UseClientSerialConnectionResult {
   const [isConnected, setIsConnected] = useState(() => clientSerial.getIsConnected());
   const [baudRate, setBaudRate] = useState('115200');
-  const [autoScroll, setAutoScroll] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [dataLog, setDataLog] = useState<string[]>([]);
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState<string | null>(null);
   const [picoDetected, setPicoDetected] = useState(false);
+
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
 
   const refreshPorts = useCallback(async () => {
     try {
@@ -49,12 +45,10 @@ export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks)
     }
   }, []);
 
-  // Load ports on mount
   useEffect(() => {
     refreshPorts();
   }, [refreshPorts]);
 
-  // Auto-detect Pico by VID 0x2E8A on mount
   useEffect(() => {
     invoke<string | null>('get_pico_port')
       .then(port => {
@@ -71,27 +65,23 @@ export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks)
       case 'connected':
         setIsConnected(true);
         setErrorMessage(null);
-        callbacks?.onConnect?.();
+        callbacksRef.current?.onConnect?.();
         break;
       case 'disconnected':
         setIsConnected(false);
-        callbacks?.onDisconnect?.();
+        callbacksRef.current?.onDisconnect?.();
         break;
       case 'data':
         if (event.data) {
-          setDataLog(prev => {
-            const next = [...prev, event.data!];
-            return next.length > 1000 ? next.slice(-1000) : next;
-          });
-          callbacks?.onDataReceived?.(event.data);
+          callbacksRef.current?.onDataReceived?.(event.data);
         }
         break;
       case 'error':
         setErrorMessage(event.error?.message ?? 'Unknown error');
-        if (event.error) callbacks?.onError?.({ message: event.error.message ?? 'Unknown error' });
+        if (event.error) callbacksRef.current?.onError?.({ message: event.error.message ?? 'Unknown error' });
         break;
     }
-  }, [callbacks]);
+  }, []); // stable — reads callbacks via ref at call time
 
   useEffect(() => {
     clientSerial.addEventListener(handleSerialEvent);
@@ -140,9 +130,6 @@ export function useClientSerialConnection(callbacks?: SerialConnectionCallbacks)
     clearError,
     baudRate,
     setBaudRate,
-    autoScroll,
-    setAutoScroll,
-    dataLog,
     ports,
     refreshPorts,
     selectedPort,

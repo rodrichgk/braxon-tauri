@@ -1,14 +1,11 @@
-"use client";
-
+﻿
 import { useState } from 'react';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 interface SensorData { voltage: number; current: number; voltage_ignition?: number; voltage_abs?: number; }
 interface BenchPowerProps { sendMessage: (message: string) => Promise<boolean | void>; }
 
 export default function BenchPower(_props: BenchPowerProps) {
   const [sensor] = useState<SensorData>({ voltage: 0, current: 0, voltage_ignition: 0, voltage_abs: 0 });
-  const { isConnectedToDevice } = useWebSocketContext();
 
   const readings = [
     { label: 'VCC Main',  value: `${sensor.voltage.toFixed(2)} V` },
@@ -29,10 +26,6 @@ export default function BenchPower(_props: BenchPowerProps) {
           </div>
         ))}
       </div>
-
-      {!isConnectedToDevice && (
-        <p className="text-xs text-text-tertiary mt-3 text-center">Connect to ESP32 to enable power control</p>
-      )}
     </div>
   );
 }
