@@ -1,5 +1,4 @@
-"use client";
-
+﻿
 import { useState, useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { PlayIcon, PauseIcon } from '@heroicons/react/24/solid';
@@ -66,13 +65,13 @@ export default function LegacySignalPanel({ sendMessage, isConnected }: LegacySi
     sendMessage(msg);
   };
 
-  // Listen for Nano RX data — handles both "Freq :" lines and CAN frames
+  // Listen for Nano RX data â€” handles both "Freq :" lines and CAN frames
   useEffect(() => {
     const unsub = listen<string>('serial-data', e => {
       const line = e.payload;
       addLog(`RX: ${line}`);
 
-      // AutoTest frequency feedback — update both the readout and the slider
+      // AutoTest frequency feedback â€” update both the readout and the slider
       const freqMatch = line.match(/^Freq\s*:\s*([\d.]+)/);
       if (freqMatch) {
         const f = parseFloat(freqMatch[1]);
@@ -81,7 +80,7 @@ export default function LegacySignalPanel({ sendMessage, isConnected }: LegacySi
         return;
       }
 
-      // CAN frame → WSS readback
+      // CAN frame â†’ WSS readback
       const frame = parseNanoFrame(line);
       if (frame) {
         const channels = wssChannelsRef.current;
@@ -227,7 +226,7 @@ export default function LegacySignalPanel({ sendMessage, isConnected }: LegacySi
         </div>
       </div>
 
-      {/* ABS Speed Readback — shown when wheel channels are assigned in CAN Analyzer */}
+      {/* ABS Speed Readback â€” shown when wheel channels are assigned in CAN Analyzer */}
       {hasWssChannels && (
         <div className="mt-4 pt-4 border-t border-border">
           <div className="flex items-center justify-between mb-3">
@@ -263,7 +262,7 @@ export default function LegacySignalPanel({ sendMessage, isConnected }: LegacySi
                     'text-2xl font-bold tabular-nums mt-1',
                     ch ? (isGood && speed > 0.5 ? 'text-success' : 'text-text-primary') : 'text-text-tertiary',
                   ].join(' ')}>
-                    {ch ? speed.toFixed(1) : '—'}
+                    {ch ? speed.toFixed(1) : 'â€”'}
                   </div>
                   <div className="text-[10px] text-text-tertiary mt-0.5">km/h</div>
                   {ch && (

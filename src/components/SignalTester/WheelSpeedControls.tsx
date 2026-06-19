@@ -1,5 +1,4 @@
-"use client";
-
+﻿
 import { LinkIcon } from '@heroicons/react/24/solid';
 
 interface WheelSpeeds { fl: number; fr: number; rl: number; rr: number; }

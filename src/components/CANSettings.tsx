@@ -1,12 +1,11 @@
-"use client";
-
+﻿
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { SignalIcon, ArrowDownTrayIcon, XCircleIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface RawField { label: string; name: string; value: string; ph: string; }
 
@@ -40,7 +39,7 @@ const LEGACY_SPEEDS = [
   { label: '1 Mbps',   cmd: 1000 },
 ];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function ts() {
   const now = new Date();
@@ -82,7 +81,7 @@ function parseNanoFrame(line: string): { id: number; dlc: number; data: number[]
   return { id, dlc, data };
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function CANSettings({
   result,
@@ -143,7 +142,7 @@ export default function CANSettings({
       const parsed = parseNanoFrame(line);
       if (!parsed) return; // not a CAN frame (e.g. "Freq : 12.3" or "init")
 
-      // CAN activity tracking — green for 2 s after last frame
+      // CAN activity tracking â€” green for 2 s after last frame
       setHasCan(true);
       if (canTimeoutRef.current) clearTimeout(canTimeoutRef.current);
       canTimeoutRef.current = setTimeout(() => setHasCan(false), 2000);
@@ -187,7 +186,7 @@ export default function CANSettings({
     return () => clearInterval(iv);
   }, [legacyMode, isConnected, legacyCanSpeed]);
 
-  // When CAN goes from inactive → active, wait 300 ms then resend the sensor waveform
+  // When CAN goes from inactive â†’ active, wait 300 ms then resend the sensor waveform
   useEffect(() => {
     if (!legacyMode) { prevHasCanRef.current = false; return; }
     if (hasCan && !prevHasCanRef.current) {
@@ -243,7 +242,7 @@ export default function CANSettings({
     { label: 'CAN Value', name: 'value',  value: canData.value,  ph: '0xFF'   },
   ];
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <div className="card">
@@ -278,7 +277,7 @@ export default function CANSettings({
         )}
       </h2>
 
-      {/* ── Legacy mode: CAN speed selector ── */}
+      {/* â”€â”€ Legacy mode: CAN speed selector â”€â”€ */}
       {legacyMode ? (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">
@@ -312,7 +311,7 @@ export default function CANSettings({
           </div>
         </div>
       ) : (
-        /* ── Pico mode: 4 text fields ── */
+        /* â”€â”€ Pico mode: 4 text fields â”€â”€ */
         <div className="grid grid-cols-2 gap-3 mb-4">
           {picoFields.map(f => (
             <div key={f.name}>
@@ -327,7 +326,7 @@ export default function CANSettings({
         </div>
       )}
 
-      {/* ── Toolbar row ── */}
+      {/* â”€â”€ Toolbar row â”€â”€ */}
       <div className="flex items-center justify-between mb-3 gap-2">
         {/* Status */}
         <div className="flex items-center gap-2 text-xs">
@@ -364,7 +363,7 @@ export default function CANSettings({
         </div>
       </div>
 
-      {/* ── Frame log ── */}
+      {/* â”€â”€ Frame log â”€â”€ */}
       {showLog && (
         <div
           ref={logRef}
@@ -386,7 +385,7 @@ export default function CANSettings({
       {/* Match legend (legacy only) */}
       {legacyMode && result.canIdLine && (
         <p className="text-[10px] text-text-tertiary mt-2 px-0.5">
-          <span className="text-success font-semibold">★</span> = frame ID matches selected entry
+          <span className="text-success font-semibold">â˜…</span> = frame ID matches selected entry
           {result.canIdLine && ` (0x${hex(parseCanIdStr(result.canIdLine) ?? 0, 3)})`}
           {result.canByte && `, byte [${result.canByte}]`}
         </p>
@@ -395,7 +394,7 @@ export default function CANSettings({
   );
 }
 
-// ── FrameRow ─────────────────────────────────────────────────────────────────
+// â”€â”€ FrameRow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function FrameRow({
   frame,
@@ -458,7 +457,7 @@ function FrameRow({
     ].join(' ')}>
       <span className="text-text-tertiary shrink-0">[{frame.timestamp}]</span>
       {frame.isMatch
-        ? <span className="text-success shrink-0 font-bold">★ RX</span>
+        ? <span className="text-success shrink-0 font-bold">â˜… RX</span>
         : <span className="text-text-tertiary shrink-0">   RX</span>
       }
       <span className={['shrink-0 font-semibold w-14', frame.isMatch ? 'text-success' : 'text-text-secondary'].join(' ')}>
@@ -471,7 +470,7 @@ function FrameRow({
           [{result.canByte}]={hex(frame.matchByteValue)}
           {parseCanIdStr(result.canValue) !== null
             && frame.matchByteValue === parseCanIdStr(result.canValue)
-            ? ' ✓' : ' ?'}
+            ? ' âœ“' : ' ?'}
         </span>
       )}
     </div>

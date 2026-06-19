@@ -1,5 +1,4 @@
-"use client";
-
+﻿
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { BeakerIcon, ChevronDownIcon, ChevronUpIcon, XCircleIcon, ChartBarIcon } from '@heroicons/react/24/outline';
@@ -7,7 +6,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import type { WSSChannels } from '@/contexts/AppSettingsContext';
 import { WHEEL_LABELS } from '@/contexts/AppSettingsContext';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface IDStats {
   id: number;
@@ -31,21 +30,21 @@ interface CANAnalyzerProps {
   result: { canIdLine: string; canByte: string; canValue: string; canSpeed: string };
 }
 
-// ── Known ID hints ────────────────────────────────────────────────────────────
+// â”€â”€ Known ID hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ID_HINTS: Record<number, string> = {
-  0x0C0: 'Wheel speeds — Continental/Teves',
-  0x0E4: 'ABS status — Continental/Teves',
-  0x1A0: 'Wheel speeds — Bosch ESP',
-  0x1E0: 'ABS/ESP status — Bosch',
-  0x360: 'ABS — some VW/Audi/PSA',
-  0x3B4: 'ABS status — some VW/Audi',
-  0x1F4: 'ABS — some Ford/PSA',
-  0x284: 'Vehicle speed — Toyota/common',
-  0x4B0: 'Wheel speed — some BMW',
+  0x0C0: 'Wheel speeds â€” Continental/Teves',
+  0x0E4: 'ABS status â€” Continental/Teves',
+  0x1A0: 'Wheel speeds â€” Bosch ESP',
+  0x1E0: 'ABS/ESP status â€” Bosch',
+  0x360: 'ABS â€” some VW/Audi/PSA',
+  0x3B4: 'ABS status â€” some VW/Audi',
+  0x1F4: 'ABS â€” some Ford/PSA',
+  0x284: 'Vehicle speed â€” Toyota/common',
+  0x4B0: 'Wheel speed â€” some BMW',
 };
 
-// ── Math helpers ──────────────────────────────────────────────────────────────
+// â”€â”€ Math helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function parseCanIdStr(s: string): number | null {
   if (!s) return null;
@@ -122,7 +121,7 @@ function linearFit(samples: Sample[]): Fit | null {
 
 function round(n: number, d = 3) { return parseFloat(n.toFixed(d)); }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function CANAnalyzer({ result }: CANAnalyzerProps) {
   const {
@@ -130,8 +129,15 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
     wssChannels, setWssChannels,
     wssCalPpr: ppr, setWssCalPpr: setPpr,
     wssCalCirc: circ, setWssCalCirc: setCirc,
-    analyzerOpen, setAnalyzerOpen,
   } = useAppSettings();
+
+  const [analyzerOpen, setAnalyzerOpen] = useState<boolean>(() => {
+    try { return JSON.parse(localStorage.getItem('analyzerOpen') ?? 'false'); } catch { return false; }
+  });
+  const toggleAnalyzer = (next: boolean) => {
+    setAnalyzerOpen(next);
+    try { localStorage.setItem('analyzerOpen', JSON.stringify(next)); } catch {}
+  };
 
   const statsRef   = useRef<Map<number, IDStats>>(new Map());
   const corrRef    = useRef<Map<string, Sample[]>>(new Map());
@@ -149,7 +155,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
   const matchByte = result.canByte ? parseInt(result.canByte, 10) : null;
   const matchVal  = parseCanIdStr(result.canValue);
 
-  // ── Data ingestion ────────────────────────────────────────────────────────
+  // â”€â”€ Data ingestion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const handleData = useCallback((line: string) => {
     const frame = parseNanoFrame(line);
@@ -183,8 +189,13 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
   }, []);
 
   useEffect(() => {
-    const unsub = listen<string>('serial-data', e => handleData(e.payload));
-    return () => { unsub.then(u => u()); };
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<string>('serial-data', e => handleData(e.payload)).then(fn => {
+      if (cancelled) fn(); // component unmounted before promise resolved
+      else unlisten = fn;
+    });
+    return () => { cancelled = true; unlisten?.(); };
   }, [handleData]);
 
   // 5 Hz render tick
@@ -193,7 +204,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
     return () => clearInterval(id);
   }, []);
 
-  // ── Derived data ──────────────────────────────────────────────────────────
+  // â”€â”€ Derived data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const entries = [...statsRef.current.values()].sort((a, b) => {
     const am = a.id === matchId ? 1 : 0;
@@ -223,12 +234,12 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
     setTick(t => t + 1);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <div className="card w-full">
 
-      {/* ── Header — always visible ── */}
+      {/* â”€â”€ Header â€” always visible â”€â”€ */}
       <div className="flex items-center justify-between mb-0">
         <h2 className="card-header flex items-center gap-2 mb-0">
           <BeakerIcon className="h-4 w-4 text-accent" />
@@ -249,7 +260,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
             <XCircleIcon className="h-3 w-3" /> Clear
           </button>
           <button
-            onClick={() => setAnalyzerOpen(!analyzerOpen)}
+            onClick={() => toggleAnalyzer(!analyzerOpen)}
             className="btn-secondary text-xs px-2.5 py-1 flex items-center gap-1"
           >
             {analyzerOpen
@@ -260,7 +271,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
         </div>
       </div>
 
-      {/* ── Collapsible body ── */}
+      {/* â”€â”€ Collapsible body â”€â”€ */}
       {analyzerOpen && (
         <div className="space-y-4 mt-4">
 
@@ -272,7 +283,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
               {matchByte !== null && <span className="text-text-tertiary">byte [{matchByte}]</span>}
               {matchVal  !== null && <span className="font-mono text-text-primary">= 0x{h(matchVal)}</span>}
               {statsRef.current.has(matchId)
-                ? <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">✓ SEEN</span>
+                ? <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20">âœ“ SEEN</span>
                 : <span className="ml-auto text-[10px] text-text-tertiary">not seen yet</span>
               }
             </div>
@@ -281,11 +292,11 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
           {/* No data */}
           {entries.length === 0 && (
             <p className="text-xs text-text-tertiary italic py-4 text-center">
-              No frames yet — select a CAN bus speed above, then move the frequency slider
+              No frames yet â€” select a CAN bus speed above, then move the frequency slider
             </p>
           )}
 
-          {/* ── Live ID table ── */}
+          {/* â”€â”€ Live ID table â”€â”€ */}
           {entries.length > 0 && (
             <div className="space-y-1.5">
               {entries.map(entry => {
@@ -305,7 +316,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                       onClick={() => setExpandedId(expanded ? null : entry.id)}>
                       <span className={['font-mono font-semibold text-sm w-16 shrink-0',
                         isMatch ? 'text-success' : 'text-text-primary'].join(' ')}>
-                        {isMatch && '★ '}{idHex(entry.id)}
+                        {isMatch && 'â˜… '}{idHex(entry.id)}
                       </span>
                       <span className="font-mono text-xs text-text-secondary flex gap-1 flex-1 min-w-0 truncate">
                         {entry.lastData.map((b, i) => (
@@ -317,10 +328,10 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                         ))}
                       </span>
                       <span className="text-[10px] text-text-tertiary shrink-0 tabular-nums w-14 text-right">
-                        {rate > 0 ? `${rate} Hz` : '—'}
+                        {rate > 0 ? `${rate} Hz` : 'â€”'}
                       </span>
                       <span className="text-[10px] text-text-tertiary shrink-0 tabular-nums w-10 text-right">
-                        ×{entry.count}
+                        Ã—{entry.count}
                       </span>
                       <span className="text-text-tertiary shrink-0 ml-1">
                         {expanded ? <ChevronUpIcon className="h-3.5 w-3.5" /> : <ChevronDownIcon className="h-3.5 w-3.5" />}
@@ -358,7 +369,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                                   {isDbByte && (
                                     <div className={['text-[9px] font-medium mt-0.5',
                                       matchOk ? 'text-success' : matchBad ? 'text-warning' : 'text-accent'].join(' ')}>
-                                      {matchOk ? '✓ match' : matchBad ? '≠ expected' : 'DB byte'}
+                                      {matchOk ? 'âœ“ match' : matchBad ? 'â‰  expected' : 'DB byte'}
                                     </div>
                                   )}
                                   {changed[i] && !isDbByte && (
@@ -378,8 +389,8 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                               {' '}= <span className="font-mono">0x{h(entry.lastData[matchByte])} ({entry.lastData[matchByte]})</span>
                               {matchVal !== null && (
                                 entry.lastData[matchByte] === matchVal
-                                  ? <span className="text-success font-semibold"> ✓ matches expected 0x{h(matchVal)}</span>
-                                  : <span className="text-warning"> ≠ expected 0x{h(matchVal)}</span>
+                                  ? <span className="text-success font-semibold"> âœ“ matches expected 0x{h(matchVal)}</span>
+                                  : <span className="text-warning"> â‰  expected 0x{h(matchVal)}</span>
                               )}
                             </p>
                           </div>
@@ -388,7 +399,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                         <button
                           onClick={() => setShowSpeedFor(showSpeedFor === entry.id ? null : entry.id)}
                           className="text-[10px] text-accent hover:text-accent/80 font-medium transition-colors">
-                          {showSpeedFor === entry.id ? '▲ Hide' : '▼ Show'} raw speed formula guesses
+                          {showSpeedFor === entry.id ? 'â–² Hide' : 'â–¼ Show'} raw speed formula guesses
                         </button>
                         {showSpeedFor === entry.id && <QuickSpeedTable data={entry.lastData} />}
                       </div>
@@ -399,7 +410,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
             </div>
           )}
 
-          {/* ── Correlation tracker ── */}
+          {/* â”€â”€ Correlation tracker â”€â”€ */}
           <div className="border-t border-border pt-4">
             <button
               className="w-full flex items-center justify-between"
@@ -425,9 +436,9 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                 <div className="text-xs text-text-tertiary bg-elevated border border-border rounded-xl px-3 py-2 space-y-1">
                   <p className="font-medium text-text-secondary">How to calibrate:</p>
                   <p>1. Set a CAN bus speed and wait for frames to appear.</p>
-                  <p>2. Slowly move the frequency slider across its range (e.g. 0 → 200 Hz).</p>
+                  <p>2. Slowly move the frequency slider across its range (e.g. 0 â†’ 200 Hz).</p>
                   <p>3. The analyzer records each (Hz, byte value) pair and fits a line.</p>
-                  <p>4. Bytes that move with the slider are speed-related — assign them to FL/FR/RL/RR.</p>
+                  <p>4. Bytes that move with the slider are speed-related â€” assign them to FL/FR/RL/RR.</p>
                 </div>
 
                 {totalCorrSamples > 0 && (
@@ -436,7 +447,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                       {totalCorrSamples} samples captured across {uniqueHz} Hz levels
                     </span>
                     {corrFits.length === 0 && uniqueHz < 3 && (
-                      <span className="text-warning text-[10px]">need ≥ 3 distinct Hz values</span>
+                      <span className="text-warning text-[10px]">need â‰¥ 3 distinct Hz values</span>
                     )}
                   </div>
                 )}
@@ -471,7 +482,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                       const actualEntry  = statsRef.current.get(id);
                       const actualRaw    = actualEntry?.lastData[byteIdx] ?? null;
 
-                      // Use saved channel coefficients when this byte is assigned to a wheel —
+                      // Use saved channel coefficients when this byte is assigned to a wheel â€”
                       // this ensures the value shown here is identical to the ABS Readback panel.
                       const assignedWheelIdx = WHEEL_LABELS.findIndex((_, wi) =>
                         wssChannels[wi]?.canId === id && wssChannels[wi]?.byteIdx === byteIdx
@@ -500,7 +511,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20 font-semibold">DB match</span>
                             )}
                             <span className={['ml-auto text-[10px] font-mono', r2Color].join(' ')}>
-                              R²={round(fit.r2, 3)} ({fit.n} pts)
+                              RÂ²={round(fit.r2, 3)} ({fit.n} pts)
                             </span>
                           </div>
 
@@ -508,19 +519,19 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                           <div className="rounded-lg bg-app border border-border px-3 py-2 font-mono text-xs space-y-1">
                             <div className="text-text-tertiary">Fit (raw value from Hz):</div>
                             <div className="text-text-primary">
-                              value = <span className="text-accent">{slope}</span> × Hz
+                              value = <span className="text-accent">{slope}</span> Ã— Hz
                               {intercept !== 0 && (
-                                <> {intercept > 0 ? '+' : '−'} <span className="text-accent">{Math.abs(intercept)}</span></>
+                                <> {intercept > 0 ? '+' : 'âˆ’'} <span className="text-accent">{Math.abs(intercept)}</span></>
                               )}
                             </div>
                             <div className="text-text-tertiary mt-1">Inverted (Hz from value):</div>
                             <div className="text-success">
-                              Hz = (value{intercept !== 0 && <> {intercept > 0 ? '−' : '+'} {Math.abs(intercept)}</>}) / {slope}
+                              Hz = (value{intercept !== 0 && <> {intercept > 0 ? 'âˆ’' : '+'} {Math.abs(intercept)}</>}) / {slope}
                             </div>
                             <div className="text-text-tertiary mt-1">Full km/h ({ppr} PPR, {circ} m):</div>
                             <div className="text-accent font-semibold">
-                              km/h ≈ value × {kmhScale}
-                              {kmhOffset !== 0 && <> {kmhOffset > 0 ? '+' : '−'} {Math.abs(kmhOffset)}</>}
+                              km/h â‰ˆ value Ã— {kmhScale}
+                              {kmhOffset !== 0 && <> {kmhOffset > 0 ? '+' : 'âˆ’'} {Math.abs(kmhOffset)}</>}
                             </div>
                           </div>
 
@@ -531,7 +542,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                                 At {legacyFreq} Hz:
                               </span>
                               <span className="font-mono text-text-primary">
-                                expected raw ≈ <span className="text-accent">{predictedRaw}</span>
+                                expected raw â‰ˆ <span className="text-accent">{predictedRaw}</span>
                               </span>
                               {actualRaw !== null && (
                                 <span className="font-mono">
@@ -541,7 +552,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                                 </span>
                               )}
                               <span className="font-mono text-text-primary shrink-0 flex items-center gap-1.5">
-                                ≈ <span className="text-success font-semibold">{liveKmh} km/h</span>
+                                â‰ˆ <span className="text-success font-semibold">{liveKmh} km/h</span>
                                 {assignedCh && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/20 font-semibold">
                                     {WHEEL_LABELS[assignedWheelIdx]}
@@ -574,12 +585,12 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                                       : 'bg-app text-text-tertiary border-border hover:text-text-primary',
                                   ].join(' ')}
                                 >
-                                  {label}{isAssigned ? ' ✓' : ''}
+                                  {label}{isAssigned ? ' âœ“' : ''}
                                 </button>
                               );
                             })}
                             {WHEEL_LABELS.some((_, wi) => wssChannels[wi]?.canId === id && wssChannels[wi]?.byteIdx === byteIdx) && (
-                              <span className="text-[10px] text-success font-medium ml-auto">→ live in Signal panel</span>
+                              <span className="text-[10px] text-success font-medium ml-auto">â†’ live in Signal panel</span>
                             )}
                           </div>
 
@@ -593,7 +604,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
                   </p>
                 ) : (
                   <p className="text-xs text-text-tertiary italic">
-                    No strongly correlated bytes found yet — keep moving the slider across a wider range.
+                    No strongly correlated bytes found yet â€” keep moving the slider across a wider range.
                   </p>
                 )}
               </div>
@@ -606,7 +617,7 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
   );
 }
 
-// ── QuickSpeedTable ───────────────────────────────────────────────────────────
+// â”€â”€ QuickSpeedTable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function QuickSpeedTable({ data }: { data: number[] }) {
   const results: { label: string; value: number }[] = [];
@@ -615,7 +626,7 @@ function QuickSpeedTable({ data }: { data: number[] }) {
     const b = data[i];
     [0.5, 1, 2].forEach(sc => {
       const v = round(b * sc, 1);
-      if (v > 0 && v <= 300) results.push({ label: `B[${i}] × ${sc}`, value: v });
+      if (v > 0 && v <= 300) results.push({ label: `B[${i}] Ã— ${sc}`, value: v });
     });
   }
   for (let i = 0; i + 1 < data.length; i++) {
@@ -624,13 +635,13 @@ function QuickSpeedTable({ data }: { data: number[] }) {
     [0.01, 0.0625].forEach(sc => {
       const vBE = round(be * sc, 1);
       const vLE = round(le * sc, 1);
-      if (vBE > 0 && vBE <= 300) results.push({ label: `B[${i}-${i+1}] BE × ${sc}`, value: vBE });
-      if (vLE > 0 && vLE <= 300) results.push({ label: `B[${i}-${i+1}] LE × ${sc}`, value: vLE });
+      if (vBE > 0 && vBE <= 300) results.push({ label: `B[${i}-${i+1}] BE Ã— ${sc}`, value: vBE });
+      if (vLE > 0 && vLE <= 300) results.push({ label: `B[${i}-${i+1}] LE Ã— ${sc}`, value: vLE });
     });
   }
 
   if (results.length === 0)
-    return <p className="text-[10px] text-text-tertiary mt-1.5 italic">No plausible 0–300 km/h values from static formulas.</p>;
+    return <p className="text-[10px] text-text-tertiary mt-1.5 italic">No plausible 0â€“300 km/h values from static formulas.</p>;
 
   return (
     <div className="mt-2 max-h-36 overflow-y-auto overscroll-y-contain grid grid-cols-2 gap-x-4 gap-y-0.5">

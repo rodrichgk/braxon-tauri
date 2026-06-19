@@ -1,9 +1,9 @@
-"use client";
-
+﻿
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
+import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import PowerIndicators from '@/components/PowerIndicators';
 import {
   PlayIcon, StopIcon, PlusIcon, TrashIcon,
@@ -12,7 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import jsPDF from 'jspdf';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface MotorTestData {
   timestamp: number; // ms since test start
@@ -54,7 +54,7 @@ interface MotorTestResult {
   createdAt: Date;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Linear interpolation of reference curve at time t (seconds). */
 function interpolateRef(data: RefPoint[], t: number): number | null {
@@ -109,22 +109,16 @@ function evaluateTest(testData: MotorTestData[], zones: ExcludeZone[]): Deviatio
   };
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const MotorTester: React.FC = () => {
-  const { socket, isConnected, sendMessage: wsSendMessage, devices, selectedDeviceId } = useWebSocketContext();
+  const { isConnected: serialConnected, sendCommand } = useClientSerialConnection();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>();
 
-  // ── Connection
-  const isESP32Connected = Boolean(isConnected && selectedDeviceId &&
-    devices.some(d => d.id === selectedDeviceId && d.type === 'esp32'));
-  const sendMsg = async (msg: string) => {
-    if (isESP32Connected && wsSendMessage) return wsSendMessage({ type: 'raw_message', data: msg, timestamp: Date.now() });
-    return false;
-  };
+  const sendMsg = (msg: string) => sendCommand(msg);
 
-  // ── Test state
+  // â”€â”€ Test state
   const [isRunning, setIsRunning]     = useState(false);
   const [startTime, setStartTime]     = useState<number | null>(null);
   const [duration, setDuration]       = useState(0);
@@ -133,7 +127,7 @@ export const MotorTester: React.FC = () => {
   const [verdict, setVerdict]         = useState<'pass' | 'fail' | 'pending'>('pending');
   const [deviationInfo, setDeviation] = useState<DeviationResult | null>(null);
 
-  // ── Motor meta (persisted in localStorage)
+  // â”€â”€ Motor meta (persisted in localStorage)
   const [motorType,  setMotorType]  = useState(() => localStorage.getItem('motorType')  || '');
   const [jobNumber,  setJobNumber]  = useState(() => localStorage.getItem('jobNumber')  || '');
   const [reportName, setReportName] = useState(() => localStorage.getItem('reportName') || '');
@@ -148,7 +142,7 @@ export const MotorTester: React.FC = () => {
     }
   }, [motorType, jobNumber]);
 
-  // ── Zones & reference
+  // â”€â”€ Zones & reference
   const [zones,               setZones]           = useState<ExcludeZone[]>([]);
   const [addingZone,          setAddingZone]       = useState(false);
   const [refTestId,           setRefTestId]        = useState<string>('');
@@ -156,14 +150,14 @@ export const MotorTester: React.FC = () => {
   const [zoneMargin,          setZoneMargin]       = useState(2);
   const [selectedRefForPlot,  setSelectedRefPlot]  = useState<string>(''); // show reference curve on plot
 
-  // ── History
+  // â”€â”€ History
   const [results,       setResults]       = useState<MotorTestResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
   const [maxCurrentScale, setMaxCurrentScale] = useState(5);
   const TEST_DURATION = 10; // seconds
   const MAX_TIME = 15;      // seconds (with 5s post-recording)
 
-  // ── Load results
+  // â”€â”€ Load results
   const loadResults = useCallback(async () => {
     setLoadingResults(true);
     try {
@@ -180,36 +174,39 @@ export const MotorTester: React.FC = () => {
 
   useEffect(() => { loadResults(); }, [loadResults]);
 
-  // ── WebSocket sensor data
+  // â”€â”€ Serial sensor data (expects JSON lines: {"voltage":12.1,"current":3.4})
   useEffect(() => {
-    if (!socket) return;
-    const handler = (event: MessageEvent) => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<string>('serial-data', e => {
       try {
-        const d = JSON.parse(event.data);
+        const d = JSON.parse(e.payload);
         if (d.voltage === undefined || d.current === undefined) return;
         const voltage = parseFloat(d.voltage) || 0;
         const current = parseFloat(d.current) || 0;
         setLiveData({ voltage, current, power: voltage * current });
-        if (startTime) {
-          const ts = Date.now() - startTime;
-          if (ts <= MAX_TIME * 1000) {
-            setTestData(prev => [...prev, { timestamp: ts, voltage, current, power: voltage * current }]);
+        setStartTime(t => {
+          if (t) {
+            const ts = Date.now() - t;
+            if (ts <= MAX_TIME * 1000) {
+              setTestData(prev => [...prev, { timestamp: ts, voltage, current, power: voltage * current }]);
+            }
           }
-        }
+          return t;
+        });
       } catch {}
-    };
-    socket.addEventListener('message', handler);
-    return () => socket.removeEventListener('message', handler);
-  }, [socket, startTime]);
+    }).then(fn => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
 
-  // ── Auto-ranging
+  // â”€â”€ Auto-ranging
   useEffect(() => {
     const maxA = testData.length ? Math.max(...testData.map(d => d.current)) : 0;
     const scale = Math.max(5, Math.ceil(Math.max(maxA, liveData.current) * 1.2));
     if (scale !== maxCurrentScale) setMaxCurrentScale(scale);
   }, [testData, liveData]);
 
-  // ── Timer & auto-stop
+  // â”€â”€ Timer & auto-stop
   useEffect(() => {
     if (!isRunning || !startTime) return;
     const id = setInterval(() => {
@@ -220,7 +217,7 @@ export const MotorTester: React.FC = () => {
     return () => clearInterval(id);
   }, [isRunning, startTime]);
 
-  // ── Canvas render
+  // â”€â”€ Canvas render
   const refForPlot = results.find(r => r.id === selectedRefForPlot);
 
   useEffect(() => {
@@ -275,7 +272,7 @@ export const MotorTester: React.FC = () => {
         ctx.fillText(`${t.toFixed(0)}s`, tx(t), mT + pH + 16);
       }
 
-      // ── Reference curve + band zones ──────────────────────────────
+      // â”€â”€ Reference curve + band zones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       for (const zone of zones) {
         if (!zone.referenceData.length) continue;
         const ref = zone.referenceData;
@@ -321,7 +318,7 @@ export const MotorTester: React.FC = () => {
         ctx.stroke();
       }
 
-      // ── Selected reference for plot ────────────────────────────────
+      // â”€â”€ Selected reference for plot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (refForPlot && refForPlot.testData.length) {
         ctx.strokeStyle = 'rgba(255,214,10,0.4)';
         ctx.lineWidth = 1;
@@ -335,7 +332,7 @@ export const MotorTester: React.FC = () => {
         ctx.setLineDash([]);
       }
 
-      // ── Test data curve ────────────────────────────────────────────
+      // â”€â”€ Test data curve â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (testData.length > 1) {
         for (let i = 1; i < testData.length; i++) {
           const prev = testData[i - 1], curr = testData[i];
@@ -354,7 +351,7 @@ export const MotorTester: React.FC = () => {
         }
       }
 
-      // ── Live point ─────────────────────────────────────────────────
+      // â”€â”€ Live point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (isRunning && startTime && liveData.current > 0) {
         const t = (Date.now() - startTime) / 1000;
         const x = tx(Math.min(t, MAX_TIME)), y = ty(liveData.current);
@@ -377,7 +374,7 @@ export const MotorTester: React.FC = () => {
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
   }, [testData, liveData, zones, isRunning, startTime, maxCurrentScale, refForPlot]);
 
-  // ─── Handlers ────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const startTest = async () => {
     if (!motorType || !jobNumber) return;
@@ -434,7 +431,7 @@ export const MotorTester: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
-  // ─── PDF ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ PDF â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   const generatePDF = (result: MotorTestResult) => {
     const pdf = new jsPDF();
@@ -443,7 +440,7 @@ export const MotorTester: React.FC = () => {
     const M = 20;
     const accent = result.testResult === 'pass' ? [48, 209, 88] : [255, 69, 58];
 
-    // ── Page 1 ──────────────────────────────────────────────────────
+    // â”€â”€ Page 1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Top bar
     pdf.setFillColor(15, 15, 17);
     pdf.rect(0, 0, W, 18, 'F');
@@ -556,7 +553,7 @@ export const MotorTester: React.FC = () => {
       pdf.text('Reference Zones', M, y); y += 8;
       result.excludeZones.forEach(z => {
         pdf.setFontSize(9); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(60, 60, 60);
-        pdf.text(`• ${z.name}  —  margin ±${z.margin} A`, M + 4, y);
+        pdf.text(`â€¢ ${z.name}  â€”  margin ±${z.margin} A`, M + 4, y);
         y += 6;
       });
     }
@@ -569,7 +566,7 @@ export const MotorTester: React.FC = () => {
     pdf.save(`${result.report}.pdf`);
   };
 
-  // ─── Derived state for current test ──────────────────────────────────────
+  // â”€â”€â”€ Derived state for current test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const currentResult: MotorTestResult = {
     id: Date.now().toString(),
     motorType, jobNumber, report: reportName,
@@ -580,11 +577,11 @@ export const MotorTester: React.FC = () => {
     createdAt: new Date(),
   };
 
-  // ─── JSX ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ JSX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div className="space-y-5 px-4 py-6">
 
-      {/* ── Motor Info ──────────────────────────────────────────────── */}
+      {/* â”€â”€ Motor Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="card">
         <h2 className="card-header">Motor Info</h2>
         <div className="grid grid-cols-3 gap-3">
@@ -603,10 +600,10 @@ export const MotorTester: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* ── Power ── */}
+        {/* â”€â”€ Power â”€â”€ */}
         <PowerIndicators sendMessage={sendMsg} />
 
-        {/* ── Test Control ── */}
+        {/* â”€â”€ Test Control â”€â”€ */}
         <div className="card">
           <h2 className="card-header">Test Control</h2>
           <div className="space-y-4">
@@ -626,7 +623,7 @@ export const MotorTester: React.FC = () => {
 
             <button
               onClick={isRunning ? stopTest : startTest}
-              disabled={!isESP32Connected || !motorType || !jobNumber}
+              disabled={!serialConnected || !motorType || !jobNumber}
               className={['w-full py-2.5 flex items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed',
                 isRunning ? 'bg-danger/15 text-danger hover:bg-danger/25' : 'bg-accent/15 text-accent hover:bg-accent/25'].join(' ')}
             >
@@ -671,10 +668,10 @@ export const MotorTester: React.FC = () => {
                     <p className="text-xs text-text-secondary">
                       {verdict === 'pass'
                         ? `All ${deviationInfo.totalPoints} points within reference ±${zones[0]?.margin}A tolerance`
-                        : `Exceeded tolerance — max deviation +${deviationInfo.maxDeviation.toFixed(2)}A at t=${deviationInfo.maxDeviationTime.toFixed(1)}s (${deviationInfo.violationCount} points)`}
+                        : `Exceeded tolerance â€” max deviation +${deviationInfo.maxDeviation.toFixed(2)}A at t=${deviationInfo.maxDeviationTime.toFixed(1)}s (${deviationInfo.violationCount} points)`}
                     </p>
                   ) : (
-                    <p className="text-xs text-text-tertiary">No reference zone defined — no comparison possible</p>
+                    <p className="text-xs text-text-tertiary">No reference zone defined â€” no comparison possible</p>
                   )}
                 </motion.div>
               )}
@@ -683,7 +680,7 @@ export const MotorTester: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Plot ────────────────────────────────────────────────────── */}
+      {/* â”€â”€ Plot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h2 className="card-header mb-0">Current vs Time</h2>
@@ -710,12 +707,12 @@ export const MotorTester: React.FC = () => {
         <canvas ref={canvasRef} className="w-full h-72 rounded-lg" />
       </div>
 
-      {/* ── Zones ───────────────────────────────────────────────────── */}
+      {/* â”€â”€ Zones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="card-header mb-0">Reference Zones</h2>
-            <p className="text-xs text-text-tertiary mt-0.5">Tolerance band — test must stay within reference ± margin</p>
+            <p className="text-xs text-text-tertiary mt-0.5">Tolerance band â€” test must stay within reference ± margin</p>
           </div>
           <button onClick={() => setAddingZone(true)} className="btn-primary text-sm">
             <PlusIcon className="w-4 h-4" /> Add Zone
@@ -723,7 +720,7 @@ export const MotorTester: React.FC = () => {
         </div>
 
         {zones.length === 0 ? (
-          <p className="text-sm text-text-tertiary text-center py-8">No zones defined — test result will always pass</p>
+          <p className="text-sm text-text-tertiary text-center py-8">No zones defined â€” test result will always pass</p>
         ) : (
           <div className="space-y-2">
             {zones.map(z => (
@@ -800,7 +797,7 @@ export const MotorTester: React.FC = () => {
         </AnimatePresence>
       </div>
 
-      {/* ── Test History ────────────────────────────────────────────── */}
+      {/* â”€â”€ Test History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -866,11 +863,11 @@ export const MotorTester: React.FC = () => {
                   </button>
                   <button onClick={() => saveResult(r, 'good')}
                     className="px-2.5 py-1 text-xs font-medium bg-success/10 text-success hover:bg-success/20 rounded-lg transition-colors">
-                    ✓ Good
+                    âœ“ Good
                   </button>
                   <button onClick={() => saveResult(r, 'bad')}
                     className="px-2.5 py-1 text-xs font-medium bg-danger/10 text-danger hover:bg-danger/20 rounded-lg transition-colors">
-                    ✗ Bad
+                    âœ— Bad
                   </button>
                   <button onClick={() => setResults(p => p.filter(x => x.id !== r.id))}
                     className="p-1.5 rounded-lg text-text-tertiary hover:text-danger hover:bg-card transition-colors">

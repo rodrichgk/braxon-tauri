@@ -1,7 +1,6 @@
-"use client";
-
+﻿
 import React, { useState, forwardRef, useImperativeHandle } from 'react';
-import { useWebSocketContext } from '@/contexts/WebSocketContext';
+import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { PowerIcon, BoltIcon } from '@heroicons/react/24/outline';
 
 interface PowerIndicatorsProps {
@@ -18,10 +17,10 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
   const [ignition,  setIgnition]  = useState(false);
   const [busyAbs,   setBusyAbs]   = useState(false);
   const [busyIgn,   setBusyIgn]   = useState(false);
-  const { isConnectedToDevice } = useWebSocketContext();
+  const { isConnected } = useClientSerialConnection();
 
   const toggle = async (type: 15 | 16, current: boolean, setOn: (v: boolean) => void, setBusy: (v: boolean) => void) => {
-    if (!isConnectedToDevice) return;
+    if (!isConnected) return;
     setBusy(true);
     try {
       const next = !current;
@@ -46,7 +45,7 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
       <label className="input-label">{label}</label>
       <button
         onClick={onToggle}
-        disabled={!isConnectedToDevice || busy}
+        disabled={!isConnected || busy}
         className={[
           'w-full py-2.5 flex items-center justify-center gap-2 rounded-lg text-sm font-medium',
           'transition-all disabled:opacity-40 disabled:cursor-not-allowed',
@@ -72,8 +71,8 @@ const PowerIndicators = forwardRef<PowerIndicatorsRef, PowerIndicatorsProps>(({ 
         <PowerBtn on={absPower} busy={busyAbs} label="ABS Power" icon={PowerIcon} onToggle={() => toggle(15, absPower, setAbsPower, setBusyAbs)} />
         <PowerBtn on={ignition} busy={busyIgn} label="Ignition"  icon={BoltIcon}  onToggle={() => toggle(16, ignition, setIgnition, setBusyIgn)} />
       </div>
-      {!isConnectedToDevice && (
-        <p className="text-xs text-text-tertiary mt-3 text-center">Connect ESP32 to control power</p>
+      {!isConnected && (
+        <p className="text-xs text-text-tertiary mt-3 text-center">Connect via USB serial to control power</p>
       )}
     </div>
   );
