@@ -325,6 +325,124 @@ pub async fn delete_abs_data(id: String, state: State<'_, AppState>) -> Result<(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn import_abs_xml(file_path: String, state: State<'_, AppState>) -> Result<(usize, usize), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let mut client = database::connect(&config).await?;
+
+    let content = std::fs::read_to_string(&file_path)
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+
+    fn extract(block: &str, tag: &str) -> Option<String> {
+        let open = format!("<{}>", tag);
+        let close = format!("</{}>", tag);
+        let start = block.find(&open)? + open.len();
+        let end = block[start..].find(&close)? + start;
+        let v = block[start..end].trim();
+        if v.is_empty() { None } else { Some(v.to_string()) }
+    }
+
+    fn is_true(block: &str, tag: &str) -> bool {
+        extract(block, tag).map(|v| v.to_lowercase() == "true").unwrap_or(false)
+    }
+
+    struct Record {
+        id: String,
+        reference: String,
+        manufacturer: String,
+        wss_type: Option<String>,
+        can_speed: Option<String>,
+        can_id_line: Option<String>,
+        can_byte: Option<String>,
+        can_value: Option<String>,
+        comments: Option<String>,
+        other_refs: Option<String>,
+    }
+
+    let mut records: Vec<Record> = Vec::new();
+
+    for block in content.split("<ABSTable>").skip(1) {
+        let block = match block.find("</ABSTable>") {
+            Some(end) => &block[..end],
+            None => continue,
+        };
+
+        let reference = match extract(block, "OEReference") {
+            Some(r) if !r.is_empty() => r,
+            _ => continue,
+        };
+
+        let teves = is_true(block, "Teves");
+        let bosch = is_true(block, "Bosch");
+        let manufacturer = if teves { "Teves".to_string() } else if bosch { "Bosch".to_string() } else { String::new() };
+
+        let active  = is_true(block, "Active");
+        let passive = is_true(block, "Passive");
+        let wss_type: Option<String> = match (active, passive) {
+            (true, false)  => Some("Active".to_string()),
+            (false, true)  => Some("Passive".to_string()),
+            (true,  true)  => Some("Active/Passive".to_string()),
+            (false, false) => None,
+        };
+
+        let can_id_val = extract(block, "CanBusDataID")
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0);
+        let can_baud_val = extract(block, "CanBusBaud")
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0);
+
+        let can_speed: Option<String>   = if can_baud_val > 0 { Some(can_baud_val.to_string()) } else { None };
+        let can_id_line: Option<String> = if can_id_val > 0 { Some(can_id_val.to_string()) } else { None };
+        let can_byte: Option<String>    = if can_id_val > 0 { extract(block, "CanBusDataByte") } else { None };
+        let can_value: Option<String>   = if can_id_val > 0 { extract(block, "CanBusDataValue") } else { None };
+
+        let comments: Option<String> = extract(block, "CableValue");
+
+        let oe_refs = extract(block, "OERefs");
+        let vm_refs = extract(block, "VMRefs");
+        let other_refs: Option<String> = match (oe_refs, vm_refs) {
+            (Some(a), Some(b)) => Some(format!("{},{}", a, b)),
+            (Some(a), None)    => Some(a),
+            (None,    Some(b)) => Some(b),
+            (None,    None)    => None,
+        };
+
+        records.push(Record {
+            id: Uuid::new_v4().to_string(),
+            reference,
+            manufacturer,
+            wss_type,
+            can_speed,
+            can_id_line,
+            can_byte,
+            can_value,
+            comments,
+            other_refs,
+        });
+    }
+
+    let tx = client.transaction().await.map_err(|e| e.to_string())?;
+    let mut imported = 0usize;
+    let mut skipped  = 0usize;
+
+    for r in &records {
+        let n = tx
+            .execute(
+                r#"INSERT INTO "ABSData" (id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt", "updatedAt")
+                   VALUES ($1,$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9,NULL,$10,NULL,NOW(),NOW())
+                   ON CONFLICT (reference) DO NOTHING"#,
+                &[&r.id, &r.reference, &r.manufacturer, &r.wss_type, &r.can_speed, &r.can_id_line, &r.can_byte, &r.can_value, &r.comments, &r.other_refs],
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if n > 0 { imported += 1; } else { skipped += 1; }
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok((imported, skipped))
+}
+
 // ---- Signal Profile Commands ----
 
 #[tauri::command]

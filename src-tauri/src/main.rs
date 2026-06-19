@@ -43,6 +43,7 @@ fn main() {
             commands::save_abs_data,
             commands::update_abs_data,
             commands::delete_abs_data,
+            commands::import_abs_xml,
             commands::get_profiles,
             commands::save_profile,
             commands::update_profile,
