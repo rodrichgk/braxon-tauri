@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from 'react-i18next';
 
 import type { DbConfig } from '@/lib/types';
@@ -16,11 +17,13 @@ export default function HomePage() {
   const [testStatus, setTestStatus] = useState<{ msg: string; ok: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
     invoke<DbConfig>('get_db_config')
       .then(setConfig)
       .catch(console.error);
+    getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -66,7 +69,7 @@ export default function HomePage() {
             </div>
             <div className="flex justify-between items-center">
               <span>{t('home.version')}</span>
-              <span className="font-medium text-text-primary">1.0.0</span>
+              <span className="font-medium text-text-primary">{appVersion || '…'}</span>
             </div>
             <div className="flex justify-between items-center">
               <span>{t('home.platform')}</span>
