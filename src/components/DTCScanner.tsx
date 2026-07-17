@@ -11,6 +11,9 @@ import {
   BookmarkIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  SignalIcon,
+  StopIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import clientSerial, { type SerialEvent } from '@/lib/clientSerial';
 import { useSession } from '@/contexts/SessionContext';
@@ -147,6 +150,32 @@ interface ActuatorEntry {
   category: 'pump' | 'valve' | 'relay' | 'reset' | 'other';
 }
 
+/* ── Bus recorder: raw capture of whatever the Nano forwards, tagged by
+   which tool(s) are physically talking to the ABS ECU during the session.
+   Used for K-line/CAN ECUs not yet in the DDT4ALL DB (e.g. MK61) — the
+   board can't originate K-line requests, so we just sniff/log traffic
+   while the user drives the session manually (e.g. with an Autel tool)
+   and hand the raw log back for offline protocol analysis. ────────── */
+type RecordMode = 'autel' | 'abs' | 'both';
+
+interface RecordedLine {
+  tMs: number;
+  line: string;
+}
+
+interface BusRecording {
+  mode: RecordMode;
+  startedAt: string;
+  absRef: string;
+  lines: RecordedLine[];
+}
+
+const RECORD_MODE_LABEL: Record<RecordMode, string> = {
+  autel: 'OBD tool (Autel)',
+  abs: 'ABS board',
+  both: 'Both connected',
+};
+
 /* ── Decode 2-byte OBD-II/KWP DTC ────────────────────────────── */
 function decodeDTC(high: number, low: number): DTCEntry {
   const types = ['P', 'C', 'B', 'U'] as const;
@@ -249,6 +278,16 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
   const [partNumber, setPartNumber]     = useState('');
   const [identState, setIdentState]     = useState<'idle' | 'detecting' | 'found' | 'not_found'>('idle');
 
+  // Bus recorder state
+  const [recordMode, setRecordMode]     = useState<RecordMode | null>(null);
+  const [recording, setRecording]       = useState<BusRecording | null>(null);
+  const [recordCount, setRecordCount]   = useState(0);
+  const [saveRecStatus, setSaveRecStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const recordListenerRef = useRef<((e: SerialEvent) => void) | null>(null);
+  const recordLinesRef    = useRef<RecordedLine[]>([]);
+  const recordStartRef    = useRef(0);
+  const recordAbsRefRef   = useRef('');
+
   const scanActiveRef    = useRef(false);
   const protocolRef      = useRef<Protocol>('OBD2');
   const brandRef         = useRef<VehicleBrand>('Renault');
@@ -264,6 +303,7 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     return () => {
       if (listenerRef.current) clientSerial.removeEventListener(listenerRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (recordListenerRef.current) clientSerial.removeEventListener(recordListenerRef.current);
     };
   }, []);
 
@@ -641,6 +681,77 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     setTimeout(() => { setScanState('cleared'); setScan(null); }, 1500);
   };
 
+  // ── Bus recorder ────────────────────────────────────────────
+  // Passively logs every line the Nano forwards over serial (CAN frames or
+  // raw K-line bytes, whatever the firmware prints), tagged with which
+  // tool(s) were physically on the ABS bus during the session.
+  const startRecording = (mode: RecordMode) => {
+    if (!isConnected || recordMode) return;
+    recordLinesRef.current = [];
+    recordStartRef.current = Date.now();
+    recordAbsRefRef.current = absReference ?? '';
+    setRecordCount(0);
+    setRecording(null);
+    setSaveRecStatus('idle');
+
+    const listener = (event: SerialEvent) => {
+      if (event.type !== 'data' || !event.data) return;
+      recordLinesRef.current.push({ tMs: Date.now() - recordStartRef.current, line: event.data.trim() });
+      setRecordCount(recordLinesRef.current.length);
+    };
+    recordListenerRef.current = listener;
+    clientSerial.addEventListener(listener);
+    setRecordMode(mode);
+  };
+
+  const stopRecording = () => {
+    if (!recordMode) return;
+    if (recordListenerRef.current) { clientSerial.removeEventListener(recordListenerRef.current); recordListenerRef.current = null; }
+    setRecording({
+      mode: recordMode,
+      startedAt: new Date(recordStartRef.current).toISOString(),
+      absRef: recordAbsRefRef.current,
+      lines: recordLinesRef.current,
+    });
+    setRecordMode(null);
+  };
+
+  const discardRecording = () => {
+    setRecording(null);
+    setRecordCount(0);
+    setSaveRecStatus('idle');
+  };
+
+  const saveRecording = async () => {
+    if (!recording) return;
+    setSaveRecStatus('saving');
+    try {
+      const { save } = await import('@tauri-apps/api/dialog');
+      const safeStamp = recording.startedAt.replace(/[:.]/g, '-');
+      const safeRef = recording.absRef ? `-${recording.absRef.replace(/[^\w.-]+/g, '_')}` : '';
+      const defaultPath = `dtc-bus-${recording.mode}${safeRef}-${safeStamp}.log`;
+      const path = await save({ defaultPath, filters: [{ name: 'Bus log', extensions: ['log', 'txt'] }] });
+      if (!path) { setSaveRecStatus('idle'); return; }
+
+      const header = [
+        `# DTC Scanner bus recording`,
+        `# ABS reference: ${recording.absRef || '(not set — select the ABS in the DB search above)'}`,
+        `# mode: ${RECORD_MODE_LABEL[recording.mode]}`,
+        `# started: ${recording.startedAt}`,
+        `# frames: ${recording.lines.length}`,
+        `# brand: ${brand} · protocol: ${protocol}${selectedEcu ? ` · ecu: ${selectedEcu.ecuName}` : ''}`,
+        '',
+      ].join('\n');
+      const body = recording.lines.map(l => `[+${l.tMs}ms] ${l.line}`).join('\n');
+
+      await invoke('save_text_file', { path, content: header + body + '\n' });
+      setSaveRecStatus('saved');
+      setTimeout(() => setSaveRecStatus('idle'), 3000);
+    } catch {
+      setSaveRecStatus('error');
+    }
+  };
+
   const saveToJob = async () => {
     if (!currentJob || !scan) return;
     setSaveStatus('saving');
@@ -704,6 +815,91 @@ else if (line.startsWith("CANTx : "))
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Bus recorder — for ECUs not yet in the DB (e.g. MK61 / K-line units
+          the board can't originate requests for). Passively logs whatever
+          the Nano forwards while you drive the session manually. */}
+      <div className="mb-3 p-2.5 bg-elevated border border-border rounded-xl space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary">
+            <SignalIcon className="w-3.5 h-3.5 text-text-tertiary" />
+            Bus recorder
+            {absReference ? (
+              <span className="text-[9px] font-medium text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded">
+                {absReference}
+              </span>
+            ) : (
+              <span className="text-[9px] text-warning">no ABS ref selected</span>
+            )}
+          </span>
+          {recordMode && (
+            <span className="flex items-center gap-1 text-[10px] text-danger font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
+              {RECORD_MODE_LABEL[recordMode]} · {recordCount} line{recordCount !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(['autel', 'abs', 'both'] as RecordMode[]).map(mode => {
+            const isActive = recordMode === mode;
+            return (
+              <button
+                key={mode}
+                onClick={() => isActive ? stopRecording() : startRecording(mode)}
+                disabled={!isConnected || (recordMode !== null && !isActive)}
+                className={[
+                  'flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-colors disabled:opacity-40',
+                  isActive
+                    ? 'text-danger bg-danger/10 border-danger/25'
+                    : 'text-text-secondary hover:bg-app border-border',
+                ].join(' ')}
+              >
+                {isActive ? <StopIcon className="w-3 h-3" /> : <SignalIcon className="w-3 h-3" />}
+                {isActive ? 'Stop' : RECORD_MODE_LABEL[mode]}
+              </button>
+            );
+          })}
+
+          {recording && !recordMode && (
+            <>
+              <span className="text-[10px] text-text-tertiary">
+                {recording.lines.length} line{recording.lines.length !== 1 ? 's' : ''} captured ({RECORD_MODE_LABEL[recording.mode]}{recording.absRef ? ` · ${recording.absRef}` : ''})
+              </span>
+              <button
+                onClick={saveRecording}
+                disabled={saveRecStatus === 'saving'}
+                className={[
+                  'flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border transition-colors disabled:opacity-50 ml-auto',
+                  saveRecStatus === 'saved'
+                    ? 'text-success bg-success/10 border-success/25'
+                    : saveRecStatus === 'error'
+                      ? 'text-danger bg-danger/10 border-danger/25'
+                      : 'text-accent hover:bg-accent/10 border-accent/30',
+                ].join(' ')}
+              >
+                <ArrowDownTrayIcon className="w-3 h-3" />
+                {saveRecStatus === 'saving' ? 'Saving…'
+                  : saveRecStatus === 'saved' ? '✓ Saved'
+                  : saveRecStatus === 'error' ? 'Save failed'
+                  : 'Save log…'}
+              </button>
+              <button
+                onClick={discardRecording}
+                className="text-[10px] text-text-tertiary hover:text-text-secondary underline"
+              >
+                discard
+              </button>
+            </>
+          )}
+        </div>
+
+        <p className="text-[9px] text-text-tertiary leading-relaxed">
+          {!isConnected
+            ? 'Connect to the Nano to record bus traffic.'
+            : 'Pick which tool is on the bus, connect it to the ABS, do the fault-code read, then Stop and save the log.'}
+        </p>
+      </div>
 
       {/* Brand selector */}
       <div className="flex items-center gap-1.5 mb-3">

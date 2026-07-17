@@ -60,6 +60,7 @@ fn main() {
             commands::delete_repair_job,
             commands::save_job_dtcs,
             commands::get_job_dtcs,
+            commands::save_text_file,
             commands::import_ecu_dtcs,
             commands::lookup_dtc,
             commands::get_ecu_db_stats,

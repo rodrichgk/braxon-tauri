@@ -1029,3 +1029,11 @@ pub async fn get_job_dtcs(id: String, state: State<'_, AppState>) -> Result<Opti
         .map_err(|e| e.to_string())?;
     Ok(row.and_then(|r| r.get::<_, Option<String>>(0)))
 }
+
+// ---- Arbitrary file export (used by the DTC Scanner bus recorder) ----
+// Writes directly via std::fs so the destination isn't limited to the
+// fs-plugin's $APPDATA scope — the path comes from a user-driven save dialog.
+#[tauri::command]
+pub async fn save_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
