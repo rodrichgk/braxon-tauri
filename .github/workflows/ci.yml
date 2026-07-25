@@ -38,8 +38,22 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
+      # npm install, not npm ci, and that is a known compromise.
+      #
+      # package-lock.json is generated on Windows, which does not fully resolve
+      # optional wasm32 platform subtrees - here @rolldown/binding-wasm32-wasi,
+      # pulled in by Vite 8, whose @napi-rs/wasm-runtime wants @emnapi/core and
+      # @emnapi/runtime. npm ci validates the whole tree regardless of platform
+      # and rejects the lock as out of sync over exactly those packages. Local
+      # npm 11 tolerates it; the npm 10 shipped with Node 20 here does not.
+      #
+      # npm install fills the gap. It is weaker than npm ci: it can resolve
+      # something the lock did not pin.
+      #
+      # Proper fix: regenerate package-lock.json somewhere that resolves those
+      # subtrees (Linux, macOS, or a container) and switch this back to npm ci.
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Type-check
         run: npx tsc --noEmit
