@@ -1,225 +1,102 @@
-# PIC ABS Tester - Tauri Desktop Application
+# BRAXON — ABS Hydraulic Diagnostics Platform
 
-This is the Tauri desktop version of the PIC ABS Hydraulic Testing & Diagnostics application.
+Tauri desktop application for testing and diagnosing ABS hydraulic modules:
+valve testing, pump-motor current profiling, wheel-speed signal generation,
+CAN and K-line diagnostics, and repair job tracking.
 
-## 🚀 Project Structure
+Split out of [`pic-abs-tester`](https://github.com/rodrichgk/pic-abs-tester),
+which remains the Next.js web app and owns the Prisma schema. Commit history
+from before the split is preserved here.
 
-```
-tauri/
-├── src/                    # React frontend source
-│   ├── components/         # React components (to be copied from ../src/components)
-│   ├── contexts/          # React contexts (WebSocket, Toast, etc.)
-│   ├── hooks/             # Custom React hooks
-│   ├── pages/             # Page components (Home, Search, Motors)
-│   ├── styles/            # CSS and styling
-│   ├── types/             # TypeScript type definitions
-│   ├── App.tsx            # Main app component
-│   └── main.tsx           # React entry point
-├── src-tauri/             # Rust backend
-│   ├── src/
-│   │   ├── main.rs        # Main Rust entry point
-│   │   ├── websocket.rs   # WebSocket server (replaces Next.js server)
-│   │   ├── serial.rs      # Serial port communication
-│   │   ├── database.rs    # SQLite database operations
-│   │   └── commands.rs    # Tauri commands (API for frontend)
-│   ├── Cargo.toml         # Rust dependencies
-│   ├── tauri.conf.json    # Tauri configuration
-│   └── build.rs           # Build script
-├── package.json           # Node.js dependencies
-├── vite.config.ts         # Vite configuration
-├── tailwind.config.js     # TailwindCSS configuration
-└── tsconfig.json          # TypeScript configuration
-```
+## Stack
 
-## 📋 Prerequisites
+- **Frontend** — React 18 + TypeScript, Vite 8, TailwindCSS, i18next (EN/FR)
+- **Backend** — Rust, Tauri 1.5
+- **Database** — PostgreSQL over `tokio-postgres` (see [DATABASE.md](DATABASE.md))
+- **Hardware** — serial (`serialport`) to the Pico/Nano, WebSocket server on
+  `0.0.0.0:8765` for ESP32 devices
 
-- **Node.js** (v18 or higher)
-- **Rust** (latest stable version)
-- **Tauri CLI**: Install with `cargo install tauri-cli`
+## Prerequisites
 
-## 🔧 Installation
+- Node.js 20+
+- Rust stable, `x86_64-pc-windows-msvc`
+- A reachable PostgreSQL server — configured in-app on first run, stored at
+  `%APPDATA%\pic-abs-tester\db_config.json`
 
-1. **Install Node dependencies:**
-   ```bash
-   cd tauri
-   npm install
-   ```
+## Development
 
-2. **Install Rust dependencies:**
-   ```bash
-   cd src-tauri
-   cargo build
-   ```
-
-## 🏃 Development
-
-Run the development server:
-```bash
-npm run tauri:dev
+```sh
+npm install
+npm run tauri:dev      # Vite dev server + Rust backend, hot reload
 ```
 
-This will:
-- Start the Vite dev server for the frontend
-- Compile and run the Rust backend
-- Open the Tauri window with hot-reload enabled
+Frontend only, without the Tauri shell:
 
-## 🏗️ Building
+```sh
+npm run dev
+```
 
-Build the production application:
-```bash
+## Building
+
+```sh
 npm run tauri:build
 ```
 
-The compiled application will be in `src-tauri/target/release/`.
+Installers land in `src-tauri/target/release/bundle/` (NSIS `.exe` and MSI on
+Windows).
 
-## 🔄 Migration from Next.js
+## Releasing
 
-### Key Differences
+Releases are cut by pushing a version tag. `.github/workflows/release.yml`
+builds on `windows-latest`, signs the installer, publishes a public GitHub
+Release, and uploads `latest.json` — which running instances poll to
+auto-prompt for the update.
 
-1. **No Next.js Server**: The WebSocket server is now implemented in Rust (`src-tauri/src/websocket.rs`)
-2. **No API Routes**: Database operations are handled via Tauri commands (`src-tauri/src/commands.rs`)
-3. **Desktop App**: Runs as a native desktop application instead of a web server
-4. **SQLite Database**: Uses local SQLite instead of Prisma/PostgreSQL
-
-### Migration Steps
-
-1. **Copy Components**: Copy all React components from `../src/components` to `src/components`
-2. **Copy Contexts**: Copy context providers from `../src/contexts` to `src/contexts`
-3. **Copy Hooks**: Copy custom hooks from `../src/hooks` to `src/hooks`
-4. **Copy Types**: Copy TypeScript types from `../src/types` to `src/types`
-5. **Update API Calls**: Replace Next.js API calls with Tauri commands:
-
-   **Before (Next.js):**
-   ```typescript
-   const response = await fetch('/api/abs-data');
-   const data = await response.json();
-   ```
-
-   **After (Tauri):**
-   ```typescript
-   import { invoke } from '@tauri-apps/api/tauri';
-   const data = await invoke('get_abs_data');
-   ```
-
-6. **Update WebSocket**: Replace browser WebSocket with Tauri events:
-
-   **Before:**
-   ```typescript
-   const ws = new WebSocket('ws://localhost:8765');
-   ws.onmessage = (event) => { ... };
-   ```
-
-   **After:**
-   ```typescript
-   import { listen } from '@tauri-apps/api/event';
-   await listen('device-message', (event) => { ... });
-   ```
-
-### Available Tauri Commands
-
-All commands are defined in `src-tauri/src/commands.rs`:
-
-**Serial Port:**
-- `get_serial_ports()` - List available serial ports
-- `connect_serial(port_name, baud_rate)` - Connect to serial port
-- `disconnect_serial()` - Disconnect from serial port
-- `send_serial_message(message)` - Send message to serial port
-
-**WebSocket Devices:**
-- `get_devices()` - Get list of connected devices
-- `select_device(device_id)` - Pair with a device
-- `send_device_message(device_id, message)` - Send message to device
-
-**ABS Data:**
-- `get_abs_data()` - Get all ABS data
-- `search_abs_data(query)` - Search ABS data
-- `save_abs_data(data)` - Save new ABS data
-- `update_abs_data(data)` - Update existing ABS data
-- `delete_abs_data(id)` - Delete ABS data
-
-**Profiles:**
-- `get_profiles()` - Get all test profiles
-- `save_profile(profile)` - Save new profile
-- `update_profile(profile)` - Update existing profile
-- `delete_profile(id)` - Delete profile
-
-**Motor Tests:**
-- `get_motor_tests()` - Get all motor tests
-- `save_motor_test(test)` - Save motor test result
-
-## 🔌 WebSocket Communication
-
-The Rust WebSocket server (`src-tauri/src/websocket.rs`) handles:
-- ESP32 device connections
-- Browser client connections
-- Device pairing (client-to-ESP32)
-- Message routing between paired devices
-- Device list broadcasting
-
-Events emitted to frontend:
-- `device-list` - Updated list of connected devices
-- `device-message` - Messages from paired ESP32 device
-
-## 💾 Database
-
-SQLite database is automatically created on first run. Schema is defined in `src-tauri/src/database.rs`.
-
-Database file location: `pic-abs-tester.db` (in app directory)
-
-## 🎨 Styling
-
-Uses TailwindCSS with custom utility classes defined in `src/styles/globals.css`:
-- `.card` - Card container
-- `.btn-primary`, `.btn-secondary`, etc. - Button styles
-- `.input-field` - Input field style
-- `.connection-dot` - Connection status indicator
-
-## 🐛 Debugging
-
-Enable Rust debug logs:
-```bash
-RUST_LOG=debug npm run tauri:dev
+```sh
+# bump version in package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json first
+git tag v1.0.7
+git push origin v1.0.7
 ```
 
-Open DevTools in the Tauri window:
-- Right-click → Inspect Element
-- Or press F12
+All three version fields must match the tag. Requires the `TAURI_PRIVATE_KEY`
+and `TAURI_KEY_PASSWORD` repository secrets.
 
-## 📦 Distribution
+## Layout
 
-After building, the installer will be in:
-- **Windows**: `src-tauri/target/release/bundle/msi/`
-- **macOS**: `src-tauri/target/release/bundle/dmg/`
-- **Linux**: `src-tauri/target/release/bundle/appimage/`
+```
+src/
+  components/    React UI — ABSTester, MotorTester, SignalTester, DTCScanner,
+                 CANAnalyzer, BenchPower, ConnectionBar, UpdateChecker
+  contexts/      AppSettings, Session
+  hooks/         serial connection, profile management, recording
+  pages/         Home, Jobs, Signal, Valves
+  i18n/          en.json, fr.json
+src-tauri/
+  src/
+    main.rs      Tauri entry point, command registration
+    commands.rs  all Tauri commands — DB queries, ECU/auth table setup
+    database.rs  PostgreSQL connection + config persistence
+    websocket.rs WebSocket server for ESP32 devices
+```
 
-## 🔐 Security
+## Serial command protocol
 
-Tauri's allowlist is configured in `src-tauri/tauri.conf.json`. Only necessary APIs are enabled:
-- File system (scoped to app data directory)
-- Dialog (for file pickers)
-- Shell (for opening external links)
-- Window management
+Unchanged from the firmware:
 
-## 📝 Next Steps
+- Valves — `START`, `STOP`, `TEST 1,2,3`
+- Wheel speed — `W<fl>,<fr>,<rl>,<rr>` (Hz), stop `X`, run `R`
+- WSS profile — `C<ch>,<profile>` (0–3 DF11, 4–7 VDA AK), AK multiplier
+  `M<ch>,<x100>`, barcode `K` / `K<ch>`
+- CAN — Pico: ping `t`, `SEND:<id>:<value>:<len>`; Nano: `CANSpeed : <250|500|1000>`
+- Power — `{"type":15|16,"state":bool,...}` for ABS power and ignition
 
-1. Copy all components from the Next.js version
-2. Update WebSocket context to use Tauri events
-3. Replace API calls with Tauri commands
-4. Test all functionality
-5. Build and distribute
+## Troubleshooting
 
-## 🆘 Troubleshooting
+**Build fails** — `rustup update`, then `cargo clean` in `src-tauri/`.
 
-**Build fails:**
-- Ensure Rust is installed: `rustc --version`
-- Update Rust: `rustup update`
-- Clean build: `cargo clean` in `src-tauri/`
+**WebSocket not connecting** — port 8765 already in use, or blocked by the
+firewall. Check the Rust console output.
 
-**WebSocket not connecting:**
-- Check if port 8765 is available
-- Check firewall settings
-- Look for errors in Rust console
-
-**Database errors:**
-- Delete `pic-abs-tester.db` to reset database
-- Check file permissions
+**Database errors** — verify the server is reachable and the credentials in
+`%APPDATA%\pic-abs-tester\db_config.json` are correct. Deleting that file
+re-triggers the in-app setup.

@@ -7,7 +7,7 @@ import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import PowerIndicators from '@/components/PowerIndicators';
 import {
   PlayIcon, StopIcon, PlusIcon, TrashIcon,
-  CheckCircleIcon, XCircleIcon, ClockIcon,
+  CheckCircleIcon, XCircleIcon,
   DocumentArrowDownIcon, ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 import jsPDF from 'jspdf';
@@ -566,16 +566,6 @@ export const MotorTester: React.FC = () => {
     pdf.save(`${result.report}.pdf`);
   };
 
-  // â”€â”€â”€ Derived state for current test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const currentResult: MotorTestResult = {
-    id: Date.now().toString(),
-    motorType, jobNumber, report: reportName,
-    testData, excludeZones: zones,
-    testResult: verdict,
-    testDuration: duration,
-    deviation: deviationInfo ?? undefined,
-    createdAt: new Date(),
-  };
 
   // â”€â”€â”€ JSX â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (

@@ -1,7 +1,6 @@
 ﻿import { Valve } from '@/types/abs';
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
-import { BeakerIcon } from '@heroicons/react/24/outline';
 
 interface ValveIndicatorProps {
   valve: Valve;
@@ -10,30 +9,6 @@ interface ValveIndicatorProps {
 }
 
 export function ValveIndicator({ valve, selected, onClick }: ValveIndicatorProps) {
-  const statusColors = {
-    active: {
-      gradient: 'from-emerald-400 to-emerald-600',
-      shadow: 'shadow-emerald-200',
-      ring: 'ring-emerald-400',
-      icon: 'text-emerald-200'
-    },
-    inactive: {
-      gradient: 'from-red-400 to-red-600',
-      shadow: 'shadow-red-200',
-      ring: 'ring-red-400',
-      icon: 'text-red-200'
-    },
-    testing: {
-      gradient: 'from-amber-400 to-amber-600',
-      shadow: 'shadow-amber-200',
-      ring: 'ring-amber-400',
-      icon: 'text-amber-200'
-    }
-  };
-
-  const healthColor = valve.health >= 80 ? 'text-emerald-100' :
-                     valve.health >= 50 ? 'text-amber-100' : 'text-red-100';
-
   return (
     <motion.button
       whileHover={{ scale: 1.02 }}
@@ -86,7 +61,7 @@ export function ValveIndicator({ valve, selected, onClick }: ValveIndicatorProps
       )}
 
       {/* Inline keyframes */}
-      <style jsx>{`
+      <style>{`
         @keyframes pulse {
           0% {
             box-shadow: 0 0 0 rgba(59, 130, 246, 0.5);
