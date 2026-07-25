@@ -34,3 +34,6 @@ Thumbs.db
 .claude
 
 ecu
+
+# Local DB credentials - the app reads %APPDATA%\pic-abs-tester\db_config.json
+src-tauri/db_config.json

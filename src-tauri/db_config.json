@@ -1,7 +1,0 @@
-{
-  "host": "192.168.77.182",
-  "port": 5432,
-  "database": "abs_tester",
-  "username": "abs_user",
-  "password": "your_secure_password"
-}
