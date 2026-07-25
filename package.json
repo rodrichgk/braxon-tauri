@@ -1,6 +1,6 @@
 {
   "name": "braxon",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "BRAXON — ABS Hydraulic Diagnostics Platform",
   "type": "module",
   "scripts": {
