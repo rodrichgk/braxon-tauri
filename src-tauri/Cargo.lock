@@ -162,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "braxon"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "chrono",
  "futures-util",

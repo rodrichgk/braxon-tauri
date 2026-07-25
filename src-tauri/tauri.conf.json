@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "BRAXON",
-    "version": "1.0.6"
+    "version": "1.0.7"
   },
   "tauri": {
     "allowlist": {
@@ -66,10 +66,10 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/rodrichgk/pic-abs-tester/releases/latest/download/latest.json"
+        "https://github.com/rodrichgk/braxon-tauri/releases/latest/download/latest.json"
       ],
       "dialog": false,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBREU5N0Q0ODY2RjVBQUMKUldTc1dtK0cxSmZlMnB3end3cDVWWHRxNGpWdEpDQ3ZMVFIyZnpOeEZVYlRJZGRqSE16UHdmMFIK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERGOERDNjE0Q0NDRjFFRkIKUldUN0hzL01GTWFOM3pPOVhNTXhwYm1Oc1pZbVpBZVVOaHlYY2ZDZi9uemhaa0JiRFJ3bWxEbUcK"
     },
     "bundle": {
       "active": true,
