@@ -32,8 +32,21 @@ Prisma knows nothing about them:
 | Table | Created in | Purpose |
 |---|---|---|
 | `EcuDtc` | `ensure_ecu_tables()` | ECU diagnostic trouble codes |
+| `EcuAbsRef` | `ensure_abs_ref_table()` | ABS reference → ECU model / CAN addressing |
 | `AppUser` | `ensure_auth_tables()` | application login accounts |
 | `RepairJob` | `ensure_auth_tables()` | repair job lifecycle |
+
+`EcuAbsRef` is the index from the reference printed on the ABS block to the
+DDT4ALL diagnostic model. It is keyed by the reference stripped to
+alphanumerics and uppercased (`10.0961-1464.3` → `10096114643`), and holds
+`ecu_file` (into `EcuActuator`), `send_id`/`recv_id`, `protocol` and
+`hardware_family`. Rows come from the DTC scanner: either when a technician
+confirms a model for a reference, or when the CAN ID discovery sweep finds an
+address and they save it. `source` records which.
+
+The DDT4ALL-derived tables it points at — `EcuActuator` and `EcuAutoIdent` —
+are imported out of band and created by neither this app nor Prisma. Every
+query against them degrades to an empty result when they are absent.
 
 ## Consequences worth knowing
 

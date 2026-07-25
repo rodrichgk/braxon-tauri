@@ -648,7 +648,7 @@ pub async fn get_ecu_db_stats(state: State<'_, AppState>) -> Result<EcuDbStats, 
 
 // ── ECU actuator commands ─────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EcuInfo {
     pub ecu_file:        String,
@@ -749,6 +749,366 @@ pub async fn match_ecu_ident(
     ).await.ok().flatten();
 
     Ok(row.map(|r| IdentMatch { ecu_file: r.get(0), ecu_name: r.get(1) }))
+}
+
+// ── ABS reference → ECU record lookup ─────────────────────────
+//
+// The DDT4ALL-derived tables ("EcuActuator", "EcuAutoIdent") are keyed by
+// ecu_file — the diagnostic model — not by the physical reference printed on
+// the ABS block. "EcuAbsRef" is the index between the two: one row per ABS
+// reference, holding the resolved ecu_file and/or the CAN addressing found by
+// the discovery sweep. It is BRAXON-owned (see DATABASE.md).
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AbsRefLookup {
+    /// Reference exactly as the caller typed it.
+    pub abs_ref:         String,
+    /// Alphanumeric-only uppercase key actually used for matching.
+    pub normalized:      String,
+    /// "mapping" (saved ref→ECU row), "family" (guessed from the reference
+    /// digits), or "unknown" (nothing matched).
+    pub source:          String,
+    pub hardware_family: Option<String>,
+    /// Vehicle manufacturer from "ABSData", when the reference is known there.
+    pub manufacturer:    Option<String>,
+    /// Resolved addressing — mapping row first, then the ECU record.
+    pub send_id:         Option<String>,
+    pub recv_id:         Option<String>,
+    pub protocol:        Option<String>,
+    /// Full ECU record when exactly one could be resolved.
+    pub ecu:             Option<EcuInfo>,
+    /// Same-family ECUs when the reference maps to more than one model.
+    pub candidates:      Vec<EcuInfo>,
+    pub in_abs_data:     bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryCandidate {
+    pub send_id: String,
+    pub recv_id: String,
+    /// "family" (same hardware family), "db" (any ECU in the DB) or "saved"
+    /// (address found by an earlier discovery sweep).
+    pub source:  String,
+    pub label:   String,
+}
+
+/// Alphanumeric-only uppercase form of an ABS reference, so `10.0961-1464.3`,
+/// `10 0961 1464 3` and `1009611464.3` all collapse to the same key.
+fn normalize_abs_ref(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase()
+}
+
+/// Hardware family guessed from the reference printed on the ABS unit.
+/// Mirrors `guessHardwareFamily()` in `src/lib/absRef.ts` — keep both in sync.
+///   ATE/Continental: 10.0960-xxxx → MK60, 10.0970-xxxx → MK70
+///   Bosch:           0 265 25x xxx → Bosch 8.x, 0 265 95x xxx → Gen 9
+fn guess_hardware_family(abs_ref: &str) -> Option<String> {
+    let n = normalize_abs_ref(abs_ref);
+    let b = n.as_bytes();
+    let starts = |p: &str| n.starts_with(p);
+
+    let family = if starts("100961") {
+        "MK61"
+    } else if starts("100960") || starts("100175") || starts("100176") {
+        "MK60"
+    } else if starts("100970") || starts("100971") || starts("100972") || starts("100973") {
+        "MK70"
+    } else if starts("100200") || starts("100201") || starts("100202") || starts("100203") {
+        "MK20"
+    } else if starts("026595") {
+        "Bosch Gen 9"
+    } else if starts("02652") && b.len() >= 6 && b[5].is_ascii_digit() {
+        "Bosch 8.x"
+    } else if starts("026508") || starts("026509") {
+        "Bosch 8.0"
+    } else {
+        return None;
+    };
+    Some(family.to_string())
+}
+
+/// `0x740`, `740`, ` 740 ` → `740`. Returns None for blank/garbage input.
+fn normalize_can_id(id: Option<String>) -> Option<String> {
+    let raw = id?;
+    let t = raw.trim().trim_start_matches("0x").trim_start_matches("0X");
+    if t.is_empty() || !t.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("{:0>3}", t.to_uppercase()))
+}
+
+async fn ensure_abs_ref_table(client: &tokio_postgres::Client) -> Result<(), String> {
+    client.execute(
+        r#"CREATE TABLE IF NOT EXISTS "EcuAbsRef" (
+            abs_ref         TEXT PRIMARY KEY,
+            raw_ref         TEXT NOT NULL,
+            ecu_file        TEXT,
+            send_id         TEXT,
+            recv_id         TEXT,
+            protocol        TEXT,
+            hardware_family TEXT,
+            source          TEXT NOT NULL DEFAULT 'manual',
+            updated_at      TEXT NOT NULL
+        )"#,
+        &[],
+    ).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn ecu_by_file(client: &tokio_postgres::Client, ecu_file: &str) -> Option<EcuInfo> {
+    let row = client.query_opt(
+        r#"SELECT ecu_file, ecu_name, protocol, send_id, recv_id, hardware_family
+           FROM "EcuActuator" WHERE ecu_file = $1 LIMIT 1"#,
+        &[&ecu_file],
+    ).await.ok().flatten()?;
+    Some(EcuInfo {
+        ecu_file:        row.get(0),
+        ecu_name:        row.get(1),
+        protocol:        row.get(2),
+        send_id:         row.get(3),
+        recv_id:         row.get(4),
+        hardware_family: row.get(5),
+    })
+}
+
+async fn ecus_by_family(client: &tokio_postgres::Client, family: &str) -> Vec<EcuInfo> {
+    let rows = match client.query(
+        r#"SELECT DISTINCT ON (ecu_file) ecu_file, ecu_name, protocol, send_id, recv_id, hardware_family
+           FROM "EcuActuator" WHERE hardware_family = $1 ORDER BY ecu_file, ecu_name"#,
+        &[&family],
+    ).await {
+        Ok(r)  => r,
+        Err(_) => return vec![], // DDT4ALL tables not imported yet
+    };
+    rows.iter().map(|r| EcuInfo {
+        ecu_file:        r.get(0),
+        ecu_name:        r.get(1),
+        protocol:        r.get(2),
+        send_id:         r.get(3),
+        recv_id:         r.get(4),
+        hardware_family: r.get(5),
+    }).collect()
+}
+
+/// Resolve an ABS reference to everything needed to talk to the unit:
+/// protocol, CAN addressing and the ECU record whose actuators apply.
+#[tauri::command]
+pub async fn get_ecu_by_abs_ref(
+    abs_ref: String,
+    state: State<'_, AppState>,
+) -> Result<Option<AbsRefLookup>, String> {
+    let trimmed = abs_ref.trim().to_string();
+    let normalized = normalize_abs_ref(&trimmed);
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_abs_ref_table(&client).await?;
+
+    let mut result = AbsRefLookup {
+        abs_ref:         trimmed.clone(),
+        normalized:      normalized.clone(),
+        source:          "unknown".to_string(),
+        hardware_family: guess_hardware_family(&trimmed),
+        manufacturer:    None,
+        send_id:         None,
+        recv_id:         None,
+        protocol:        None,
+        ecu:             None,
+        candidates:      vec![],
+        in_abs_data:     false,
+    };
+
+    // Vehicle manufacturer, so the brand selector can follow the reference.
+    // Matched on the normalized reference, or loosely on the free-text
+    // "otherReferences" column where equivalences are recorded.
+    let like_raw = format!("%{}%", trimmed);
+    if let Ok(Some(row)) = client.query_opt(
+        r#"SELECT manufacturer FROM "ABSData"
+           WHERE UPPER(REGEXP_REPLACE(reference, '[^A-Za-z0-9]', '', 'g')) = $1
+              OR "otherReferences" ILIKE $2
+           ORDER BY (UPPER(REGEXP_REPLACE(reference, '[^A-Za-z0-9]', '', 'g')) = $1) DESC
+           LIMIT 1"#,
+        &[&normalized, &like_raw],
+    ).await {
+        result.in_abs_data = true;
+        result.manufacturer = row.get::<_, Option<String>>(0);
+    }
+
+    // 1. Saved ref → ECU mapping (exact normalized key).
+    let mapping = client.query_opt(
+        r#"SELECT ecu_file, send_id, recv_id, protocol, hardware_family
+           FROM "EcuAbsRef" WHERE abs_ref = $1"#,
+        &[&normalized],
+    ).await.ok().flatten();
+
+    if let Some(m) = mapping {
+        let ecu_file: Option<String> = m.get(0);
+        result.source          = "mapping".to_string();
+        result.send_id         = m.get(1);
+        result.recv_id         = m.get(2);
+        result.protocol        = m.get(3);
+        result.hardware_family = m.get::<_, Option<String>>(4).or(result.hardware_family);
+
+        if let Some(f) = ecu_file {
+            if let Some(ecu) = ecu_by_file(&client, &f).await {
+                result.send_id  = result.send_id.clone().or_else(|| ecu.send_id.clone());
+                result.recv_id  = result.recv_id.clone().or_else(|| ecu.recv_id.clone());
+                result.protocol = result.protocol.clone().or_else(|| Some(ecu.protocol.clone()));
+                result.hardware_family = result.hardware_family.clone().or_else(|| ecu.hardware_family.clone());
+                result.ecu = Some(ecu);
+            }
+        }
+        return Ok(Some(result));
+    }
+
+    // 2. No mapping — fall back to the hardware family the reference implies.
+    if let Some(family) = result.hardware_family.clone() {
+        let mut matches = ecus_by_family(&client, &family).await;
+        // An ECU without a send_id is K-line only: no use for CAN addressing.
+        matches.sort_by_key(|e| e.send_id.is_none());
+        let addressable: Vec<&EcuInfo> = matches.iter().filter(|e| e.send_id.is_some()).collect();
+
+        if addressable.len() == 1 {
+            let ecu = addressable[0].clone();
+            result.source   = "family".to_string();
+            result.send_id  = ecu.send_id.clone();
+            result.recv_id  = ecu.recv_id.clone();
+            result.protocol = Some(ecu.protocol.clone());
+            result.ecu      = Some(ecu);
+        } else if !matches.is_empty() {
+            result.source     = "family".to_string();
+            result.candidates = matches;
+        }
+    }
+
+    Ok(Some(result))
+}
+
+/// Store (or update) the ECU model and/or CAN addressing for an ABS reference,
+/// so the next lookup of that reference configures the session instantly.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn save_abs_ref_ecu(
+    abs_ref:         String,
+    ecu_file:        Option<String>,
+    send_id:         Option<String>,
+    recv_id:         Option<String>,
+    protocol:        Option<String>,
+    hardware_family: Option<String>,
+    source:          Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let trimmed = abs_ref.trim().to_string();
+    let normalized = normalize_abs_ref(&trimmed);
+    if normalized.is_empty() {
+        return Err("ABS reference is empty".to_string());
+    }
+
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_abs_ref_table(&client).await?;
+
+    let send_id = normalize_can_id(send_id);
+    let recv_id = normalize_can_id(recv_id);
+    let family  = hardware_family.or_else(|| guess_hardware_family(&trimmed));
+    let source  = source.unwrap_or_else(|| "manual".to_string());
+    let now     = Utc::now().to_rfc3339();
+
+    // COALESCE keeps previously stored values when this call omits them —
+    // saving a discovered address must not wipe an existing ecu_file link.
+    client.execute(
+        r#"INSERT INTO "EcuAbsRef"
+             (abs_ref, raw_ref, ecu_file, send_id, recv_id, protocol, hardware_family, source, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (abs_ref) DO UPDATE SET
+             raw_ref         = EXCLUDED.raw_ref,
+             ecu_file        = COALESCE(EXCLUDED.ecu_file,        "EcuAbsRef".ecu_file),
+             send_id         = COALESCE(EXCLUDED.send_id,         "EcuAbsRef".send_id),
+             recv_id         = COALESCE(EXCLUDED.recv_id,         "EcuAbsRef".recv_id),
+             protocol        = COALESCE(EXCLUDED.protocol,        "EcuAbsRef".protocol),
+             hardware_family = COALESCE(EXCLUDED.hardware_family, "EcuAbsRef".hardware_family),
+             source          = EXCLUDED.source,
+             updated_at      = EXCLUDED.updated_at"#,
+        &[&normalized, &trimmed, &ecu_file, &send_id, &recv_id, &protocol, &family, &source, &now],
+    ).await.map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// CAN addressing already known to work for some ECU, ordered so the most
+/// likely candidates for `hardware_family` come first. The discovery sweep
+/// tries these before falling back to blind ranges.
+#[tauri::command]
+pub async fn get_discovery_candidates(
+    hardware_family: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<DiscoveryCandidate>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_abs_ref_table(&client).await?;
+
+    let want = hardware_family.unwrap_or_default().to_uppercase();
+    let mut out: Vec<DiscoveryCandidate> = vec![];
+
+    let push = |out: &mut Vec<DiscoveryCandidate>,
+                send: Option<String>, recv: Option<String>,
+                source: &str, label: String| {
+        let Some(send_id) = normalize_can_id(send) else { return };
+        // Renault CAN convention when the DB has no explicit response ID.
+        let recv_id = normalize_can_id(recv).unwrap_or_else(|| {
+            let n = i64::from_str_radix(&send_id, 16).unwrap_or(0) + 0x20;
+            format!("{:03X}", n)
+        });
+        if out.iter().any(|c| c.send_id == send_id && c.recv_id == recv_id) {
+            return; // already queued from a higher-priority source
+        }
+        out.push(DiscoveryCandidate { send_id, recv_id, source: source.to_string(), label });
+    };
+
+    // Addresses proven by earlier discovery sweeps first — same bench, same
+    // kind of unit, so they are the best guesses available.
+    if let Ok(rows) = client.query(
+        r#"SELECT send_id, recv_id, raw_ref, hardware_family FROM "EcuAbsRef"
+           WHERE send_id IS NOT NULL ORDER BY updated_at DESC"#,
+        &[],
+    ).await {
+        let (mut same, mut other): (Vec<_>, Vec<_>) = rows.iter().partition(|r| {
+            !want.is_empty()
+                && r.get::<_, Option<String>>(3).map(|f| f.to_uppercase()) == Some(want.clone())
+        });
+        for r in same.drain(..).chain(other.drain(..)) {
+            let label: String = r.get(2);
+            push(&mut out, r.get(0), r.get(1), "saved", label);
+        }
+    }
+
+    // Then every addressable ECU in the DDT4ALL tables, same family first.
+    if let Ok(rows) = client.query(
+        r#"SELECT DISTINCT ON (send_id, recv_id) send_id, recv_id, ecu_name, hardware_family
+           FROM "EcuActuator" WHERE send_id IS NOT NULL AND send_id <> ''
+           ORDER BY send_id, recv_id, ecu_name"#,
+        &[],
+    ).await {
+        let (mut same, mut other): (Vec<_>, Vec<_>) = rows.iter().partition(|r| {
+            !want.is_empty()
+                && r.get::<_, Option<String>>(3).map(|f| f.to_uppercase()) == Some(want.clone())
+        });
+        for r in same.drain(..) {
+            let label: String = r.get(2);
+            push(&mut out, r.get(0), r.get(1), "family", label);
+        }
+        for r in other.drain(..) {
+            let label: String = r.get(2);
+            push(&mut out, r.get(0), r.get(1), "db", label);
+        }
+    }
+
+    Ok(out)
 }
 
 // ── Auth / User Commands ──────────────────────────────────────

@@ -17,6 +17,18 @@ import {
 } from '@heroicons/react/24/outline';
 import clientSerial, { type SerialEvent } from '@/lib/clientSerial';
 import { useSession } from '@/contexts/SessionContext';
+import EcuAutoConfig, { type EcuAutoConfig as EcuAutoConfigResult } from '@/components/EcuAutoConfig';
+import {
+  type ActuatorEntry,
+  type EcuInfo,
+  type Protocol,
+  type VehicleBrand,
+  guessHardwareFamily,
+  parseCanId,
+  protocolFromDb,
+  toHex3,
+} from '@/lib/ecu';
+import { isoTpRequest } from '@/lib/isotp';
 
 /* ── Fallback DTC description lookup ────────────────────────── */
 const DTC_DESC: Record<string, string> = {
@@ -95,8 +107,7 @@ const DTC_DESC: Record<string, string> = {
 };
 
 /* ── Types ────────────────────────────────────────────────────── */
-export type Protocol = 'OBD2' | 'UDS' | 'KWP2000';
-export type VehicleBrand = 'Renault' | 'Nissan' | 'Mitsubishi' | 'Other';
+export type { Protocol, VehicleBrand } from '@/lib/ecu';
 type ScanState = 'idle' | 'scanning' | 'clearing' | 'done' | 'cleared' | 'no_response' | 'error';
 
 export interface DTCEntry {
@@ -128,26 +139,9 @@ interface EcuDtcEntry {
   ecuName: string;
 }
 
-interface EcuInfo {
-  ecuFile: string;
-  ecuName: string;
-  protocol: string;
-  sendId: string | null;
-  recvId: string | null;
-  hardwareFamily: string | null;
-}
-
 interface IdentMatch {
   ecuFile: string;
   ecuName: string;
-}
-
-interface ActuatorEntry {
-  id: string;
-  name: string;
-  label: string;
-  sentBytes: string;
-  category: 'pump' | 'valve' | 'relay' | 'reset' | 'other';
 }
 
 /* ── Bus recorder: raw capture of whatever the Nano forwards, tagged by
@@ -235,10 +229,6 @@ function parseKWPPayload(payload: number[]): DTCEntry[] {
   return codes;
 }
 
-function toHex3(n: number): string {
-  return n.toString(16).toUpperCase().padStart(3, '0');
-}
-
 const DTC_TYPE_STYLE: Record<string, string> = {
   P: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/25',
   C: 'text-red-400   bg-red-400/10   border-red-400/25',
@@ -261,6 +251,8 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
   const [brand, setBrand]               = useState<VehicleBrand>('Renault');
   const [protocol, setProtocol]         = useState<Protocol>('OBD2');
   const [ecuIdHex, setEcuIdHex]         = useState('7E0');
+  // Explicit response ID. Empty = derive from the request ID + protocol offset.
+  const [recvIdHex, setRecvIdHex]       = useState('');
   const [useBroadcast, setUseBroadcast] = useState(true);
   const [scanState, setScanState]       = useState<ScanState>('idle');
   const [scan, setScan]                 = useState<DTCScan | null>(null);
@@ -314,10 +306,8 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   // Load ECU list from DB when brand changes (only for R/N/M)
   useEffect(() => {
-    if (brand === 'Other') { setEcuList([]); setSelectedEcu(null); setActuators([]); return; }
+    if (brand === 'Other') { setEcuList([]); return; }
     invoke<EcuInfo[]>('get_ecu_list').then(setEcuList).catch(() => setEcuList([]));
-    setSelectedEcu(null);
-    setActuators([]);
   }, [brand]);
 
   // Load actuators when ECU selection changes
@@ -327,17 +317,59 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
       .then(setActuators).catch(() => setActuators([]));
   }, [selectedEcu]);
 
-  // Auto-configure ECU address and protocol from DB when an ECU is selected
-  useEffect(() => {
-    if (!selectedEcu) return;
-    if (selectedEcu.sendId) {
-      setEcuIdHex(selectedEcu.sendId.replace(/^0x/i, '').toUpperCase().padStart(3, '0'));
+  // Brand switch is a manual action: clear the model picked under the old
+  // brand. Kept out of the effect above so an auto-configured selection made
+  // in the same update isn't wiped by the brand change that came with it.
+  const changeBrand = (next: VehicleBrand) => {
+    if (next === brand) return;
+    setBrand(next);
+    setSelectedEcu(null);
+    setActuators([]);
+  };
+
+  // Response ID the ECU will answer on, most specific source first: the
+  // explicit field (set by the ABS-ref lookup, by discovery, or by hand), then
+  // the selected ECU's stored recvId, then the protocol's offset convention.
+  const resolvedRecvId = (): number | null => {
+    const explicit = parseCanId(recvIdHex);
+    if (explicit !== null) return explicit;
+    const stored = parseCanId(selectedEcu?.recvId);
+    if (stored !== null) return stored;
+    const base = parseCanId(ecuIdHex);
+    if (base === null) return null;
+    // OBD-II uses +8 (standard); Renault/Nissan/Mitsubishi CAN uses +0x20
+    return base + (protocol === 'OBD2' ? 8 : 0x20);
+  };
+
+  // Selecting an ECU record also configures addressing and protocol from it.
+  const selectEcu = (ecu: EcuInfo | null) => {
+    setSelectedEcu(ecu);
+    if (!ecu) return;
+    setActiveTestOpen(true);
+    const sendId = parseCanId(ecu.sendId);
+    if (sendId !== null) {
+      setEcuIdHex(toHex3(sendId));
+      setRecvIdHex(toHex3(parseCanId(ecu.recvId) ?? sendId + 0x20));
       setUseBroadcast(false);
     }
-    const prot = selectedEcu.protocol?.toUpperCase() ?? '';
-    if (prot.includes('KWP'))                                    setProtocol('KWP2000');
-    else if (prot.includes('UDS') || prot.includes('ISO15765')) setProtocol('UDS');
-  }, [selectedEcu?.ecuFile]); // eslint-disable-line react-hooks/exhaustive-deps
+    const prot = protocolFromDb(ecu.protocol);
+    if (prot) setProtocol(prot);
+  };
+
+  // One ABS reference drives the whole session: brand, protocol, addressing,
+  // ECU record (and therefore its actuators). Values the lookup resolved win
+  // over the ECU record's own defaults — a discovered address is the truth
+  // for the unit actually on the bench.
+  const applyAutoConfig = (cfg: EcuAutoConfigResult) => {
+    setPartNumber(cfg.absRef);
+    if (cfg.brand) setBrand(cfg.brand);
+    selectEcu(cfg.ecu);
+    if (cfg.sendIdHex) { setEcuIdHex(cfg.sendIdHex); setUseBroadcast(false); }
+    if (cfg.recvIdHex) setRecvIdHex(cfg.recvIdHex);
+    if (cfg.protocol)  setProtocol(cfg.protocol);
+    setScanState('idle');
+    setScan(null);
+  };
 
   // Silently enrich DTC descriptions from the ECU DB after a scan
   const enrichFromDb = useCallback(async (codes: DTCEntry[]): Promise<DTCEntry[]> => {
@@ -352,21 +384,6 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
       })
     );
   }, []);
-
-  // Guess hardware family from physical part number printed on the ABS unit.
-  // ATE/Continental: 10.0960-xxxx → MK60, 10.0970-xxxx → MK70
-  // Bosch: 0 265 25x xxx → Bosch 8.x,  0 265 9xx xxx → Bosch Gen 9
-  const guessHardwareFamily = (pn: string): string | null => {
-    const n = pn.replace(/[\s\-\.]/g, '').toUpperCase();
-    if (/^10(0961)/.test(n))                           return 'MK61';
-    if (/^10(0960|0175|0176)/.test(n))                 return 'MK60';
-    if (/^10(0970|0971|0972|0973)/.test(n))            return 'MK70';
-    if (/^10(0200|0201|0202|0203)/.test(n))            return 'MK20';
-    if (/^026595/.test(n))                             return 'Bosch Gen 9';
-    if (/^02652[0-9]/.test(n))                         return 'Bosch 8.x';
-    if (/^02650[89]/.test(n))                          return 'Bosch 8.0';
-    return null;
-  };
 
   const guessedFamily = guessHardwareFamily(partNumber);
 
@@ -387,71 +404,29 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     if (!isConnected || identState === 'detecting') return;
     setIdentState('detecting');
 
-    const sendIdNum = parseInt(ecuIdHex || '740', 16) || 0x740;
-    const recvIdNum = sendIdNum + 0x20; // Renault CAN: recv = send + 0x20
+    const sendIdNum = parseCanId(ecuIdHex) ?? 0x740;
+    // Configured response ID if there is one, plus the Renault CAN convention
+    // (recv = send + 0x20) this KWP service follows.
+    const configured = parseCanId(recvIdHex) ?? parseCanId(selectedEcu?.recvId);
+    const recvIds = [...new Set([configured, sendIdNum + 0x20])]
+      .filter((id): id is number => id !== null && id <= 0x7FF);
 
-    // ISO-TP single frame for "21 80": byte0=len(2), then 21 80, padded to 8
-    const sendIdStr = sendIdNum.toString(16).toUpperCase().padStart(3, '0');
-    const frame = `CANTx : ${sendIdStr} 02 21 80 00 00 00 00 00\n`;
-
-    // Collect ISO-TP response
-    let payloadBuf: number[] = [];
-    let totalLen = 0;
-    let nextSeq = 1;
-    let resolved = false;
-
-    const resolve = () => { resolved = true; };
-
-    const listener = (event: SerialEvent) => {
-      if (resolved || event.type !== 'data' || !event.data) return;
-      const parts = event.data.trim().split(/\s+/);
-      if (parts.length < 3) return;
-      const id = parseInt(parts[0], 10);
-      if (id !== recvIdNum) return;
-      const dlc = parseInt(parts[1], 10);
-      const bytes: number[] = [];
-      for (let i = 2; i < 2 + dlc; i++) { const b = parseInt(parts[i], 10); if (!isNaN(b)) bytes.push(b); }
-      if (!bytes.length) return;
-
-      const isoType = (bytes[0] >> 4) & 0x0F;
-      if (isoType === 0) {
-        const len = bytes[0] & 0x0F;
-        payloadBuf = bytes.slice(1, 1 + len);
-        resolve();
-      } else if (isoType === 1) {
-        totalLen = ((bytes[0] & 0x0F) << 8) | bytes[1];
-        payloadBuf = bytes.slice(2);
-        nextSeq = 1;
-        // Send flow control back to ECU
-        sendRef.current(`CANTx : ${sendIdStr} 30 00 00 00 00 00 00 00\n`);
-      } else if (isoType === 2) {
-        const seq = bytes[0] & 0x0F;
-        if (seq === nextSeq) {
-          payloadBuf.push(...bytes.slice(1));
-          nextSeq = (seq + 1) % 16;
-          if (payloadBuf.length >= totalLen) { payloadBuf = payloadBuf.slice(0, totalLen); resolve(); }
-        }
-      }
-    };
-
-    clientSerial.addEventListener(listener);
-    await sendRef.current(frame);
-
-    // Wait up to 2 s for complete response
-    await new Promise<void>(res => {
-      const t = setTimeout(res, 2000);
-      const poll = setInterval(() => { if (resolved) { clearTimeout(t); clearInterval(poll); res(); } }, 50);
+    const res = await isoTpRequest({
+      send: (msg) => sendRef.current(msg),
+      sendId: sendIdNum,
+      recvIds,
+      data: [0x21, 0x80],
+      timeoutMs: 2000,
     });
-    clientSerial.removeEventListener(listener);
 
     // Need at least 22 bytes to read all fields (soft ends at index 21)
-    if (!resolved || payloadBuf.length < 22) {
+    if (!res || res.payload.length < 22) {
       setIdentState('not_found');
       setTimeout(() => setIdentState('idle'), 3000);
       return;
     }
 
-    const p = payloadBuf;
+    const p = res.payload;
     // supplier: 3 ASCII bytes at index 8,9,10 (firstbyte=9 in DDT4ALL, which is 1-indexed)
     const supplier = String.fromCharCode(p[8], p[9], p[10]).replace(/[^\x20-\x7E]/g, '');
     // version: 2 bytes at index 16,17 (firstbyte=17)
@@ -473,8 +448,7 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
           ecu = list.find(e => e.ecuFile === match.ecuFile) ?? null;
         }
         if (ecu) {
-          setSelectedEcu(ecu);
-          setActiveTestOpen(true);
+          selectEcu(ecu);
           setIdentState('found');
           setTimeout(() => setIdentState('idle'), 4000);
         } else {
@@ -512,16 +486,9 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   const getResponseRange = (): [number, number] => {
     if (protocol === 'OBD2' && useBroadcast) return [0x7E0, 0x7EF];
-    // Use stored recvId from DB when an ECU is selected (most accurate)
-    if (selectedEcu?.recvId) {
-      const id = parseInt(selectedEcu.recvId, 16);
-      if (!isNaN(id)) return [id, id];
-    }
-    const base = parseInt(ecuIdHex, 16);
-    if (isNaN(base)) return [0x7E0, 0x7EF];
-    // OBD-II uses +8 (standard); Renault/Nissan/Mitsubishi CAN uses +0x20
-    const offset = protocol === 'OBD2' ? 8 : 0x20;
-    return [base + offset, base + offset];
+    const recv = resolvedRecvId();
+    if (recv === null) return [0x7E0, 0x7EF];
+    return [recv, recv];
   };
 
   const stopScan = () => {
@@ -577,14 +544,13 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     payloadsRef.current = [];
     rawLinesRef.current = [];
 
-    // Capture ECU addressing at scan start
-    const ecuRecvId  = selectedEcu?.recvId  ? parseInt(selectedEcu.recvId,  16) : null;
-    const ecuSendId  = selectedEcu?.sendId  ? parseInt(selectedEcu.sendId,  16) : null;
+    // Capture ECU addressing at scan start. Broadcasting has no single tester
+    // ID to flow-control from — that one is derived per responding ECU below.
+    const broadcasting = protocol === 'OBD2' && useBroadcast;
+    const ecuSendId  = broadcasting ? null : (parseCanId(ecuIdHex) ?? parseCanId(selectedEcu?.sendId));
     const fcOffset   = protocol === 'OBD2' ? 8 : 0x20; // OBD uses +8, Renault CAN uses +0x20
 
-    const [respMin, respMax] = (ecuRecvId && !isNaN(ecuRecvId))
-      ? [ecuRecvId, ecuRecvId]
-      : getResponseRange();
+    const [respMin, respMax] = getResponseRange();
 
     const listener = (event: SerialEvent) => {
       if (!scanActiveRef.current || event.type !== 'data' || !event.data) return;
@@ -766,11 +732,8 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   const respRangeLabel = (): string => {
     if (protocol === 'OBD2' && useBroadcast) return '0x7E0–0x7EF';
-    if (selectedEcu?.recvId) return `0x${selectedEcu.recvId.replace(/^0x/i, '').toUpperCase().padStart(3, '0')}`;
-    const base = parseInt(ecuIdHex, 16);
-    if (isNaN(base)) return '—';
-    const offset = protocol === 'OBD2' ? 8 : 0x20;
-    return `0x${(base + offset).toString(16).toUpperCase()}`;
+    const recv = resolvedRecvId();
+    return recv === null ? '—' : `0x${toHex3(recv)}`;
   };
 
   const isBusy = scanState === 'scanning' || scanState === 'clearing';
@@ -815,6 +778,15 @@ else if (line.startsWith("CANTx : "))
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Selected ABS reference → automatic session configuration. The
+          brand/model dropdowns below stay as the override path. */}
+      <EcuAutoConfig
+        isConnected={isConnected}
+        send={sendMessage}
+        absRef={absReference}
+        onApply={applyAutoConfig}
+      />
 
       {/* Bus recorder — for ECUs not yet in the DB (e.g. MK61 / K-line units
           the board can't originate requests for). Passively logs whatever
@@ -908,7 +880,7 @@ else if (line.startsWith("CANTx : "))
           {(['Renault', 'Nissan', 'Mitsubishi', 'Other'] as VehicleBrand[]).map(b => (
             <button
               key={b}
-              onClick={() => setBrand(b)}
+              onClick={() => changeBrand(b)}
               className={[
                 'flex-1 py-0.5 text-[10px] font-medium rounded-md transition-colors',
                 brand === b
@@ -960,9 +932,12 @@ else if (line.startsWith("CANTx : "))
             </span>
           </div>
 
-          {/* Part number input (manual fallback) */}
+          {/* Part number — narrows the model list below. Mirrors the ABS ref
+              above; kept editable so the list can be filtered independently. */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-text-tertiary shrink-0 w-16">Part No.</span>
+            <span className="text-[10px] text-text-tertiary shrink-0 w-16" title="Filters the ECU model list by hardware family">
+              Filter by
+            </span>
             <input
               type="text"
               value={partNumber}
@@ -983,11 +958,7 @@ else if (line.startsWith("CANTx : "))
               <span className="text-[10px] text-text-tertiary shrink-0 w-16">ECU model</span>
               <select
                 value={selectedEcu?.ecuFile ?? ''}
-                onChange={e => {
-                  const found = ecuList.find(x => x.ecuFile === e.target.value) ?? null;
-                  setSelectedEcu(found);
-                  if (found) setActiveTestOpen(true);
-                }}
+                onChange={e => selectEcu(ecuList.find(x => x.ecuFile === e.target.value) ?? null)}
                 className="flex-1 input-field !py-0.5 text-[11px] bg-app"
               >
                 <option value="">
@@ -1149,8 +1120,20 @@ else if (line.startsWith("CANTx : "))
             <input
               type="text"
               value={ecuIdHex}
-              onChange={e => setEcuIdHex(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 3))}
+              onChange={e => {
+                setEcuIdHex(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 3));
+                setRecvIdHex(''); // typing a new request ID drops the paired response ID
+              }}
               placeholder="7E0"
+              className="w-16 input-field !py-1 font-mono text-xs text-center uppercase"
+            />
+            <span className="text-[11px] text-text-tertiary">resp</span>
+            <input
+              type="text"
+              value={recvIdHex}
+              onChange={e => setRecvIdHex(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 3))}
+              placeholder="auto"
+              title="Response CAN ID — leave blank to derive it from the request ID"
               className="w-16 input-field !py-1 font-mono text-xs text-center uppercase"
             />
           </div>

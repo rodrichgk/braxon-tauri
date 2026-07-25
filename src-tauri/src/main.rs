@@ -67,6 +67,9 @@ fn main() {
             commands::get_ecu_list,
             commands::get_ecu_actuators,
             commands::match_ecu_ident,
+            commands::get_ecu_by_abs_ref,
+            commands::save_abs_ref_ecu,
+            commands::get_discovery_candidates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
