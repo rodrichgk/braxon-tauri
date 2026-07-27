@@ -13,12 +13,22 @@
 import { isoTpRequest, type SendFn } from '@/lib/isotp';
 import type { DiscoveryCandidateRow } from '@/lib/ecu';
 import { parseCanId } from '@/lib/ecu';
+import { SESSION_EXTENDED, SESSION_MANUFACTURER } from '@/lib/udsSession';
 
 export type DiscoveryTier = 'db' | 'renault' | 'full';
 
-/** DiagnosticSessionControl → extended session. Every UDS/KWP-on-CAN ECU
-    answers it, positively or with a negative response — both prove presence. */
-export const DEFAULT_PROBE = [0x10, 0x03];
+/**
+ * DiagnosticSessionControl probes, tried in order per candidate ID.
+ * 0xC0 (manufacturer session) first — that is what a working commercial-tool
+ * capture used on this ECU family. 0x03 (standard extended session) second,
+ * for a future unit that wants ISO 14229 subfunctions instead. A probe that
+ * opens a session is also the connect step, so the sweep leaves the bench
+ * talking to the ECU rather than merely knowing its address.
+ */
+export const SESSION_PROBES = [
+  [0x10, SESSION_MANUFACTURER],
+  [0x10, SESSION_EXTENDED],
+];
 
 /** Renault/Nissan/Mitsubishi CAN answers at send+0x20; OBD-II at send+8. */
 const RECV_OFFSETS = [0x20, 0x08];
@@ -40,12 +50,23 @@ export interface DiscoveryHit {
   payload: number[];
   tier: DiscoveryTier;
   label?: string;
+  /** Session subfunction that produced the answer (0xC0 or 0x03). */
+  subFunction: number;
+  /**
+   * True when the ECU accepted the session (50 xx) — the caller can hold it
+   * open. False when it answered 7F: the address is right and something is
+   * alive there, but it refused the session.
+   */
+  sessionOpen: boolean;
+  /** Negative response code, when the session was refused. */
+  nrc?: number;
 }
 
 export interface DiscoveryOptions {
   send: SendFn;
   probes: DiscoveryProbe[];
-  probeBytes?: number[];
+  /** Probe payloads tried per candidate, in order. Defaults to SESSION_PROBES. */
+  probeSets?: number[][];
   /** Per-candidate listen window. 100–150 ms is enough on a bench harness. */
   timeoutMs?: number;
   /** Idle gap between probes so the Nano's serial buffer keeps up. */
@@ -99,7 +120,7 @@ function recvOffsetsFor(sendId: number): number[] {
  * manufacturer-specific addressing these ABS units use.
  */
 export function protocolFromProbe(payload: number[]): 'UDS' | 'KWP2000' {
-  const positive = payload[0] === ((DEFAULT_PROBE[0] + 0x40) & 0xff);
+  const positive = payload[0] === 0x50;
   return positive && payload.length >= 6 ? 'UDS' : 'KWP2000';
 }
 
@@ -109,12 +130,17 @@ export function dedupeProbes(probes: DiscoveryProbe[]): DiscoveryProbe[] {
   return probes.filter(p => !seen.has(p.sendId) && (seen.add(p.sendId), true));
 }
 
+/**
+ * Worst case: every candidate stays silent, so each one costs the full
+ * timeout once per probe subfunction. A responding ECU is found sooner.
+ */
 export function estimateSweepSeconds(
   count: number,
+  probesPerCandidate = SESSION_PROBES.length,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   gapMs = DEFAULT_GAP_MS,
 ): number {
-  return Math.round((count * (timeoutMs + gapMs)) / 1000);
+  return Math.round((count * probesPerCandidate * (timeoutMs + gapMs)) / 1000);
 }
 
 /**
@@ -130,18 +156,24 @@ function makeAccept(probeBytes: number[]) {
      (payload[0] === 0x7f && payload[1] === sid));
 }
 
-/** Run the sweep, resolving on the first responding ID (or null). */
+/**
+ * Run the sweep, resolving on the first ID that answers session control.
+ *
+ * A 50 xx answer is the real prize: the ECU accepted the session, so the
+ * caller can hold it open and start working immediately. A 7F still identifies
+ * the address — something diagnostic is alive there — and is reported with
+ * `sessionOpen: false` rather than discarded as "nothing found".
+ */
 export async function runDiscovery(opts: DiscoveryOptions): Promise<DiscoveryHit | null> {
   const {
     send, probes,
-    probeBytes = DEFAULT_PROBE,
+    probeSets = SESSION_PROBES,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     gapMs = DEFAULT_GAP_MS,
     isCancelled,
     onProgress,
   } = opts;
 
-  const accept = makeAccept(probeBytes);
   const total = probes.length;
   if (!total) return null;
 
@@ -150,17 +182,31 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<DiscoveryHit
     const probe = probes[i];
     onProgress?.(i, total, probe);
 
-    const res = await isoTpRequest({
-      send,
-      sendId: probe.sendId,
-      recvIds: probe.recvIds,
-      data: probeBytes,
-      timeoutMs,
-      waitForPending: false,  // a "busy" reply still proves the ECU is there
-      accept,
-    });
+    for (const probeBytes of probeSets) {
+      if (isCancelled?.()) return null;
 
-    if (res) {
+      const res = await isoTpRequest({
+        send,
+        sendId: probe.sendId,
+        recvIds: probe.recvIds,
+        data: probeBytes,
+        timeoutMs,
+        waitForPending: false,  // a "busy" reply still proves the ECU is there
+        accept: makeAccept(probeBytes),
+      });
+
+      if (!res) {
+        if (gapMs > 0) await delay(gapMs);
+        continue;               // silent for this subfunction — try the next
+      }
+
+      const accepted = res.payload[0] === ((probeBytes[0] + 0x40) & 0xff);
+      if (!accepted && res.payload[0] === 0x7f) {
+        // Refused this subfunction; another may still be accepted.
+        const isLastProbe = probeBytes === probeSets[probeSets.length - 1];
+        if (!isLastProbe) { if (gapMs > 0) await delay(gapMs); continue; }
+      }
+
       onProgress?.(i + 1, total, probe);
       return {
         sendId: probe.sendId,
@@ -168,9 +214,11 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<DiscoveryHit
         payload: res.payload,
         tier: probe.tier,
         label: probe.label,
+        subFunction: probeBytes[1],
+        sessionOpen: accepted,
+        nrc: accepted ? undefined : res.payload[2],
       };
     }
-    if (gapMs > 0) await delay(gapMs);
   }
 
   onProgress?.(total, total, probes[total - 1]);

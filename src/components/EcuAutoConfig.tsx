@@ -35,6 +35,7 @@ import {
   toHex3,
 } from '@/lib/ecu';
 import { type SendFn } from '@/lib/isotp';
+import { type EnsureResult, type SessionState } from '@/hooks/useUdsSession';
 import {
   type DiscoveryHit,
   type DiscoveryProbe,
@@ -63,6 +64,10 @@ interface Props {
   /** Reference selected in the ABS DB search above — the only input here. */
   absRef?: string;
   onApply: (config: EcuAutoConfig) => void;
+  /** Diagnostic session held for the bench ECU, owned by the scanner. */
+  session: SessionState;
+  connect: (sendId: number, recvId: number, subFunctions?: number[]) => Promise<EnsureResult>;
+  disconnect: () => void;
 }
 
 type LookupState = 'idle' | 'looking' | 'found' | 'unknown' | 'error';
@@ -78,7 +83,9 @@ const TIER_LABEL: Record<DiscoveryTier, string> = {
   full:    'full 11-bit sweep',
 };
 
-export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Props) {
+export default function EcuAutoConfig({
+  isConnected, send, absRef, onApply, session, connect, disconnect,
+}: Props) {
   const [lookupState, setLookupState] = useState<LookupState>('idle');
   const [lookup, setLookup]         = useState<AbsRefLookup | null>(null);
   const [errorMsg, setErrorMsg]     = useState('');
@@ -100,6 +107,12 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
   sendRef.current  = send;
   const onApplyRef = useRef(onApply);
   onApplyRef.current = onApply;
+  const connectRef = useRef(connect);
+  connectRef.current = connect;
+  const disconnectRef = useRef(disconnect);
+  disconnectRef.current = disconnect;
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
 
   useEffect(() => () => { cancelRef.current = true; }, []);
 
@@ -119,14 +132,21 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
       if (res && hasAddressing && autoApply) {
         const sendId = parseCanId(res.sendId);
         const recvId = parseCanId(res.recvId) ?? (sendId !== null ? sendId + 0x20 : null);
+        const protocol = protocolFromDb(res.protocol ?? res.ecu?.protocol) ?? defaultProtocolFor(sendId);
         onApplyRef.current({
           absRef:    res.absRef,
           ecu:       res.ecu,
           sendIdHex: sendId !== null ? toHex3(sendId) : null,
           recvIdHex: recvId !== null ? toHex3(recvId) : null,
-          protocol:  protocolFromDb(res.protocol ?? res.ecu?.protocol) ?? defaultProtocolFor(sendId),
+          protocol,
           brand:     brandFromManufacturer(res.manufacturer),
         });
+        // Configuring the bench ECU is the connect step: open the session now
+        // and hold it, so Scan / Clear / Active Tests work straight away.
+        // Standard OBD-II is sessionless and needs none.
+        if (isConnectedRef.current && protocol !== 'OBD2' && sendId !== null && recvId !== null) {
+          void connectRef.current(sendId, recvId);
+        }
       }
       return res;
     } catch (e) {
@@ -143,6 +163,7 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
   useEffect(() => {
     cancelRef.current = true;   // abandon a sweep aimed at the previous unit
     sweepToken.current += 1;
+    disconnectRef.current();    // and drop the session held for it
     setSweepState('idle');
     setSweepTier(null);
     setHit(null);
@@ -205,7 +226,7 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
     if (found) {
       setHit(found);
       setSweepState('hit');
-      // Configure the session straight away — saving to the DB is a separate,
+      // Configure the bench straight away — saving to the DB stays a separate,
       // explicit step so a one-off probe result never pollutes the database.
       onApplyRef.current({
         absRef:    ref,
@@ -215,6 +236,12 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
         protocol:  protocolFromProbe(found.payload),
         brand:     null,
       });
+      // Discovery is the connect action: the ECU just accepted a session, so
+      // hold it open with the keep-alive rather than making the user do
+      // anything else before scanning.
+      if (found.sessionOpen) {
+        void connectRef.current(found.sendId, found.recvId, [found.subFunction]);
+      }
     } else {
       setSweepState('miss');
     }
@@ -247,14 +274,18 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
   const chooseCandidate = (ecu: EcuInfo) => {
     const sendId = parseCanId(ecu.sendId);
     const recvId = parseCanId(ecu.recvId) ?? (sendId !== null ? sendId + 0x20 : null);
+    const protocol = protocolFromDb(ecu.protocol) ?? defaultProtocolFor(sendId);
     onApplyRef.current({
       absRef:    ref,
       ecu,
       sendIdHex: sendId !== null ? toHex3(sendId) : null,
       recvIdHex: recvId !== null ? toHex3(recvId) : null,
-      protocol:  protocolFromDb(ecu.protocol) ?? defaultProtocolFor(sendId),
+      protocol,
       brand:     null,
     });
+    if (isConnected && protocol !== 'OBD2' && sendId !== null && recvId !== null) {
+      void connect(sendId, recvId);
+    }
     setLookupState('found');
     setLookup(l => l ? { ...l, ecu, sendId: ecu.sendId, recvId: ecu.recvId, protocol: ecu.protocol } : l);
   };
@@ -290,6 +321,35 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
           <span className="flex items-center gap-1 text-[9px] text-text-tertiary ml-auto">
             <ArrowPathIcon className="w-3 h-3 animate-spin" />
             looking up…
+          </span>
+        )}
+
+        {/* Live connection state — the session is what actually makes the ECU
+            answer, so it gets its own indicator rather than being implied. */}
+        {session.status !== 'idle' && (
+          <span className={[
+            'flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded border ml-auto',
+            session.status === 'open'
+              ? 'text-success bg-success/10 border-success/25'
+              : session.status === 'opening'
+                ? 'text-accent bg-accent/10 border-accent/25'
+                : session.status === 'rejected'
+                  ? 'text-warning bg-warning/10 border-warning/25'
+                  : 'text-danger bg-danger/10 border-danger/25',
+          ].join(' ')}>
+            <span className={[
+              'w-1.5 h-1.5 rounded-full bg-current shrink-0',
+              session.status === 'open' ? 'animate-pulse' : '',
+            ].join(' ')} />
+            {session.status === 'open'
+              ? `Session open · keep-alive 2s${session.sendId !== null ? ` · 0x${toHex3(session.sendId)}` : ''}`
+              : session.status === 'opening'
+                ? 'Opening session…'
+                : session.status === 'rejected'
+                  ? 'Session refused by ECU'
+                  : session.status === 'lost'
+                    ? 'Session lost — ECU stopped acking'
+                    : 'No answer to session control'}
           </span>
         )}
       </div>
@@ -429,7 +489,7 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
           {sweepState === 'running' && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[9px] text-text-tertiary">
-                <span>Probing {sweepTier ? TIER_LABEL[sweepTier] : ''} — 10 03 to each ID</span>
+                <span>Probing {sweepTier ? TIER_LABEL[sweepTier] : ''} — 10 C0 then 10 03 per ID</span>
                 <span className="font-mono">{progress.done}/{progress.total}</span>
               </div>
               <div className="h-1 bg-app rounded-full overflow-hidden">
@@ -450,7 +510,11 @@ export default function EcuAutoConfig({ isConnected, send, absRef, onApply }: Pr
                 <span className="font-mono text-text-primary">
                   0x{toHex3(hit.sendId)}→0x{toHex3(hit.recvId)}
                 </span>
-                {hit.label ? ` (${hit.label})` : ''} — applied to this session
+                {hit.label ? ` (${hit.label})` : ''}
+                {hit.sessionOpen
+                  ? ` — session 0x${hit.subFunction.toString(16).toUpperCase()} open, connected`
+                  : ` — but it refused the session (7F 10 ${hit.nrc !== undefined
+                      ? hit.nrc.toString(16).toUpperCase().padStart(2, '0') : '??'}), so requests may go unanswered`}
               </span>
               <button
                 onClick={saveHit}

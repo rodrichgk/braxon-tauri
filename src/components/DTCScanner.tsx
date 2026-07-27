@@ -29,6 +29,7 @@ import {
   toHex3,
 } from '@/lib/ecu';
 import { isoTpRequest } from '@/lib/isotp';
+import { useUdsSession } from '@/hooks/useUdsSession';
 
 /* ── Fallback DTC description lookup ────────────────────────── */
 const DTC_DESC: Record<string, string> = {
@@ -108,7 +109,13 @@ const DTC_DESC: Record<string, string> = {
 
 /* ── Types ────────────────────────────────────────────────────── */
 export type { Protocol, VehicleBrand } from '@/lib/ecu';
-type ScanState = 'idle' | 'scanning' | 'clearing' | 'done' | 'cleared' | 'no_response' | 'error';
+type ScanState =
+  | 'idle' | 'scanning' | 'clearing' | 'done' | 'cleared'
+  /** Session opened, request sent, ECU said nothing. */
+  | 'no_response'
+  /** Could not even open the session — a different problem entirely. */
+  | 'no_session'
+  | 'error';
 
 export interface DTCEntry {
   code: string;
@@ -229,6 +236,17 @@ function parseKWPPayload(payload: number[]): DTCEntry[] {
   return codes;
 }
 
+/**
+ * Traffic the held session generates on its own: TesterPresent acks (7E) and
+ * "response pending" (7F <sid> 78). Neither is an answer to whatever request
+ * a caller is waiting on, so every listener has to step over them.
+ */
+function isSessionNoise(payload: number[]): boolean {
+  if (!payload.length) return true;
+  if (payload[0] === 0x7E) return true;
+  return payload[0] === 0x7F && payload[2] === 0x78;
+}
+
 const DTC_TYPE_STYLE: Record<string, string> = {
   P: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/25',
   C: 'text-red-400   bg-red-400/10   border-red-400/25',
@@ -247,6 +265,10 @@ const SCAN_TIMEOUT_MS = 3500;
 
 export default function DTCScanner({ sendMessage, isConnected, absReference }: Props) {
   const { currentJob } = useSession();
+
+  // One diagnostic session held for the ECU on the bench. Every request below
+  // goes out inside it — these ECUs silently ignore anything sent outside one.
+  const { session, ensureSession, closeSession } = useUdsSession(sendMessage, isConnected);
 
   const [brand, setBrand]               = useState<VehicleBrand>('Renault');
   const [protocol, setProtocol]         = useState<Protocol>('OBD2');
@@ -341,6 +363,33 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     return base + (protocol === 'OBD2' ? 8 : 0x20);
   };
 
+  // Standard OBD-II is sessionless — mode 03 is answered cold. Only the
+  // manufacturer protocols need DiagnosticSessionControl held open.
+  const needsSession = protocol !== 'OBD2';
+
+  /**
+   * Guarantee an open session before a request goes out, reusing the held one
+   * when the address already matches. Returns false only when session control
+   * itself failed — the caller reports that as its own state, since it points
+   * at addressing or wiring rather than at the request.
+   */
+  const prepareSession = async (): Promise<{ ok: boolean; detail?: string }> => {
+    if (!needsSession) return { ok: true };
+    const sendId = parseCanId(ecuIdHex);
+    const recvId = resolvedRecvId();
+    if (sendId === null || recvId === null) {
+      return { ok: false, detail: 'No valid ECU address configured' };
+    }
+    const res = await ensureSession(sendId, recvId);
+    if (res.ok) return { ok: true };
+    return {
+      ok: false,
+      detail: res.reason === 'rejected'
+        ? `ECU refused the session (7F 10 ${res.nrc !== undefined ? res.nrc.toString(16).toUpperCase().padStart(2, '0') : '??'}) at 0x${toHex3(sendId)}`
+        : `No response to session control (10 C0 / 10 03) at 0x${toHex3(sendId)} → 0x${toHex3(recvId)}`,
+    };
+  };
+
   // Selecting an ECU record also configures addressing and protocol from it.
   const selectEcu = (ecu: EcuInfo | null) => {
     setSelectedEcu(ecu);
@@ -369,6 +418,10 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     if (cfg.protocol)  setProtocol(cfg.protocol);
     setScanState('idle');
     setScan(null);
+    // A session held for the previous unit is meaningless once the bench
+    // moves to another address — drop it rather than keep it alive.
+    const nextSendId = parseCanId(cfg.sendIdHex);
+    if (session.sendId !== null && nextSendId !== session.sendId) closeSession();
   };
 
   // Silently enrich DTC descriptions from the ECU DB after a scan
@@ -411,12 +464,23 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     const recvIds = [...new Set([configured, sendIdNum + 0x20])]
       .filter((id): id is number => id !== null && id <= 0x7FF);
 
+    // 21 80 is only answered inside an open session, like every other request.
+    const gate = await prepareSession();
+    if (!gate.ok) {
+      setIdentState('not_found');
+      setTimeout(() => setIdentState('idle'), 3000);
+      return;
+    }
+
     const res = await isoTpRequest({
       send: (msg) => sendRef.current(msg),
       sendId: sendIdNum,
       recvIds,
       data: [0x21, 0x80],
       timeoutMs: 2000,
+      // Step over keep-alive acks so a 7E arriving mid-wait is not mistaken
+      // for a truncated ident response.
+      accept: (payload) => payload[0] === 0x61 || payload[0] === 0x7F,
     });
 
     // Need at least 22 bytes to read all fields (soft ends at index 21)
@@ -480,6 +544,9 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     const frame = buildActuatorFrame(actuator.sentBytes, selectedEcu.sendId);
     if (!frame) return;
     setActivatingId(actuator.id);
+    // Reuses the held session; only opens one if nothing is active yet.
+    const gate = await prepareSession();
+    if (!gate.ok) { setActivatingId(null); return; }
     await sendRef.current(frame);
     setTimeout(() => setActivatingId(null), 800);
   };
@@ -537,6 +604,16 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
     setScan(null);
     setSaveStatus('idle');
     setErrorMsg('');
+
+    // The ECU answers nothing outside an open session, so the session comes
+    // first and its keep-alive runs for the whole scan window.
+    const gate = await prepareSession();
+    if (!gate.ok) {
+      setErrorMsg(gate.detail ?? '');
+      setScanState('no_session');
+      return;
+    }
+
     scanActiveRef.current = true;
     protocolRef.current = protocol;
     brandRef.current = brand;
@@ -576,7 +653,12 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
       if (isoType === 0) {
         const len = bytes[0] & 0x0F;
-        payloadsRef.current.push({ payload: bytes.slice(1, 1 + len), fromId: id });
+        const payload = bytes.slice(1, 1 + len);
+        // The session keep-alive is ticking during the scan window. Its 7E
+        // acks — and "still working" replies — are not answers to the DTC
+        // request, and counting them would turn silence into "no faults".
+        if (isSessionNoise(payload)) return;
+        payloadsRef.current.push({ payload, fromId: id });
       } else if (isoType === 1) {
         const totalLen = ((bytes[0] & 0x0F) << 8) | bytes[1];
         isoTpRef.current.set(id, { totalLen, data: bytes.slice(2), nextSeq: 1 });
@@ -631,6 +713,13 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
   const clearDTCs = async () => {
     if (!isConnected) return;
     setScanState('clearing');
+
+    const gate = await prepareSession();
+    if (!gate.ok) {
+      setErrorMsg(gate.detail ?? '');
+      setScanState('no_session');
+      return;
+    }
 
     let reqId: string;
     let reqBytes: string;
@@ -738,6 +827,21 @@ export default function DTCScanner({ sendMessage, isConnected, absReference }: P
 
   const isBusy = scanState === 'scanning' || scanState === 'clearing';
 
+  const SESSION_CHIP: Record<string, { label: string; cls: string }> = {
+    open:        { label: 'Session open · keep-alive 2s', cls: 'text-success bg-success/10 border-success/25' },
+    opening:     { label: 'Opening session…',             cls: 'text-accent bg-accent/10 border-accent/25' },
+    no_response: { label: 'No answer to 10 C0',           cls: 'text-danger bg-danger/10 border-danger/25' },
+    rejected:    { label: 'Session refused',              cls: 'text-warning bg-warning/10 border-warning/25' },
+    lost:        { label: 'Session lost',                 cls: 'text-danger bg-danger/10 border-danger/25' },
+    idle:        { label: 'Not connected',                cls: 'text-text-tertiary bg-app border-border' },
+  };
+  const sessionChip = SESSION_CHIP[session.status] ?? SESSION_CHIP.idle;
+
+  const toggleSession = async () => {
+    if (session.status === 'open' || session.status === 'opening') { closeSession(); return; }
+    await prepareSession();
+  };
+
   return (
     <div className="card">
 
@@ -786,6 +890,9 @@ else if (line.startsWith("CANTx : "))
         send={sendMessage}
         absRef={absReference}
         onApply={applyAutoConfig}
+        session={session}
+        connect={ensureSession}
+        disconnect={closeSession}
       />
 
       {/* Bus recorder — for ECUs not yet in the DB (e.g. MK61 / K-line units
@@ -1140,6 +1247,27 @@ else if (line.startsWith("CANTx : "))
         )}
         <span className="text-[10px] text-text-tertiary">→ resp {respRangeLabel()}</span>
 
+        {/* Session state — a manually typed address is connected from here */}
+        {needsSession && (
+          <button
+            onClick={toggleSession}
+            disabled={!isConnected}
+            title={session.sendId !== null
+              ? `Session address 0x${toHex3(session.sendId)} → 0x${toHex3(session.recvId ?? 0)}`
+              : 'Open a diagnostic session on the address above'}
+            className={[
+              'flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded border transition-colors disabled:opacity-40',
+              sessionChip.cls,
+            ].join(' ')}
+          >
+            <span className={[
+              'w-1.5 h-1.5 rounded-full bg-current shrink-0',
+              session.status === 'open' ? 'animate-pulse' : '',
+            ].join(' ')} />
+            {sessionChip.label}
+          </button>
+        )}
+
         <div className="ml-auto flex items-center gap-1.5">
           {scan && scan.codes.length > 0 && scanState !== 'scanning' && (
             <button
@@ -1192,9 +1320,29 @@ else if (line.startsWith("CANTx : "))
             className="p-3 bg-elevated rounded-xl border border-border text-center"
           >
             <ExclamationTriangleIcon className="w-5 h-5 text-warning mx-auto mb-1" />
-            <p className="text-[12px] text-text-secondary font-medium">No response from ECU</p>
+            <p className="text-[12px] text-text-secondary font-medium">
+              {needsSession ? 'Session open, but the ECU ignored the request' : 'No response from ECU'}
+            </p>
             <p className="text-[10px] text-text-tertiary mt-0.5">
-              Check CAN bus connection, ECU address, and firmware CANTx support
+              {needsSession
+                ? 'Addressing is right — the ECU is answering session control. It may not support this DTC service.'
+                : 'Check CAN bus connection, ECU address, and firmware CANTx support'}
+            </p>
+          </motion.div>
+        )}
+
+        {/* Distinct from no_response: nothing answered session control, so the
+            problem is the address or the wiring, not the request. */}
+        {scanState === 'no_session' && (
+          <motion.div key="no_session" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            className="p-3 bg-danger/5 rounded-xl border border-danger/20 text-center"
+          >
+            <ExclamationTriangleIcon className="w-5 h-5 text-danger mx-auto mb-1" />
+            <p className="text-[12px] text-text-secondary font-medium">Could not open a diagnostic session</p>
+            <p className="text-[10px] text-text-tertiary mt-0.5">{errorMsg}</p>
+            <p className="text-[10px] text-text-tertiary mt-1">
+              The ECU never answered session control, so nothing is listening at this address.
+              Check power and CAN wiring, or run Discover ECU above.
             </p>
           </motion.div>
         )}
