@@ -1,4 +1,5 @@
 use crate::database::{self, ABSData, ABSModule, DbConfig, MotorTest, SignalProfile};
+use crate::reman;
 use crate::serial::{self, SerialPortData};
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -1176,6 +1177,23 @@ async fn ensure_auth_tables(client: &tokio_postgres::Client) -> Result<(), Strin
         .execute(r#"ALTER TABLE "RepairJob" ADD COLUMN IF NOT EXISTS dtcs TEXT"#, &[])
         .await
         .map_err(|e| e.to_string())?;
+    client
+        .execute(r#"ALTER TABLE "AppUser" ADD COLUMN IF NOT EXISTS role TEXT"#, &[])
+        .await
+        .map_err(|e| e.to_string())?;
+    // Which REMAN 4D technician this BRAXON login maps to — REMAN has no
+    // login of its own (technicians just pick their name from a dropdown,
+    // see reman.rs's NomDernierTech comments), so the link is claimed
+    // manually here rather than guessed from name similarity ("gabhy" in
+    // BRAXON vs "Gabhy Kiba" in 4D isn't a safe auto-match in general).
+    client
+        .execute(r#"ALTER TABLE "AppUser" ADD COLUMN IF NOT EXISTS reman_tech_id TEXT"#, &[])
+        .await
+        .map_err(|e| e.to_string())?;
+    client
+        .execute(r#"ALTER TABLE "AppUser" ADD COLUMN IF NOT EXISTS reman_tech_name TEXT"#, &[])
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1184,6 +1202,9 @@ async fn ensure_auth_tables(client: &tokio_postgres::Client) -> Result<(), Strin
 pub struct AppUserInfo {
     pub id: String,
     pub name: String,
+    pub role: Option<String>,
+    pub reman_tech_id: Option<String>,
+    pub reman_tech_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1208,10 +1229,19 @@ pub async fn list_users(state: State<'_, AppState>) -> Result<Vec<AppUserInfo>, 
     let client = database::connect(&config).await?;
     ensure_auth_tables(&client).await?;
     let rows = client
-        .query(r#"SELECT id, name FROM "AppUser" ORDER BY name"#, &[])
+        .query(r#"SELECT id, name, role, reman_tech_id, reman_tech_name FROM "AppUser" ORDER BY name"#, &[])
         .await
         .map_err(|e| e.to_string())?;
-    Ok(rows.iter().map(|r| AppUserInfo { id: r.get(0), name: r.get(1) }).collect())
+    Ok(rows
+        .iter()
+        .map(|r| AppUserInfo {
+            id: r.get(0),
+            name: r.get(1),
+            role: r.get(2),
+            reman_tech_id: r.get(3),
+            reman_tech_name: r.get(4),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1235,7 +1265,7 @@ pub async fn create_user(name: String, password: String, state: State<'_, AppSta
                 e.to_string()
             }
         })?;
-    Ok(AppUserInfo { id, name })
+    Ok(AppUserInfo { id, name, role: None, reman_tech_id: None, reman_tech_name: None })
 }
 
 #[tauri::command]
@@ -1245,7 +1275,7 @@ pub async fn login_user(name: String, password: String, state: State<'_, AppStat
     ensure_auth_tables(&client).await?;
     let row = client
         .query_opt(
-            r#"SELECT id, name, password_hash FROM "AppUser" WHERE name = $1"#,
+            r#"SELECT id, name, password_hash, role, reman_tech_id, reman_tech_name FROM "AppUser" WHERE name = $1"#,
             &[&name],
         )
         .await
@@ -1254,13 +1284,56 @@ pub async fn login_user(name: String, password: String, state: State<'_, AppStat
         Some(r) => {
             let stored_hash: String = r.get(2);
             if verify_password(&password, &stored_hash) {
-                Ok(AppUserInfo { id: r.get(0), name: r.get(1) })
+                Ok(AppUserInfo {
+                    id: r.get(0),
+                    name: r.get(1),
+                    role: r.get(3),
+                    reman_tech_id: r.get(4),
+                    reman_tech_name: r.get(5),
+                })
             } else {
                 Err("Invalid name or password".to_string())
             }
         }
         None => Err("Invalid name or password".to_string()),
     }
+}
+
+#[tauri::command]
+pub async fn update_user_role(user_id: String, role: String, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_auth_tables(&client).await?;
+    client
+        .execute(r#"UPDATE "AppUser" SET role = $2 WHERE id = $1"#, &[&user_id, &role])
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Links a BRAXON login to a REMAN 4D technician identity — both the id
+/// (`LigCde.TechDernInterv`, used to filter "my jobs") and the display
+/// name are stored, since REMAN has no login/user table of its own to
+/// look either up from later. `tech_id`/`tech_name` are `Option` so the
+/// link can be cleared (pass `None` for both) as well as set.
+#[tauri::command]
+pub async fn update_user_reman_tech(
+    user_id: String,
+    tech_id: Option<String>,
+    tech_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_auth_tables(&client).await?;
+    client
+        .execute(
+            r#"UPDATE "AppUser" SET reman_tech_id = $2, reman_tech_name = $3 WHERE id = $1"#,
+            &[&user_id, &tech_id, &tech_name],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1396,4 +1469,109 @@ pub async fn get_job_dtcs(id: String, state: State<'_, AppState>) -> Result<Opti
 #[tauri::command]
 pub async fn save_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+// ---- REMAN forecast-vs-actual comparison ----
+//
+// Went through four designs across two days before landing here, each
+// abandoned live once its problem showed up: (1) a persisted Postgres
+// snapshot ("RemanForecastSnapshot") capturing one frozen baseline
+// prediction each morning, compared against actual outcomes for that same
+// fixed id list — missed real same-day repairs whenever a job wasn't
+// polled while still open (a unit cycling through "Attente de Pièces"
+// closed with nobody ever having tracked it). (2) growing that same
+// snapshot's id list *and* recomputing its predicted mix as new units
+// landed (client-polling-based) — fixed the missed-repairs problem, but
+// then showed a *second*, different "Repaired ~N" number right next to
+// the live top-panel one, because the two were forecasting different
+// populations (18 units live right now vs. 21 cumulative units tracked
+// since the morning, some already closed) — confusing shown side by
+// side: "on top says 7 repairs but in predicted just underneath it says
+// repairs wtf is happening?" (3) — 2026-08-03 — no persistence, no
+// tracking at all: `predicted` was just `reman::reman_forecast_open_queue()`'s
+// live number reused. Explicitly chosen at the time over (2): "drop the
+// morning's prediction and just use the growing forecast which should be
+// live." Reported directly two days later, 2026-08-06: "it was 12 all
+// day now it just dropped suddenly to 8... the only thing that should
+// make it change its prediction is new units coming in, and they can't
+// possibly decrease the repair numbers right?" — a live rate-on-current-
+// bench number necessarily moves both ways (confirmed live: a genuinely
+// high-churn day, 25 arrivals/18 closures, explains the swing), but
+// that's not what was actually wanted here. (4) — this version —
+// `predicted`/`units_with_tech` now come from
+// `reman::forecast_today_cumulative`: a *stateless, server-side*
+// recreation of design (2)'s idea (never decreases, only grows with new
+// arrivals) without design (2)'s actual flaw, which was specifically
+// about *client-side polling* building the tracked population and
+// therefore missing jobs nobody happened to poll while open — this
+// version re-derives "today's population" fresh from 4D on every call
+// (currently open ∪ closed today), no tracking, so that failure mode
+// doesn't apply. `actual` stays `reman::reman_actual_outcomes_today()`,
+// shop-wide closures today, unchanged. The display-confusion problem that
+// killed (2) is addressed separately in `RemanForecast.tsx` — distinct
+// labeling for this cumulative number vs. the live "on the bench right
+// now" one shown elsewhere on the panel, not by reverting the metric.
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ForecastComparison {
+    /// Size of `reman::forecast_today_cumulative`'s population (currently
+    /// open ∪ closed today) — grows through the day, never shrinks.
+    pub units_today: u32,
+    pub predicted: reman::PredictedMix,
+    pub actual: reman::OutcomeBreakdown,
+}
+
+#[tauri::command]
+pub async fn reman_compare_forecast_to_actual(state: State<'_, AppState>) -> Result<ForecastComparison, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    reman::ensure_reman_cache_tables(&client).await?;
+    let (units_today, predicted) = reman::forecast_today_cumulative(&client).await?;
+    let actual = reman::reman_actual_outcomes_today(&client).await?;
+    Ok(ForecastComparison { units_today, predicted, actual })
+}
+
+// ---- Forecast accuracy history (2026-08-14) ----
+//
+// `RemanForecastDailySnapshot` (17:25 daily capture, see reman.rs's
+// `try_run_forecast_snapshot`) was built storage-only, deliberately not
+// surfaced anywhere — "it doesn't need to be displayed" at the time.
+// Requested directly once a week of real data existed: "how was the
+// prediction, are we spot on or way off... can we look at it in the
+// app?" One new read-only command exposing what's already been captured;
+// no new writes, no change to the capture logic itself.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ForecastAccuracyDay {
+    pub date: String,
+    pub units_with_tech: i32,
+    pub predicted: reman::PredictedMix,
+    pub actual: reman::OutcomeBreakdown,
+}
+
+#[tauri::command]
+pub async fn reman_forecast_accuracy_history(state: State<'_, AppState>) -> Result<Vec<ForecastAccuracyDay>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    reman::ensure_reman_cache_tables(&client).await?;
+    let rows = client
+        .query(
+            r#"SELECT snapshot_date, units_with_tech, predicted_json, actual_json
+               FROM "RemanForecastDailySnapshot" ORDER BY snapshot_date ASC"#,
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    rows.into_iter()
+        .map(|r| {
+            let date: String = r.get(0);
+            let units_with_tech: i32 = r.get(1);
+            let predicted_json: String = r.get(2);
+            let actual_json: String = r.get(3);
+            let predicted: reman::PredictedMix = serde_json::from_str(&predicted_json).map_err(|e| e.to_string())?;
+            let actual: reman::OutcomeBreakdown = serde_json::from_str(&actual_json).map_err(|e| e.to_string())?;
+            Ok(ForecastAccuracyDay { date, units_with_tech, predicted, actual })
+        })
+        .collect()
 }

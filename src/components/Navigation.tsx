@@ -1,10 +1,11 @@
-export type Page = "home" | "valves" | "motors" | "signal" | "jobs";
+export type Page = "home" | "valves" | "motors" | "signal" | "jobs" | "reman" | "f2evo_hydraulic" | "f2evo_electronics" | "f2evo_gearbox" | "f2evo_sensor" | "f2evo_washing";
 
 const TABS: { id: Page; label: string; icon: string; description: string }[] = [
   { id: "home",   label: "Home",           icon: "🏠", description: "Info & Configuration" },
   { id: "valves", label: "Valve Testing",   icon: "⚙️", description: "Hydraulic modulator valves" },
   { id: "motors", label: "Motor Testing",   icon: "🔧", description: "ABS block motor" },
   { id: "signal", label: "WSS HIL Simulation", icon: "📡", description: "Wheel Speed Sensor Hardware-in-the-Loop" },
+  { id: "f2evo_hydraulic",  label: "F2-EVO Bench",    icon: "🧰", description: "Legacy GRMtronics test bench protocol" },
 ];
 
 interface NavigationProps {

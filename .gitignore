@@ -37,3 +37,13 @@ ecu
 
 # Local DB credentials - the app reads %APPDATA%\pic-abs-tester\db_config.json
 src-tauri/db_config.json
+
+# Real customer/job data pulled from REMAN 4D for local investigation -
+# never committed, this repo is public. Scoped to docs/ specifically so
+# docs/reman-schema.md (prose, no raw exports) is unaffected.
+docs/*.csv
+
+# Generated hydraulic bench reports saved locally while testing - name a
+# real customer/job. The app's own save dialog is what puts these at the
+# project root; nothing reads them back from here.
+/*.pdf

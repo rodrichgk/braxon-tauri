@@ -8,6 +8,7 @@ import { LogoSymbol, LogoName } from "./components/Logo";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppSettingsProvider } from "./contexts/AppSettingsContext";
 import { SessionProvider } from "./contexts/SessionContext";
+import { TestSessionProvider } from "./contexts/TestSessionContext";
 import LoginModal from "./components/LoginModal";
 import UpdateChecker from "./components/UpdateChecker";
 import type { Page } from "./components/Navigation";
@@ -17,6 +18,9 @@ import ValvesPage from "./pages/Valves";
 import MotorsPage from "./pages/Motors";
 import SignalPage from "./pages/Signal";
 import JobsPage from "./pages/Jobs";
+import RemanPage from "./pages/Reman";
+import F2EvoHydraulicPage from "./pages/F2EvoHydraulic";
+import F2EvoLegacyPage from "./pages/F2EvoLegacy";
 
 /* ── Page transition variants ─────────────────────────────── */
 const pageVariants = {
@@ -90,6 +94,7 @@ function App() {
     <ThemeProvider>
     <SessionProvider>
     <AppSettingsProvider>
+    <TestSessionProvider navigateTo={setCurrentPage}>
         <div className={[
           "h-screen flex bg-app overflow-hidden",
           windowed ? "rounded-xl ring-1 ring-white/[0.06]" : "",
@@ -133,6 +138,12 @@ function App() {
                     {currentPage === "motors" && <MotorsPage />}
                     {currentPage === "signal" && <SignalPage />}
                     {currentPage === "jobs"   && <JobsPage />}
+                    {currentPage === "reman"  && <RemanPage />}
+                    {currentPage === "f2evo_hydraulic" && <F2EvoHydraulicPage />}
+                    {currentPage === "f2evo_electronics" && <F2EvoLegacyPage board="electronics" title="F2-EVO Electronics (ABS)" subtitle="Raw commands for Electronics board" />}
+                    {currentPage === "f2evo_gearbox" && <F2EvoLegacyPage board="gearbox" title="F2-EVO Gearbox" subtitle="Raw commands for Gearbox board" />}
+                    {currentPage === "f2evo_sensor" && <F2EvoLegacyPage board="sensor" title="F2-EVO Sensor" subtitle="Raw commands for Sensor board" />}
+                    {currentPage === "f2evo_washing" && <F2EvoLegacyPage board="washing" title="F2-EVO Washing" subtitle="Raw commands for Washing board" />}
                   </motion.div>
                 </AnimatePresence>
               </main>
@@ -159,6 +170,7 @@ function App() {
             error:   { iconTheme: { primary: '#ff453a', secondary: '#1c1c1e' } },
           }}
         />
+    </TestSessionProvider>
     </AppSettingsProvider>
     </SessionProvider>
     </ThemeProvider>

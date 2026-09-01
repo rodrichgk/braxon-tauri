@@ -1,6 +1,6 @@
 {
   "name": "braxon",
-  "version": "1.0.8",
+  "version": "1.1.0",
   "description": "BRAXON — ABS Hydraulic Diagnostics Platform",
   "type": "module",
   "scripts": {
@@ -18,11 +18,13 @@
     "framer-motion": "^10.16.4",
     "i18next": "^26.3.1",
     "jspdf": "^4.2.1",
+    "odbc": "^2.5.0",
     "pg": "^8.21.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
-    "react-i18next": "^17.0.8"
+    "react-i18next": "^17.0.8",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.6",

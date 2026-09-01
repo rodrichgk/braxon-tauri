@@ -1,6 +1,6 @@
 [package]
 name = "braxon"
-version = "1.0.8"
+version = "1.1.0"
 description = "BRAXON — ABS Hydraulic Diagnostics Platform"
 authors = ["Gabhy Rodrich KIBA"]
 license = ""
@@ -15,7 +15,7 @@ tauri-build = { version = "1.5", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.5", features = [ "protocol-all", "dialog-all", "fs-all", "path-all", "shell-open", "updater", "process-relaunch", "window-close", "window-hide", "window-maximize", "window-minimize", "window-show", "window-start-dragging", "window-unmaximize", "window-unminimize"] }
+tauri = { version = "1.5", features = [ "devtools", "protocol-all", "dialog-all", "fs-all", "path-all", "shell-open", "updater", "process-relaunch", "window-close", "window-hide", "window-maximize", "window-minimize", "window-show", "window-start-dragging", "window-unmaximize", "window-unminimize", "notification-all"] }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.20"
 futures-util = "0.3"
@@ -25,6 +25,10 @@ chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.30", features = ["bundled"] }
 tokio-postgres = { version = "0.7", features = [] }
 sha2 = "0.10"
+odbc-api = { version = "29.0.0", default-features = false, features = ["odbc_version_3_80"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 
 [features]
 default = [ "custom-protocol" ]

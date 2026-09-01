@@ -9,7 +9,13 @@ import {
   SignalIcon,
   ArrowPathIcon,
   BriefcaseIcon,
+  ClipboardDocumentListIcon,
   ArrowRightOnRectangleIcon,
+  BeakerIcon,
+  CpuChipIcon,
+  CogIcon,
+  EyeIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import {
   HomeIcon as HomeSolid,
@@ -17,10 +23,17 @@ import {
   BoltIcon as BoltSolid,
   SignalIcon as SignalSolid,
   BriefcaseIcon as BriefcaseSolid,
+  ClipboardDocumentListIcon as ClipboardSolid,
+  BeakerIcon as BeakerSolid,
+  CpuChipIcon as CpuChipSolid,
+  CogIcon as CogSolidAlt,
+  EyeIcon as EyeSolid,
+  SparklesIcon as SparklesSolid,
 } from '@heroicons/react/24/solid';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useSession } from '@/contexts/SessionContext';
+import NotificationBell from './NotificationBell';
 import type { Page } from './Navigation';
 
 const BAUD_RATES = ['9600', '19200', '38400', '57600', '115200', '230400', '460800', '500000', '921600'];
@@ -29,14 +42,22 @@ const TAB_DEFS: {
   id: Page;
   labelKey: string;
   subKey: string;
+  defaultLabel: string;
+  defaultSub: string;
   Outline: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   Solid: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 }[] = [
-  { id: 'home',   labelKey: 'nav.dashboard', subKey: 'nav.dashboard_sub', Outline: HomeIcon,      Solid: HomeSolid      },
-  { id: 'valves', labelKey: 'nav.valves',    subKey: 'nav.valves_sub',    Outline: Cog6ToothIcon, Solid: CogSolid       },
-  { id: 'motors', labelKey: 'nav.motors',    subKey: 'nav.motors_sub',    Outline: BoltIcon,      Solid: BoltSolid      },
-  { id: 'signal', labelKey: 'nav.signal',    subKey: 'nav.signal_sub',    Outline: SignalIcon,    Solid: SignalSolid    },
-  { id: 'jobs',   labelKey: 'nav.jobs',      subKey: 'nav.jobs_sub',      Outline: BriefcaseIcon, Solid: BriefcaseSolid },
+  { id: 'home',   labelKey: 'nav.dashboard', subKey: 'nav.dashboard_sub', defaultLabel: 'Dashboard', defaultSub: 'Overview & settings', Outline: HomeIcon,      Solid: HomeSolid      },
+  { id: 'valves', labelKey: 'nav.valves',    subKey: 'nav.valves_sub',    defaultLabel: 'Valves', defaultSub: 'Hydraulic modulator', Outline: Cog6ToothIcon, Solid: CogSolid       },
+  { id: 'motors', labelKey: 'nav.motors',    subKey: 'nav.motors_sub',    defaultLabel: 'Motors', defaultSub: 'ABS block motor', Outline: BoltIcon,      Solid: BoltSolid      },
+  { id: 'signal', labelKey: 'nav.signal',    subKey: 'nav.signal_sub',    defaultLabel: 'Signal HIL', defaultSub: 'WSS simulation', Outline: SignalIcon,    Solid: SignalSolid    },
+  { id: 'jobs',   labelKey: 'nav.jobs',      subKey: 'nav.jobs_sub',      defaultLabel: 'Jobs', defaultSub: 'Active work orders', Outline: BriefcaseIcon, Solid: BriefcaseSolid },
+  { id: 'reman',  labelKey: 'nav.reman',     subKey: 'nav.reman_sub',     defaultLabel: 'Reman Data', defaultSub: 'Analytics & records', Outline: ClipboardDocumentListIcon, Solid: ClipboardSolid },
+  { id: 'f2evo_hydraulic', labelKey: 'nav.f2evo_hydraulic', subKey: 'nav.f2evo_hydraulic_sub', defaultLabel: 'F2-EVO Hydraulic', defaultSub: 'Hydraulic bench control', Outline: BeakerIcon, Solid: BeakerSolid },
+  { id: 'f2evo_electronics', labelKey: 'nav.f2evo_electronics', subKey: 'nav.f2evo_electronics_sub', defaultLabel: 'F2-EVO Electronics', defaultSub: 'ABS board control', Outline: CpuChipIcon, Solid: CpuChipSolid },
+  { id: 'f2evo_gearbox', labelKey: 'nav.f2evo_gearbox', subKey: 'nav.f2evo_gearbox_sub', defaultLabel: 'F2-EVO Gearbox', defaultSub: 'Gearbox control', Outline: CogIcon, Solid: CogSolidAlt },
+  { id: 'f2evo_sensor', labelKey: 'nav.f2evo_sensor', subKey: 'nav.f2evo_sensor_sub', defaultLabel: 'F2-EVO Sensor', defaultSub: 'Sensor testing', Outline: EyeIcon, Solid: EyeSolid },
+  { id: 'f2evo_washing', labelKey: 'nav.f2evo_washing', subKey: 'nav.f2evo_washing_sub', defaultLabel: 'F2-EVO Washing', defaultSub: 'Washing station', Outline: SparklesIcon, Solid: SparklesSolid },
 ];
 
 interface SidebarProps {
@@ -74,7 +95,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
       {/* ── Navigation ── */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {TAB_DEFS.map(({ id, labelKey, subKey, Outline, Solid }) => {
+        {TAB_DEFS.map(({ id, labelKey, subKey, defaultLabel, defaultSub, Outline, Solid }) => {
           const active = currentPage === id;
           return (
             <button
@@ -99,12 +120,12 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                 {active ? <Solid className="w-4 h-4" /> : <Outline className="w-4 h-4" />}
               </span>
               <span className="flex flex-col min-w-0">
-                <span className="text-[13px] font-medium leading-tight truncate">{t(labelKey)}</span>
+                <span className="text-[13px] font-medium leading-tight truncate">{t(labelKey, { defaultValue: defaultLabel })}</span>
                 <span className={[
                   'text-[10px] leading-tight truncate mt-0.5',
                   active ? 'text-accent/60' : 'text-text-tertiary',
                 ].join(' ')}>
-                  {t(subKey)}
+                  {t(subKey, { defaultValue: defaultSub })}
                 </span>
               </span>
             </button>
@@ -123,6 +144,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               </span>
             </div>
             <span className="flex-1 text-xs font-medium text-text-primary truncate">{currentUser.name}</span>
+            <NotificationBell />
             <button
               onClick={logout}
               title={isGuest ? t('common.sign_in') : t('common.sign_out')}

@@ -29,6 +29,9 @@ interface AppSettingsContextType {
   setWssCalPpr: (v: number) => void;
   wssCalCirc: number;
   setWssCalCirc: (v: number) => void;
+  // Hydraulic Bench oil calibration
+  hydraulicOilMax: number;
+  setHydraulicOilMax: (v: number) => void;
 }
 
 function persistedRead<T>(key: string, fallback: T): T {
@@ -49,6 +52,7 @@ const writeSpeed    = persistedWrite<number | null>('legacyCanSpeed');
 const writeChannels = persistedWrite<WSSChannels>('wssChannels');
 const writePpr      = persistedWrite<number>('wssCalPpr');
 const writeCirc     = persistedWrite<number>('wssCalCirc');
+const writeOilMax   = persistedWrite<number>('hydraulicOilMax');
 
 const DEFAULT_CHANNELS: WSSChannels = [null, null, null, null];
 
@@ -60,6 +64,7 @@ const AppSettingsContext = createContext<AppSettingsContextType>({
   wssChannels: DEFAULT_CHANNELS, setWssChannels: () => {},
   wssCalPpr: 48,                 setWssCalPpr: () => {},
   wssCalCirc: 2.0,               setWssCalCirc: () => {},
+  hydraulicOilMax: 2.5,          setHydraulicOilMax: () => {},
 });
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
@@ -70,6 +75,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [wssChannels,      setWssChannelsState      ] = useState<WSSChannels>(() => persistedRead<WSSChannels>('wssChannels', DEFAULT_CHANNELS));
   const [wssCalPpr,        setWssCalPprState        ] = useState(() => persistedRead<number>('wssCalPpr', 48));
   const [wssCalCirc,       setWssCalCircState       ] = useState(() => persistedRead<number>('wssCalCirc', 2.0));
+  const [hydraulicOilMax,  setHydraulicOilMaxState  ] = useState(() => persistedRead<number>('hydraulicOilMax', 2.5));
 
   const setLegacyMode       = useCallback((v: boolean)           => { setLegacyModeState(v);       writeMode(v);     }, []);
   const setLegacySensorType = useCallback((v: number)            => { setLegacySensorTypeState(v); writeType(v);     }, []);
@@ -78,6 +84,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const setWssChannels      = useCallback((v: WSSChannels)       => { setWssChannelsState(v);      writeChannels(v); }, []);
   const setWssCalPpr        = useCallback((v: number)            => { setWssCalPprState(v);        writePpr(v);      }, []);
   const setWssCalCirc       = useCallback((v: number)            => { setWssCalCircState(v);       writeCirc(v);     }, []);
+  const setHydraulicOilMax  = useCallback((v: number)            => { setHydraulicOilMaxState(v);  writeOilMax(v);   }, []);
 
   const value = useMemo(() => ({
     legacyMode,       setLegacyMode,
@@ -87,9 +94,10 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     wssChannels,      setWssChannels,
     wssCalPpr,        setWssCalPpr,
     wssCalCirc,       setWssCalCirc,
+    hydraulicOilMax,  setHydraulicOilMax,
   }), [
-    legacyMode, legacySensorType, legacyFreq, legacyCanSpeed, wssChannels, wssCalPpr, wssCalCirc,
-    setLegacyMode, setLegacySensorType, setLegacyFreq, setLegacyCanSpeed, setWssChannels, setWssCalPpr, setWssCalCirc,
+    legacyMode, legacySensorType, legacyFreq, legacyCanSpeed, wssChannels, wssCalPpr, wssCalCirc, hydraulicOilMax,
+    setLegacyMode, setLegacySensorType, setLegacyFreq, setLegacyCanSpeed, setWssChannels, setWssCalPpr, setWssCalCirc, setHydraulicOilMax,
   ]);
 
   return (

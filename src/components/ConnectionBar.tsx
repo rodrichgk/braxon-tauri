@@ -17,6 +17,8 @@ export default function ConnectionBar() {
     setSelectedPort,
     baudRate,
     setBaudRate,
+    isReconnecting,
+    reconnectAttempt,
   } = useClientSerialConnection();
 
   useEffect(() => {
@@ -31,26 +33,33 @@ export default function ConnectionBar() {
           <div className="flex items-center gap-2 shrink-0">
             <span className={[
               'w-2 h-2 rounded-full',
-              serialConnected ? 'bg-green-400 animate-pulse' : 'bg-slate-500'
+              serialConnected ? 'bg-green-400 animate-pulse' : isReconnecting ? 'bg-amber-400 animate-pulse' : 'bg-slate-500'
             ].join(' ')} />
-            <span className={serialConnected ? 'text-green-400' : 'text-slate-400'}>
-              {serialConnected ? `${selectedPort ?? 'Serial'} Connected` : 'No Device'}
+            <span className={serialConnected ? 'text-green-400' : isReconnecting ? 'text-amber-400' : 'text-slate-400'}>
+              {serialConnected
+                ? `${selectedPort ?? 'Serial'} Connected`
+                : isReconnecting
+                  ? `Reconnecting to ${selectedPort ?? 'device'}… (attempt ${reconnectAttempt})`
+                  : 'No Device'}
             </span>
           </div>
 
           <div className="flex-1" />
 
-          {/* Serial connect/disconnect */}
+          {/* Serial connect/disconnect — while reconnecting, this button
+              cancels the retry loop (disconnect() already stops it and
+              clears the flag) rather than attempting yet another manual
+              connect on top of the scheduled one. */}
           <button
-            onClick={() => serialConnected ? serialDisconnect() : serialConnect()}
+            onClick={() => (serialConnected || isReconnecting) ? serialDisconnect() : serialConnect()}
             className={[
               'px-2 py-0.5 text-xs rounded',
-              serialConnected
+              serialConnected || isReconnecting
                 ? 'bg-red-700 hover:bg-red-600'
                 : 'bg-slate-600 hover:bg-slate-500'
             ].join(' ')}
           >
-            {serialConnected ? 'Disconnect' : 'Serial'}
+            {serialConnected ? 'Disconnect' : isReconnecting ? 'Cancel' : 'Serial'}
           </button>
 
           <button
@@ -116,15 +125,20 @@ export default function ConnectionBar() {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => serialConnected ? serialDisconnect() : serialConnect()}
-                disabled={!serialConnected && !selectedPort}
+                onClick={() => (serialConnected || isReconnecting) ? serialDisconnect() : serialConnect()}
+                disabled={!serialConnected && !isReconnecting && !selectedPort}
                 className={[
                   'px-3 py-1 text-xs rounded disabled:opacity-40 disabled:cursor-not-allowed',
-                  serialConnected ? 'bg-red-600 hover:bg-red-500' : 'bg-green-700 hover:bg-green-600'
+                  (serialConnected || isReconnecting) ? 'bg-red-600 hover:bg-red-500' : 'bg-green-700 hover:bg-green-600'
                 ].join(' ')}
               >
-                {serialConnected ? 'Disconnect' : 'Connect'}
+                {serialConnected ? 'Disconnect' : isReconnecting ? 'Cancel reconnect' : 'Connect'}
               </button>
+              {isReconnecting && !serialConnected && (
+                <span className="text-xs text-amber-400">
+                  ⟳ Reconnecting… (attempt {reconnectAttempt})
+                </span>
+              )}
               {serialConnected && (
                 <span className="text-xs text-green-400">
                   ● {selectedPort} @ {baudRate}

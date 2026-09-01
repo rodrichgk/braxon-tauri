@@ -1,9 +1,14 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 
+export type UserRole = 'technicien' | 'commercial';
+
 export interface AppUser {
   id: string;
   name: string;
+  role?: UserRole | null;
+  remanTechId?: string | null;
+  remanTechName?: string | null;
 }
 
 export interface RepairJob {
@@ -33,6 +38,8 @@ interface SessionContextType {
   endJob: (status: 'completed' | 'failed', notes?: string) => Promise<void>;
   linkJobToRef: (absRef: string, absRefId: string) => Promise<void>;
   setCurrentJob: (job: RepairJob | null) => void;
+  updateRole: (role: UserRole) => Promise<void>;
+  updateRemanTech: (techId: string | null, techName: string | null) => Promise<void>;
 }
 
 const GUEST_ID = '__guest__';
@@ -50,22 +57,36 @@ const SessionContext = createContext<SessionContextType>({
   endJob: async () => {},
   linkJobToRef: async () => {},
   setCurrentJob: () => {},
+  updateRole: async () => {},
+  updateRemanTech: async () => {},
 });
 
 const USER_KEY     = 'session_user_id';
 const USER_NAME_KEY = 'session_user_name';
+const USER_ROLE_KEY = 'session_user_role';
+const USER_REMAN_TECH_ID_KEY = 'session_user_reman_tech_id';
+const USER_REMAN_TECH_NAME_KEY = 'session_user_reman_tech_name';
 const EXPIRES_KEY  = 'session_expires_at';
 const SESSION_TTL  = 8 * 60 * 60 * 1000; // 8 hours in ms
 
 function clearStoredSession() {
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(USER_NAME_KEY);
+  localStorage.removeItem(USER_ROLE_KEY);
+  localStorage.removeItem(USER_REMAN_TECH_ID_KEY);
+  localStorage.removeItem(USER_REMAN_TECH_NAME_KEY);
   localStorage.removeItem(EXPIRES_KEY);
 }
 
 function persistSession(user: AppUser) {
   localStorage.setItem(USER_KEY,      user.id);
   localStorage.setItem(USER_NAME_KEY, user.name);
+  if (user.role) localStorage.setItem(USER_ROLE_KEY, user.role);
+  else localStorage.removeItem(USER_ROLE_KEY);
+  if (user.remanTechId) localStorage.setItem(USER_REMAN_TECH_ID_KEY, user.remanTechId);
+  else localStorage.removeItem(USER_REMAN_TECH_ID_KEY);
+  if (user.remanTechName) localStorage.setItem(USER_REMAN_TECH_NAME_KEY, user.remanTechName);
+  else localStorage.removeItem(USER_REMAN_TECH_NAME_KEY);
   localStorage.setItem(EXPIRES_KEY,   String(Date.now() + SESSION_TTL));
 }
 
@@ -74,13 +95,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const id      = localStorage.getItem(USER_KEY);
       const name    = localStorage.getItem(USER_NAME_KEY);
+      const role    = localStorage.getItem(USER_ROLE_KEY) as UserRole | null;
+      const remanTechId   = localStorage.getItem(USER_REMAN_TECH_ID_KEY);
+      const remanTechName = localStorage.getItem(USER_REMAN_TECH_NAME_KEY);
       const expires = localStorage.getItem(EXPIRES_KEY);
       if (!id || !name) return null;
       if (!expires || Date.now() > parseInt(expires, 10)) {
         clearStoredSession();
         return null;
       }
-      return { id, name };
+      return { id, name, role, remanTechId, remanTechName };
     } catch {
       return null;
     }
@@ -149,6 +173,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const isGuest = currentUser?.id === GUEST_ID;
 
+  const updateRole = async (role: UserRole) => {
+    if (!currentUser || isGuest) return;
+    await invoke('update_user_role', { userId: currentUser.id, role });
+    const updated = { ...currentUser, role };
+    setCurrentUser(updated);
+    persistSession(updated);
+  };
+
+  const updateRemanTech = async (techId: string | null, techName: string | null) => {
+    if (!currentUser || isGuest) return;
+    await invoke('update_user_reman_tech', { userId: currentUser.id, techId, techName });
+    const updated = { ...currentUser, remanTechId: techId, remanTechName: techName };
+    setCurrentUser(updated);
+    persistSession(updated);
+  };
+
   return (
     <SessionContext.Provider value={{
       currentUser,
@@ -163,6 +203,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       endJob,
       linkJobToRef,
       setCurrentJob,
+      updateRole,
+      updateRemanTech,
     }}>
       {children}
     </SessionContext.Provider>
