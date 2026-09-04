@@ -190,12 +190,15 @@ export default function CANAnalyzer({ result }: CANAnalyzerProps) {
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    listen<string>('serial-data', e => handleData(e.payload)).then(fn => {
-      if (cancelled) fn(); // component unmounted before promise resolved
-      else unlisten = fn;
+    const unlisteners: Array<() => void> = [];
+    // Both transports print frames in the same `<id> <dlc> <b…>` format.
+    (['serial-data', 'kvaser-data'] as const).forEach(evt => {
+      listen<string>(evt, e => handleData(e.payload)).then(fn => {
+        if (cancelled) fn();
+        else unlisteners.push(fn);
+      });
     });
-    return () => { cancelled = true; unlisten?.(); };
+    return () => { cancelled = true; unlisteners.forEach(fn => fn()); };
   }, [handleData]);
 
   // 5 Hz render tick

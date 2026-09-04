@@ -1,6 +1,6 @@
 [package]
 name = "braxon"
-version = "1.1.0"
+version = "1.1.1"
 description = "BRAXON — ABS Hydraulic Diagnostics Platform"
 authors = ["Gabhy Rodrich KIBA"]
 license = ""
@@ -29,6 +29,9 @@ odbc-api = { version = "29.0.0", default-features = false, features = ["odbc_ver
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# Runtime-loaded (not link-time) so the app still starts without the Kvaser
+# drivers installed — see src/kvaser.rs.
+libloading = "0.8"
 
 [features]
 default = [ "custom-protocol" ]

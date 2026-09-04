@@ -2,20 +2,26 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod serial;
+mod kvaser;
 mod database;
 mod commands;
 mod reman;
 mod f2evo;
 mod hydraulic_import;
+mod client_registry;
+mod scan_inbox;
 
 use std::sync::{Arc, Mutex};
 
 pub struct AppState {
     pub db_config: Arc<Mutex<database::DbConfig>>,
     pub serial_connection: serial::SharedSerialConnection,
+    pub kvaser_connection: kvaser::SharedKvaserConnection,
 }
 
 fn main() {
+    database::migrate_legacy_config_dir();
+
     let db_config = std::fs::read_to_string(database::config_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -24,15 +30,27 @@ fn main() {
     let state = AppState {
         db_config: Arc::new(Mutex::new(db_config)),
         serial_connection: serial::create_serial_connection(),
+        kvaser_connection: kvaser::create_kvaser_connection(),
     };
 
     reman::ensure_reman_dsn_registered();
     reman::spawn_local_proxy();
     reman::spawn_etl_scheduler(state.db_config.clone());
     reman::spawn_forecast_snapshot_scheduler(state.db_config.clone());
+    reman::spawn_cross_client_notification_scanner(state.db_config.clone());
+    client_registry::spawn_client_registry(state.db_config.clone());
+
+    // Captured before `state` is moved into `.manage()` — the scan-inbox
+    // poller is spawned from `.setup()` because it needs the AppHandle to
+    // emit `braxon-scan` into the webview.
+    let scan_inbox_db = state.db_config.clone();
 
     tauri::Builder::default()
         .manage(state)
+        .setup(move |app| {
+            scan_inbox::spawn_scan_inbox_poller(app.handle(), scan_inbox_db.clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::get_serial_ports,
             commands::get_pico_port,
@@ -40,6 +58,11 @@ fn main() {
             commands::disconnect_serial,
             commands::send_serial_message,
             commands::is_serial_connected,
+            commands::get_kvaser_channels,
+            commands::connect_kvaser,
+            commands::disconnect_kvaser,
+            commands::send_kvaser_message,
+            commands::is_kvaser_connected,
             commands::get_db_config,
             commands::save_db_config,
             commands::test_db_connection,
@@ -71,6 +94,10 @@ fn main() {
             commands::save_job_dtcs,
             commands::get_job_dtcs,
             commands::save_text_file,
+            commands::read_text_file,
+            commands::save_bus_capture,
+            commands::list_bus_captures,
+            commands::reveal_path,
             commands::import_ecu_dtcs,
             commands::lookup_dtc,
             commands::get_ecu_db_stats,
@@ -114,6 +141,8 @@ fn main() {
             reman::reman_list_notifications,
             reman::reman_mark_notification_read,
             reman::reman_mark_all_notifications_read,
+            reman::reman_delete_notification,
+            reman::reman_clear_all_notifications,
             reman::reman_acquire_job_lock,
             reman::reman_release_job_lock,
             reman::reman_get_finance_settings,
@@ -128,7 +157,14 @@ fn main() {
             reman::reman_save_hydraulic_report,
             reman::reman_list_hydraulic_reports,
             reman::reman_delete_hydraulic_report,
+            reman::reman_save_ecu_report,
+            reman::reman_list_ecu_reports,
+            reman::reman_delete_ecu_report,
             reman::reman_dsn_status,
+            client_registry::braxon_client_identity,
+            client_registry::braxon_active_clients,
+            commands::print_label_raw,
+            commands::printer_query,
             commands::reman_compare_forecast_to_actual,
             commands::reman_forecast_accuracy_history,
             f2evo::f2evo_electronics_send,

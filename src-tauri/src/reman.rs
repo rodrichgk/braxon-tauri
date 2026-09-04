@@ -1315,6 +1315,30 @@ pub async fn reman_search_interventions(
     .map_err(|e| e.to_string())?;
 
     let json = cached_or_refresh(&pg, &cache_key, async {
+        // Genuinely refreshing from 4D right now — piggyback the
+        // cross-client notification scan on this exact moment instead of
+        // waiting for its own independent 30s timer. Reported directly:
+        // "why is it not checking the jobs when the data refreshes" — a
+        // job's new status and the notification about it were coming from
+        // the same underlying 4D read, just on two uncoordinated clocks.
+        // Fire-and-forget on its own connection (not awaited — a job list
+        // refresh shouldn't get slower waiting on this), and safe to
+        // trigger this often: scan_cross_client_notifications's own CAS
+        // claim means a call that finds nothing new past the watermark,
+        // or loses a race to another trigger (the 30s timer, another
+        // client's own refresh), just returns quickly and does nothing.
+        let scan_config = config.clone();
+        async_runtime::spawn(async move {
+            match database::connect(&scan_config).await {
+                Ok(scan_pg) => {
+                    if let Err(e) = scan_cross_client_notifications(&scan_pg).await {
+                        eprintln!("[reman] opportunistic notification scan failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[reman] opportunistic notification scan: could not connect to Postgres: {e}"),
+            }
+        });
+
         let result = reman_search_interventions_core(
             query, queue, tech_id, family, fault_type, date_from, date_to, &pg,
         )
@@ -1692,6 +1716,23 @@ pub async fn reman_get_intervention(id: String, state: State<'_, AppState>) -> R
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let pg = database::connect(&config).await?;
     ensure_reman_cache_tables(&pg).await?;
+
+    // Same opportunistic trigger as reman_search_interventions — this
+    // command always reads 4D live (never cached), so every job open is
+    // a genuine refresh moment worth piggybacking the notification scan
+    // on. Fire-and-forget, CAS-guarded, see that call site's comment.
+    let scan_config = config.clone();
+    async_runtime::spawn(async move {
+        match database::connect(&scan_config).await {
+            Ok(scan_pg) => {
+                if let Err(e) = scan_cross_client_notifications(&scan_pg).await {
+                    eprintln!("[reman] opportunistic notification scan failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("[reman] opportunistic notification scan: could not connect to Postgres: {e}"),
+        }
+    });
+
     with_verified_fault_type(&pg, detail).await
 }
 
@@ -4500,6 +4541,24 @@ pub async fn ensure_reman_cache_tables(client: &tokio_postgres::Client) -> Resul
         .map_err(|e| e.to_string())?;
     client
         .execute(
+            // ECU / Signal HIL test reports — the electronic-side
+            // counterpart to RemanHydraulicReport. `report_type` is
+            // before_repair / after_repair / passed / combined, matching
+            // the hydraulic convention; `report_text` is the plain-text
+            // dump built in TestReportCard.tsx.
+            r#"CREATE TABLE IF NOT EXISTS "RemanEcuReport" (
+                id SERIAL PRIMARY KEY,
+                ligcde_id TEXT NOT NULL,
+                report_type TEXT NOT NULL,
+                report_text TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )"#,
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    client
+        .execute(
             // Repair Knowledge Base — requested directly: "i want a repair
             // section, that's gonna be better to search in that just
             // comments, where i give the fault code or description but
@@ -4571,6 +4630,33 @@ pub async fn ensure_reman_cache_tables(client: &tokio_postgres::Client) -> Resul
         .execute(
             r#"CREATE INDEX IF NOT EXISTS reman_notification_recipient_idx
                ON "RemanNotification" (recipient_tech_id, read_at, created_at DESC)"#,
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    client
+        .execute(
+            // Tracks how far `scan_cross_client_notifications` has scanned
+            // through 4D's own `Intervention` table, so hand-off events
+            // entered directly in the native 4D client (not through
+            // BRAXON's write commands, which already notify at write
+            // time) still generate a notification. Seeded to -1
+            // ("never initialized") here since this is a Postgres-only
+            // setup function with no 4D connection to compute a real
+            // starting point from — the scanner replaces it with a real
+            // recent 4D id the first time it actually runs. See
+            // scan_cross_client_notifications's doc comment.
+            r#"CREATE TABLE IF NOT EXISTS "RemanNotificationWatermark" (
+                id INTEGER PRIMARY KEY,
+                last_seen_interv_id BIGINT NOT NULL
+            )"#,
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    client
+        .execute(
+            r#"INSERT INTO "RemanNotificationWatermark" (id, last_seen_interv_id) VALUES (1, -1) ON CONFLICT (id) DO NOTHING"#,
             &[],
         )
         .await
@@ -5886,6 +5972,206 @@ async fn create_notifications_for(
     Ok(())
 }
 
+/// Closes a real gap, reported directly and confirmed live: "17521301 was
+/// put to pièce nettoyé just right now and no notification for me." That
+/// job's ATN step was entered through BRAXON (notified correctly, at
+/// write time); its NET step minutes later was entered through the
+/// *native 4D client* — a real `Intervention` row, but one that never
+/// touched `reman_mark_piece_cleaned`, so no notification code ever ran.
+/// `reman_mark_awaiting_cleaning`/`reman_mark_piece_cleaned`/
+/// `reman_transfer_to_commercial` all only notify when the hand-off
+/// happens *through BRAXON's own write path* — which most of this shop
+/// still doesn't use for most jobs.
+///
+/// This watches 4D's `Intervention` table directly instead, independent
+/// of which client wrote to it, and applies the exact same notification
+/// rule each write command already applies at write time. Only
+/// native-4D-range rows (`NoInt_interv < BRAXON_ID_RANGE_START`) are
+/// considered — BRAXON's own writes are excluded since those already
+/// notified when they happened; re-processing them here would double-
+/// notify. `RemanNotificationWatermark` tracks how far this has scanned;
+/// advancing it is a compare-and-swap (`UPDATE ... WHERE last_seen_interv_id
+/// = $old`), the same "only the instance whose update actually matched
+/// wins" pattern `cached_or_refresh` already uses to prevent a cache
+/// stampede — here it prevents two concurrently-running BRAXON instances
+/// from both processing, and double-notifying on, the same batch.
+async fn scan_cross_client_notifications(pg: &tokio_postgres::Client) -> Result<(), String> {
+    let watermark: i64 = pg
+        .query_one(r#"SELECT last_seen_interv_id FROM "RemanNotificationWatermark" WHERE id = 1"#, &[])
+        .await
+        .map_err(|e| e.to_string())?
+        .get(0);
+
+    if watermark < 0 {
+        // First-ever run: bootstrap to a recent native id rather than
+        // scanning this shop's entire multi-year Intervention history (a
+        // flood of ancient notifications nobody wants). The buffer covers
+        // roughly a day of typical shop-wide activity (~30 hand-off-
+        // relevant rows observed live on 2026-09-01), so the very next
+        // tick's real scan also catches whatever's already pending today
+        // — this is deliberately generous rather than starting exactly
+        // "now" and missing recent events like the one that surfaced
+        // this gap in the first place.
+        const BOOTSTRAP_BUFFER: i64 = 40;
+        let max_native = async_runtime::spawn_blocking(|| {
+            with_reman_connection(|conn| {
+                let rows = run_query(
+                    conn,
+                    &format!("SELECT NoInt_interv FROM Intervention WHERE NoInt_interv < {BRAXON_ID_RANGE_START} ORDER BY NoInt_interv DESC LIMIT 1"),
+                )?;
+                Ok::<i64, String>(
+                    rows.into_iter().next().and_then(|r| r[0].clone()).and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(0),
+                )
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let bootstrap = (max_native - BOOTSTRAP_BUFFER).max(0);
+        pg.execute(
+            r#"UPDATE "RemanNotificationWatermark" SET last_seen_interv_id = $1 WHERE id = 1 AND last_seen_interv_id = $2"#,
+            &[&bootstrap, &watermark],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        return Ok(()); // real scan starts next tick, from the bootstrap point
+    }
+
+    let rows = async_runtime::spawn_blocking(move || {
+        with_reman_connection(|conn| {
+            run_query(
+                conn,
+                &format!(
+                    r#"SELECT NoIntLigcde, NoIntTechn, TypeCode, "Date", HeureInterv, NoInt_interv
+                       FROM Intervention
+                       WHERE NoInt_interv > {watermark} AND NoInt_interv < {BRAXON_ID_RANGE_START}
+                         AND TypeCode IN ('ATN', 'NET', 'TES')
+                       ORDER BY NoInt_interv ASC
+                       LIMIT 200"#
+                ),
+            )
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let new_watermark = rows
+        .iter()
+        .filter_map(|r| r[5].as_deref().and_then(|s| s.trim().parse::<i64>().ok()))
+        .max()
+        .unwrap_or(watermark);
+
+    let claimed = pg
+        .execute(
+            r#"UPDATE "RemanNotificationWatermark" SET last_seen_interv_id = $1 WHERE id = 1 AND last_seen_interv_id = $2"#,
+            &[&new_watermark, &watermark],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if claimed == 0 {
+        return Ok(()); // another instance already claimed this batch
+    }
+
+    let cleaning = cleaning_tech_ids(pg).await?;
+    let commercial = commercial_tech_ids(pg).await?;
+
+    for row in &rows {
+        let ligcde_id = match row[0].as_deref() {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
+        };
+        let type_code = row[2].as_deref().unwrap_or("").to_string();
+
+        // The human-facing reference ("17521301"), for a message that
+        // reads the same as the write-path notifications' own messages —
+        // one small extra query per event, trivial at this volume (a
+        // handful of hand-offs per scan cycle at most).
+        let ligcde_for_ref = ligcde_id.clone();
+        let reference = async_runtime::spawn_blocking(move || {
+            with_reman_connection(|conn| {
+                let r = run_query(conn, &format!("SELECT NoIntervention FROM LigCde WHERE NoInt_Ligcde = {ligcde_for_ref}"))?;
+                Ok::<Option<String>, String>(r.into_iter().next().and_then(|r| r[0].clone()))
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let display_ref = reference.clone().unwrap_or_else(|| ligcde_id.clone());
+
+        match type_code.as_str() {
+            "ATN" if !cleaning.is_empty() => {
+                let message = format!("Job {display_ref} is ready for cleaning");
+                create_notifications_for(pg, &cleaning, "awaiting_cleaning", &ligcde_id, reference.as_deref(), &message).await?;
+            }
+            "TES" if !commercial.is_empty() => {
+                let message = format!("Job {display_ref} was transferred to Service Commercial");
+                create_notifications_for(pg, &commercial, "transferred_commercial", &ligcde_id, reference.as_deref(), &message).await?;
+            }
+            "NET" => {
+                // Same "who most recently flagged this job ATN" lookup
+                // reman_mark_piece_cleaned already does — a NET step never
+                // touches TechDernInterv (see add_piece_cleaned_step's doc
+                // comment), so the ATN step's own technician is still
+                // sitting right there in the job's full step history.
+                let ligcde_for_steps = ligcde_id.clone();
+                let recipient = async_runtime::spawn_blocking(move || {
+                    with_reman_connection(|conn| {
+                        let steps = run_query(
+                            conn,
+                            &format!(
+                                r#"SELECT NoIntLigcde, NoIntTechn, TypeCode, "Date", HeureInterv, NoInt_interv
+                                   FROM Intervention WHERE NoIntLigcde = {ligcde_for_steps}"#
+                            ),
+                        )?;
+                        Ok::<Option<String>, String>(
+                            latest_matching(&steps, |r| r[2].as_deref() == Some("ATN")).and_then(|r| r[1].clone()),
+                        )
+                    })
+                })
+                .await
+                .map_err(|e| e.to_string())??;
+                if let Some(tech_id) = recipient {
+                    let recipients = std::collections::HashSet::from([tech_id]);
+                    let message = format!("Job {display_ref} was cleaned and is ready");
+                    create_notifications_for(pg, &recipients, "piece_cleaned", &ligcde_id, reference.as_deref(), &message).await?;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+/// Background task, started once from `main.rs` next to
+/// `spawn_etl_scheduler`/`spawn_forecast_snapshot_scheduler`. 30s interval
+/// — tighter than either of those (both are "once a day" jobs; this one's
+/// whole purpose is a hand-off notification showing up promptly for
+/// events that happen outside BRAXON entirely, so it can't piggyback on a
+/// slower cadence built for something else).
+pub fn spawn_cross_client_notification_scanner(db_config: Arc<Mutex<database::DbConfig>>) {
+    async_runtime::spawn(async move {
+        loop {
+            let config = db_config.lock().map(|c| c.clone()).ok();
+            if let Some(config) = config {
+                match database::connect(&config).await {
+                    Ok(client) => {
+                        if let Err(e) = ensure_reman_cache_tables(&client).await {
+                            eprintln!("[reman] cross-client notifications: failed to ensure cache tables: {e}");
+                        } else if let Err(e) = scan_cross_client_notifications(&client).await {
+                            eprintln!("[reman] cross-client notifications: scan failed, will retry: {e}");
+                        }
+                    }
+                    Err(e) => eprintln!("[reman] cross-client notifications: could not connect to Postgres: {e}"),
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+    });
+}
+
 /// Unread notifications first (newest first), then the most recent 20
 /// already-read ones — enough to catch up after being away without the
 /// list growing forever. `tech_id` is the viewer's own claimed REMAN
@@ -5955,6 +6241,42 @@ pub async fn reman_mark_all_notifications_read(tech_id: String, state: State<'_,
     )
     .await
     .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Requested directly ("give me the option to clear them") — "mark read"
+/// only ever dimmed a notification, it never left a way to actually
+/// remove one from the list. Deletes rather than soft-hides: nothing else
+/// in this table's design needs a tombstone (unlike, say, a job's
+/// Intervention history, which must never lose a row), so there's no
+/// reason to keep a dismissed notification around. Same own-id-only scope
+/// as reman_mark_notification_read.
+#[tauri::command]
+pub async fn reman_delete_notification(id: i32, tech_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let pg = database::connect(&config).await?;
+    ensure_reman_cache_tables(&pg).await?;
+    pg.execute(
+        r#"DELETE FROM "RemanNotification" WHERE id = $1 AND recipient_tech_id = $2"#,
+        &[&id, &tech_id],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Clears the caller's entire notification list at once (read and unread
+/// both — this is a fresh start, not a bulk "mark read") — offered next
+/// to "mark all read" for the same reason that one exists: nobody wants
+/// to dismiss a long backlog one at a time.
+#[tauri::command]
+pub async fn reman_clear_all_notifications(tech_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let pg = database::connect(&config).await?;
+    ensure_reman_cache_tables(&pg).await?;
+    pg.execute(r#"DELETE FROM "RemanNotification" WHERE recipient_tech_id = $1"#, &[&tech_id])
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -7121,6 +7443,68 @@ pub async fn reman_delete_hydraulic_report(id: i32, state: State<'_, AppState>) 
     let pg = database::connect(&config).await?;
     ensure_reman_cache_tables(&pg).await?;
     pg.execute(r#"DELETE FROM "RemanHydraulicReport" WHERE id = $1"#, &[&id])
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── ECU / Signal HIL test reports ───────────────────────────
+// Same shape and lifecycle as the hydraulic ones above — saved from the
+// Signal HIL page's Test Report card against a linked REMAN job.
+
+#[tauri::command]
+pub async fn reman_save_ecu_report(
+    ligcde_id: String,
+    report_type: String,
+    report_text: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let pg = database::connect(&config).await?;
+    ensure_reman_cache_tables(&pg).await?;
+    pg.execute(
+        r#"INSERT INTO "RemanEcuReport" (ligcde_id, report_type, report_text)
+           VALUES ($1, $2, $3)"#,
+        &[&ligcde_id, &report_type, &report_text],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reman_list_ecu_reports(
+    ligcde_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<HydraulicReportSummary>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let pg = database::connect(&config).await?;
+    ensure_reman_cache_tables(&pg).await?;
+    let rows = pg
+        .query(
+            r#"SELECT id, report_type, report_text, created_at::text
+               FROM "RemanEcuReport" WHERE ligcde_id = $1 ORDER BY created_at DESC"#,
+            &[&ligcde_id],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(|r| HydraulicReportSummary {
+            id: r.get(0),
+            report_type: r.get(1),
+            report_text: r.get(2),
+            created_at: r.get(3),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn reman_delete_ecu_report(id: i32, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let pg = database::connect(&config).await?;
+    ensure_reman_cache_tables(&pg).await?;
+    pg.execute(r#"DELETE FROM "RemanEcuReport" WHERE id = $1"#, &[&id])
         .await
         .map_err(|e| e.to_string())?;
     Ok(())

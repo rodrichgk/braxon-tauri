@@ -17,6 +17,46 @@ export type SerialPortInfo = {
   port_type: string;
 };
 
+/** A Kvaser CANlib channel, as returned by the `get_kvaser_channels` command. */
+export type KvaserChannelInfo = {
+  index: number;
+  name: string;
+  serial: string;
+};
+
+/**
+ * Which hardware moves the CAN frames. Both expose the identical line protocol
+ * to everything downstream (`CANTx : …` out, `<id> <dlc> <b…>` in), so the DTC
+ * scanner / ISO-TP / UDS stack never sees the difference — only the Tauri
+ * command names and event channels swap.
+ */
+export type TransportSource = 'board' | 'kvaser';
+
+type SourceConfig = {
+  connectCmd: string;
+  disconnectCmd: string;
+  sendCmd: string;
+  dataEvent: string;
+  disconnectEvent: string;
+};
+
+const SOURCES: Record<TransportSource, SourceConfig> = {
+  board: {
+    connectCmd: 'connect_serial',
+    disconnectCmd: 'disconnect_serial',
+    sendCmd: 'send_serial_message',
+    dataEvent: 'serial-data',
+    disconnectEvent: 'serial-disconnected',
+  },
+  kvaser: {
+    connectCmd: 'connect_kvaser',
+    disconnectCmd: 'disconnect_kvaser',
+    sendCmd: 'send_kvaser_message',
+    dataEvent: 'kvaser-data',
+    disconnectEvent: 'kvaser-disconnected',
+  },
+};
+
 type EventCallback = (event: SerialEvent) => void;
 
 // Capped exponential-ish backoff for auto-reconnect: 2s, 4s, 6s, 8s, then
@@ -42,9 +82,33 @@ class TauriSerial {
   private _manualDisconnect = false;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _reconnectAttempt = 0;
+  // Transport selection. 'board' keeps the exact pre-existing behaviour.
+  private _source: TransportSource = 'board';
+  private _kvaserChannel = 0;
+  private _kvaserBitrate = 500000;
 
   getIsConnected(): boolean {
     return this._isConnected;
+  }
+
+  getSource(): TransportSource {
+    return this._source;
+  }
+
+  /** Switch transport. Ignored while connected — disconnect first. */
+  setSource(source: TransportSource) {
+    if (this._isConnected) return;
+    this._source = source;
+  }
+
+  /** CANlib channel index + bus bitrate (bps) used by the 'kvaser' source. */
+  setKvaserTarget(channel: number, bitrate: number) {
+    this._kvaserChannel = channel;
+    this._kvaserBitrate = bitrate;
+  }
+
+  async listKvaserChannels(): Promise<KvaserChannelInfo[]> {
+    return invoke<KvaserChannelInfo[]>('get_kvaser_channels');
   }
 
   private emit(event: SerialEvent) {
@@ -70,13 +134,21 @@ class TauriSerial {
   }
 
   async connect(options?: SerialOptions): Promise<boolean> {
-    if (!this.selectedPort) return false;
-    this._lastBaudRate = options?.baudRate ?? 115200;
+    const cfg = SOURCES[this._source];
     try {
-      await invoke('connect_serial', {
-        portName: this.selectedPort,
-        baudRate: this._lastBaudRate,
-      });
+      if (this._source === 'kvaser') {
+        await invoke(cfg.connectCmd, {
+          channel: this._kvaserChannel,
+          bitrate: this._kvaserBitrate,
+        });
+      } else {
+        if (!this.selectedPort) return false;
+        this._lastBaudRate = options?.baudRate ?? 115200;
+        await invoke(cfg.connectCmd, {
+          portName: this.selectedPort,
+          baudRate: this._lastBaudRate,
+        });
+      }
       this._manualDisconnect = false;
       this._cancelReconnect();
       this.emit({ type: 'connected' });
@@ -91,7 +163,7 @@ class TauriSerial {
     this._manualDisconnect = true;
     this._cancelReconnect();
     try {
-      await invoke('disconnect_serial');
+      await invoke(SOURCES[this._source].disconnectCmd);
     } catch { /* ignore */ }
     this._teardownListeners();
     this.emit({ type: 'disconnected' });
@@ -110,7 +182,8 @@ class TauriSerial {
   // observed case: a board mid-cycle, pod still enabled, that just lost
   // its PC-side connection). Never reached from a deliberate disconnect().
   private _scheduleReconnect() {
-    if (this._manualDisconnect || !this.selectedPort) return;
+    if (this._manualDisconnect) return;
+    if (this._source === 'board' && !this.selectedPort) return;
     this._reconnectAttempt += 1;
     const delay = Math.min(RECONNECT_BASE_MS * this._reconnectAttempt, RECONNECT_MAX_MS);
     this.emit({ type: 'reconnecting', attempt: this._reconnectAttempt });
@@ -127,7 +200,7 @@ class TauriSerial {
 
   async write(data: string): Promise<boolean> {
     try {
-      await invoke('send_serial_message', { message: data });
+      await invoke(SOURCES[this._source].sendCmd, { message: data });
       return true;
     } catch (e) {
       this.emit({ type: 'error', error: { message: String(e) } });
@@ -138,14 +211,15 @@ class TauriSerial {
   startReading() {
     if (this._readingStarted) return;
     this._readingStarted = true;
+    const cfg = SOURCES[this._source];
 
-    listen<string>('serial-data', (event) => {
+    listen<string>(cfg.dataEvent, (event) => {
       this.emit({ type: 'data', data: event.payload });
     }).then(unlisten => {
       this.unlistenData = unlisten;
     });
 
-    listen<void>('serial-disconnected', () => {
+    listen<void>(cfg.disconnectEvent, () => {
       this._teardownListeners();
       this.emit({ type: 'disconnected' });
       this._scheduleReconnect();
@@ -170,5 +244,15 @@ class TauriSerial {
 }
 
 const clientSerial = new TauriSerial();
+
+/**
+ * A second, independent transport pinned to the board (`connect_serial` /
+ * `serial-data`). Used only when the main `clientSerial` is on the Kvaser and
+ * the old board is still on USB to generate the WSS signals — the Kvaser
+ * handles CAN, this handles wheel-speed signal generation, both at once.
+ * The Rust backend already runs the serial and Kvaser workers concurrently.
+ */
+const signalBoard = new TauriSerial();
+
 export default clientSerial;
-export { TauriSerial };
+export { TauriSerial, signalBoard };

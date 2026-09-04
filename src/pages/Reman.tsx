@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,6 +24,7 @@ import {
   BookmarkIcon,
   BeakerIcon,
   CpuChipIcon,
+  SignalIcon,
   ArrowUturnLeftIcon,
   ClipboardDocumentCheckIcon,
   PaperAirplaneIcon,
@@ -31,9 +32,12 @@ import {
   DocumentTextIcon,
   TrashIcon,
   LockClosedIcon,
+  QrCodeIcon,
 } from '@heroicons/react/24/outline';
 import { useSession, UserRole } from '@/contexts/SessionContext';
 import RemanAnalytics from '@/components/RemanAnalytics';
+import ScanModal from '@/components/ScanModal';
+import Spinner, { LoadingRow } from '@/components/Spinner';
 import RemanForecast from '@/components/RemanForecast';
 import RemanRoster from '@/components/RemanRoster';
 import RemanFinance from '@/components/RemanFinance';
@@ -339,6 +343,15 @@ const RESULT_CAP = 50;
 
 type Tab = 'interventions' | 'mine' | 'achat' | 'clients' | 'stock' | 'analytics' | 'knowledge' | 'roster' | 'finance';
 
+// Bench Report finding: "claim a technician" was a dead end — inert hint
+// text with no way to actually get to My Jobs, where claiming happens.
+// A plain callback prop would mean threading it through InterventionsTab
+// and InterventionRow, neither of which otherwise cares about page-level
+// tabs, just to reach AddStepForm three levels down — this context is
+// scoped to that one cross-cutting need instead. Provided once by
+// RemanPage, consumed only where it's actually used.
+const ChangeTabContext = createContext<((tab: Tab) => void) | null>(null);
+
 // Only this REMAN technician id (Gabhy Kiba) can see/use the roster admin
 // page — requested directly ("hidden for everyone else but me"). Kept in
 // sync with reman.rs's ROSTER_ADMIN_TECH_ID; enforced again server-side
@@ -400,7 +413,7 @@ function Field({ label, value }: { label: string; value?: string }) {
 // click rather than needing its own popup/drawer. Delete uses the same
 // inline trash-icon -> confirm/cancel pattern as Jobs.tsx's job delete,
 // rather than a popup dialog, to stay consistent with the rest of the app.
-function HydraulicReportRow({ report, onDelete }: { report: HydraulicReportSummary; onDelete: (id: number) => Promise<void> }) {
+function HydraulicReportRow({ report, onDelete, i18nPrefix = 'hydraulic_report' }: { report: HydraulicReportSummary; onDelete: (id: number) => Promise<void>; i18nPrefix?: 'hydraulic_report' | 'ecu_report' }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -425,7 +438,7 @@ function HydraulicReportRow({ report, onDelete }: { report: HydraulicReportSumma
           className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
         >
           <span className="text-[11px] font-semibold text-accent shrink-0">
-            {t(`reman.hydraulic_report_${report.reportType}`, { defaultValue: report.reportType })}
+            {t(`reman.${i18nPrefix}_${report.reportType}`, { defaultValue: report.reportType })}
           </span>
           <span className="text-[10px] text-text-tertiary text-right truncate">
             {new Date(report.createdAt).toLocaleString()}
@@ -450,7 +463,7 @@ function HydraulicReportRow({ report, onDelete }: { report: HydraulicReportSumma
         ) : (
           <button
             onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-            title={t('reman.hydraulic_report_confirm_delete')}
+            title={t(`reman.${i18nPrefix}_confirm_delete`)}
             className="shrink-0 p-1 rounded-md text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors"
           >
             <TrashIcon className="w-3.5 h-3.5" />
@@ -528,24 +541,41 @@ function useDebounced(value: string, delayMs: number) {
 // keys are reused directly rather than duplicated. underWarranty is shown
 // here too (not just the Open-queue row header badge) since this panel is
 // reachable from every queue, where that header badge never renders.
+// Bench Report finding: every outcome rendered as the same blue pill,
+// discarding the red/green semantics `RemanAnalytics.tsx` (COLOR_REPAIRED/
+// COLOR_ND/COLOR_NFF/COLOR_EXCHANGE) already applies to these exact
+// categories — a negative outcome (ND) looked identical to a positive one
+// (Réparé) here. Mapped onto the same four design-token colors that
+// component uses (this app has no "sold"/"subcontractor" token, so those
+// two share `accent` with vente/avance rather than inventing new hex).
+// `underWarranty` specifically also matches the row-header pill's own
+// `success` styling — same fact, same color, wherever it shows up.
+type OutcomeTone = 'success' | 'accent' | 'warning' | 'danger';
 function OutcomeBadges({ outcome }: { outcome: JobOutcomeFlags }) {
   const { t } = useTranslation();
-  const items = [
-    { show: outcome.underWarranty, label: t('reman.under_warranty') },
-    { show: outcome.reparation, label: t('reman.analytics.outcome_repaired') },
-    { show: outcome.vente, label: t('reman.analytics.outcome_sold') },
-    { show: outcome.echangeStandard, label: t('reman.analytics.outcome_exchange') },
-    { show: outcome.avance, label: t('reman.outcome_avance') },
-    { show: outcome.nonRepairable, label: t('reman.analytics.outcome_nd') },
-    { show: outcome.noFaultFound, label: t('reman.analytics.outcome_nff') },
-  ].filter(i => i.show);
+  const allItems: { show?: boolean; label: string; tone: OutcomeTone }[] = [
+    { show: outcome.underWarranty, label: t('reman.under_warranty'), tone: 'success' },
+    { show: outcome.reparation, label: t('reman.analytics.outcome_repaired'), tone: 'success' },
+    { show: outcome.vente, label: t('reman.analytics.outcome_sold'), tone: 'accent' },
+    { show: outcome.echangeStandard, label: t('reman.analytics.outcome_exchange'), tone: 'accent' },
+    { show: outcome.avance, label: t('reman.outcome_avance'), tone: 'accent' },
+    { show: outcome.nonRepairable, label: t('reman.analytics.outcome_nd'), tone: 'danger' },
+    { show: outcome.noFaultFound, label: t('reman.analytics.outcome_nff'), tone: 'warning' },
+  ];
+  const items = allItems.filter(i => i.show);
   if (items.length === 0) return null;
+  const toneClass: Record<OutcomeTone, string> = {
+    success: 'bg-success/10 text-success border-success/20',
+    accent: 'bg-accent/10 text-accent border-accent/20',
+    warning: 'bg-warning/10 text-warning border-warning/20',
+    danger: 'bg-danger/10 text-danger border-danger/20',
+  };
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map(i => (
         <span
           key={i.label}
-          className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20"
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${toneClass[i.tone]}`}
         >
           {i.label}
         </span>
@@ -623,8 +653,9 @@ function AccessoiresPanel({
                   type="button"
                   onClick={() => confirm(a.id)}
                   disabled={confirmingId === a.id}
-                  className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-warning text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+                  className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-warning text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
                 >
+                  {confirmingId === a.id && <Spinner className="w-3 h-3" />}
                   {confirmingId === a.id ? t('common.loading') : t('reman.accessoire_confirm_button')}
                 </button>
               )}
@@ -713,7 +744,11 @@ function StepHistoryRow({ step }: { step: InterventionStep }) {
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <p className="px-2.5 pb-2 text-text-secondary whitespace-pre-line">{step.commentaire}</p>
+            {/* Bench Report finding: unlike HydraulicReportRow's own long
+                text a few hundred lines away (max-h-52 overflow-y-auto),
+                this had no height cap at all — a long pasted diagnostic
+                note could stretch a history row indefinitely. */}
+            <p className="px-2.5 pb-2 text-text-secondary whitespace-pre-line max-h-52 overflow-y-auto">{step.commentaire}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -809,6 +844,7 @@ interface SavedTestActionPreset {
 
 function AddStepForm({
   ligcdeId, service, testsActionsSelected, accessoires, onAdded, onClosed, onAccessoiresUpdated, onStaleClose,
+  onIntentToEdit, lockedByOther, lockedByName,
 }: {
   ligcdeId: string;
   service?: string;
@@ -839,9 +875,23 @@ function AddStepForm({
   // the card shows the real, current state instead of leaving the error
   // banner sitting over a card that still looks editable.
   onStaleClose: () => void;
+  // Bench Report finding: the edit lock used to be acquired the moment a
+  // job *card* expanded — comparing several jobs side by side (an
+  // explicit use case the expandable-card pattern invites) put every one
+  // of them in "view only" for coworkers, whether or not anyone actually
+  // meant to write to them. It now acquires only once this form itself
+  // is opened — `onIntentToEdit` reports that moment up to the parent,
+  // which starts polling the lock and hands the result back down here as
+  // `lockedByOther`/`lockedByName`, so the "+ Add a step" toggle stays
+  // freely clickable (just looking at what options exist needs no lock)
+  // and only the step picker/write fields swap for a view-only banner.
+  onIntentToEdit: (editing: boolean) => void;
+  lockedByOther?: boolean;
+  lockedByName?: string;
 }) {
   const { t } = useTranslation();
   const { currentUser } = useSession();
+  const changeTab = useContext(ChangeTabContext);
   const [expanded, setExpanded] = useState(false);
   // null = the step-type menu is showing, nothing picked yet — requested
   // directly: clicking "+" should present a real choice, not a dropdown
@@ -884,6 +934,14 @@ function AddStepForm({
   // user clicks "save as preset" and starts typing a name.
   const [presetNameInput, setPresetNameInput] = useState<string | null>(null);
   const [savingPreset, setSavingPreset] = useState(false);
+  // Bench Report finding: these chips deleted on a single click, unlike
+  // everything else in this file that deletes (see HydraulicReportRow's
+  // inline confirm/cancel swap, which this mirrors) — a tight, closely-
+  // packed row of comments/presets built up over weeks is a real one-
+  // click, unrecoverable loss otherwise. Which id (if any) is mid-confirm,
+  // one per list since they're independent chip rows.
+  const [pendingDeleteComment, setPendingDeleteComment] = useState<number | null>(null);
+  const [pendingDeletePreset, setPendingDeletePreset] = useState<number | null>(null);
 
   // Expanding this (the menu, or a step's form) can push it below the
   // fold if the job card is near the bottom of the list — requested
@@ -940,7 +998,20 @@ function AddStepForm({
   const techName = currentUser?.remanTechName;
 
   if (!techId || !techName) {
-    return <p className="text-[11px] text-text-tertiary italic">{t('reman.add_step_claim_hint')}</p>;
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-[11px] text-text-tertiary italic">{t('reman.add_step_claim_hint')}</p>
+        {changeTab && (
+          <button
+            type="button"
+            onClick={() => changeTab('mine')}
+            className="text-[11px] font-medium text-accent hover:underline shrink-0"
+          >
+            {t('reman.add_step_claim_cta')}
+          </button>
+        )}
+      </div>
+    );
   }
 
   const STEP_OPTIONS: { value: StepType; label: string }[] = [
@@ -955,20 +1026,48 @@ function AddStepForm({
   // Deliberately not PlusIcon for ER — the outer "Add a step" toggle
   // already uses PlusIcon for the generic "add" affordance; reusing it for
   // one specific step type inside the menu read as a visual duplicate.
-  const BUTTON_BY_TYPE: Record<StepType, { label: string; icon: React.ReactNode; className: string }> = {
-    ER: { label: t('reman.add_step_button'), icon: <WrenchScrewdriverIcon className="w-3 h-3" />, className: 'bg-accent' },
-    ATN: { label: t('reman.mark_atn_button'), icon: <ClockIcon className="w-3 h-3" />, className: 'bg-warning' },
-    NET: { label: t('reman.mark_net_button'), icon: <SparklesIcon className="w-3 h-3" />, className: 'bg-warning' },
-    VAL: { label: t('reman.mark_val_button'), icon: <ClipboardDocumentCheckIcon className="w-3 h-3" />, className: 'bg-accent' },
-    TES: { label: t('reman.transfer_commercial_button'), icon: <PaperAirplaneIcon className="w-3 h-3" />, className: 'bg-accent' },
-    R: { label: t('reman.close_repaired_button'), icon: <CheckCircleIcon className="w-3 h-3" />, className: 'bg-success' },
+  // Bench Report finding: the step-type picker menu rendered every icon
+  // in the same neutral gray, with only shape (and the text label right
+  // next to it) to tell six options apart — `iconColorClass` below is
+  // shown only in that menu (see STEP_OPTIONS.map), tying each icon to
+  // the same tone its submit button eventually uses. This can't give all
+  // six a fully unique color without inventing tokens outside the app's
+  // existing accent/success/warning/danger set (a bigger, separate call
+  // than a Polish-tier fix should make) — ATN/NET and ER/VAL/TES still
+  // share a tone within their own pair/trio, same as their submit
+  // buttons already do; every option's text label is still the actual
+  // disambiguator, same as before.
+  const BUTTON_BY_TYPE: Record<StepType, { label: string; icon: React.ReactNode; className: string; iconColorClass: string }> = {
+    ER: { label: t('reman.add_step_button'), icon: <WrenchScrewdriverIcon className="w-3 h-3" />, className: 'bg-accent', iconColorClass: 'text-accent' },
+    ATN: { label: t('reman.mark_atn_button'), icon: <ClockIcon className="w-3 h-3" />, className: 'bg-warning', iconColorClass: 'text-warning' },
+    NET: { label: t('reman.mark_net_button'), icon: <SparklesIcon className="w-3 h-3" />, className: 'bg-warning', iconColorClass: 'text-warning' },
+    VAL: { label: t('reman.mark_val_button'), icon: <ClipboardDocumentCheckIcon className="w-3 h-3" />, className: 'bg-accent', iconColorClass: 'text-accent' },
+    TES: { label: t('reman.transfer_commercial_button'), icon: <PaperAirplaneIcon className="w-3 h-3" />, className: 'bg-accent', iconColorClass: 'text-accent' },
+    R: { label: t('reman.close_repaired_button'), icon: <CheckCircleIcon className="w-3 h-3" />, className: 'bg-success', iconColorClass: 'text-success' },
+  };
+
+  // Bench Report finding: a failed (or abandoned) attempt's error banner
+  // and draft text used to survive both `close()` and picking a
+  // different step type — reopening the form (or switching from, say, a
+  // failed ER to ATN) could show a stale error and stale comment as if
+  // the *new*, not-yet-submitted attempt had already failed. Every path
+  // that starts a fresh attempt now clears the whole draft, not just the
+  // step-type picker.
+  const resetDraft = () => {
+    setError('');
+    setComment('');
+    setCausePanne(CAUSE_PANNE_OPTIONS[0].code);
+    setNiveauPanne(1);
+    setTesFaultChoice('none');
+    setSelectedParamIds(new Set());
+    setPresetNameInput(null);
   };
 
   const close = () => {
     setExpanded(false);
     setStepType(null);
-    setSelectedParamIds(new Set());
-    setPresetNameInput(null);
+    resetDraft();
+    onIntentToEdit(false);
   };
 
   const toggleParamId = (id: number) => {
@@ -999,6 +1098,7 @@ function AddStepForm({
   };
 
   const deleteSavedComment = async (id: number) => {
+    setPendingDeleteComment(null);
     setSavedComments(prev => prev.filter(c => c.id !== id));
     try {
       await invoke('reman_delete_saved_comment', { techId, id });
@@ -1033,6 +1133,7 @@ function AddStepForm({
   };
 
   const deleteSavedPreset = async (id: number) => {
+    setPendingDeletePreset(null);
     setSavedPresets(prev => prev.filter(p => p.id !== id));
     try {
       await invoke('reman_delete_saved_test_preset', { techId, id });
@@ -1104,7 +1205,7 @@ function AddStepForm({
       {!expanded && (
         <button
           type="button"
-          onClick={() => setExpanded(true)}
+          onClick={() => { setExpanded(true); onIntentToEdit(true); }}
           className="w-full flex items-center justify-between gap-2 text-xs font-medium px-2.5 py-2 rounded-lg bg-elevated border border-border text-text-secondary hover:text-text-primary hover:border-accent/30 transition-colors"
         >
           <span className="flex items-center gap-1.5">
@@ -1115,9 +1216,16 @@ function AddStepForm({
         </button>
       )}
 
+      {expanded && lockedByOther && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-2 rounded-lg bg-warning/10 border border-warning/20 text-warning">
+          <LockClosedIcon className="w-3.5 h-3.5 shrink-0" />
+          {t('reman.job_locked_view_only', { name: lockedByName || t('reman.job_locked_unknown_tech') })}
+        </div>
+      )}
+
       {/* Expanded, nothing picked yet — a real choice menu, not a dropdown
           pre-set to a default. */}
-      {expanded && !stepType && (
+      {expanded && !lockedByOther && !stepType && (
         <div className="bg-elevated/50 border border-border rounded-lg overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-border">
             <span className="text-text-tertiary font-medium text-xs">{t('reman.add_step_menu_title')}</span>
@@ -1136,19 +1244,19 @@ function AddStepForm({
               onClick={() => setStepType(o.value)}
               className="w-full flex items-center gap-2 text-left text-xs px-2.5 py-2 text-text-secondary hover:bg-card hover:text-text-primary transition-colors"
             >
-              {BUTTON_BY_TYPE[o.value].icon}
+              <span className={BUTTON_BY_TYPE[o.value].iconColorClass}>{BUTTON_BY_TYPE[o.value].icon}</span>
               {o.label}
             </button>
           ))}
         </div>
       )}
 
-      {expanded && stepType && button && (
+      {expanded && !lockedByOther && stepType && button && (
         <div className="space-y-1.5 bg-elevated/50 border border-border rounded-lg p-2.5">
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => setStepType(null)}
+              onClick={() => { setStepType(null); resetDraft(); }}
               className="flex items-center gap-1 text-xs font-medium text-text-primary hover:text-accent transition-colors"
             >
               <ChevronDownIcon className="w-3.5 h-3.5 rotate-90" />
@@ -1230,14 +1338,33 @@ function AddStepForm({
                       <button type="button" onClick={() => applyPreset(preset)} className="hover:underline">
                         {preset.name}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteSavedPreset(preset.id)}
-                        className="text-accent/60 hover:text-danger transition-colors"
-                        title={t('reman.saved_delete')}
-                      >
-                        <XMarkIcon className="w-2.5 h-2.5" />
-                      </button>
+                      {pendingDeletePreset === preset.id ? (
+                        <span className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedPreset(preset.id)}
+                            className="text-danger font-semibold hover:underline"
+                          >
+                            {t('common.delete')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeletePreset(null)}
+                            className="text-accent/60 hover:text-text-primary transition-colors"
+                          >
+                            {t('common.cancel')}
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDeletePreset(preset.id)}
+                          className="text-accent/60 hover:text-danger transition-colors"
+                          title={t('reman.saved_delete')}
+                        >
+                          <XMarkIcon className="w-2.5 h-2.5" />
+                        </button>
+                      )}
                     </span>
                   ))}
                   {presetNameInput !== null && (
@@ -1323,14 +1450,33 @@ function AddStepForm({
                   <button type="button" onClick={() => setComment(sc.text)} className="truncate hover:text-text-primary" title={sc.text}>
                     {sc.text}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteSavedComment(sc.id)}
-                    className="text-text-tertiary hover:text-danger transition-colors shrink-0"
-                    title={t('reman.saved_delete')}
-                  >
-                    <XMarkIcon className="w-2.5 h-2.5" />
-                  </button>
+                  {pendingDeleteComment === sc.id ? (
+                    <span className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => deleteSavedComment(sc.id)}
+                        className="text-danger font-semibold hover:underline"
+                      >
+                        {t('common.delete')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteComment(null)}
+                        className="text-text-tertiary hover:text-text-primary transition-colors"
+                      >
+                        {t('common.cancel')}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteComment(sc.id)}
+                      className="text-text-tertiary hover:text-danger transition-colors shrink-0"
+                      title={t('reman.saved_delete')}
+                    >
+                      <XMarkIcon className="w-2.5 h-2.5" />
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
@@ -1356,6 +1502,12 @@ function AddStepForm({
           {error && (
             <p className="text-danger bg-danger/10 border border-danger/20 rounded-lg px-2.5 py-1.5 text-[11px]">{error}</p>
           )}
+          {/* Bench Report finding: requiresTestsActions gets a visible
+              reason the button is disabled (above); this one didn't — a
+              tech had to notice the amber accessory rows unaided. */}
+          {hasUnconfirmedAccessoires && (
+            <p className="text-[10px] text-warning px-1">{t('reman.close_accessoires_required')}</p>
+          )}
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-text-tertiary truncate">{t('reman.add_step_as', { name: techName })}</span>
             <button
@@ -1364,7 +1516,7 @@ function AddStepForm({
               disabled={submitting || (requiresTestsActions && selectedParamIds.size === 0) || hasUnconfirmedAccessoires}
               className={`flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0 ${button.className}`}
             >
-              {button.icon}
+              {submitting ? <Spinner className="w-3 h-3" /> : button.icon}
               {submitting ? t('common.loading') : button.label}
             </button>
           </div>
@@ -1498,7 +1650,7 @@ function KnowledgeLinkPanel({
       </button>
       {open && (
         <div className="px-2.5 pb-2.5 space-y-2 border-t border-border pt-2">
-          {loading && <p className="text-[11px] text-text-tertiary">{t('reman.searching')}</p>}
+          {loading && <LoadingRow label={t('reman.searching')} className="flex items-center gap-1.5 text-[11px] text-text-tertiary" spinnerClassName="w-3 h-3" />}
           {error && <p className="text-[11px] text-danger">{error}</p>}
           {entries && entries.length === 0 && !showForm && (
             <p className="text-[11px] text-text-tertiary italic">{t('reman.knowledge_panel_empty')}</p>
@@ -1579,9 +1731,12 @@ function KnowledgeLinkPanel({
 }
 
 function InterventionRow({
-  item, onClosed, onStepAdded, showLastVisitInsteadOfDeadline,
+  item, onClosed, onStepAdded, showLastVisitInsteadOfDeadline, autoExpand,
 }: {
   item: InterventionSummary;
+  // Open expanded and fetch detail on mount — used for a job reached by
+  // scanning its QR code (see InterventionsTab's focus block).
+  autoExpand?: boolean;
   onClosed?: (id: string) => void;
   // Fired whenever a step is added, with the step's TypeCode — lets a
   // parent list drop this job from the current view immediately if the
@@ -1598,15 +1753,19 @@ function InterventionRow({
 }) {
   const { t } = useTranslation();
   const { currentUser } = useSession();
-  const { activeHydraulicJob, setActiveHydraulicJob, navigateTo } = useTestSession();
-  const [expanded, setExpanded] = useState(false);
+  const { activeHydraulicJob, setActiveHydraulicJob, activeSignalJob, setActiveSignalJob, navigateTo } = useTestSession();
+  const [expanded, setExpanded] = useState(!!autoExpand);
   const [detail, setDetail] = useState<InterventionDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [qrOpen, setQrOpen] = useState(false);
   const [settingFaultType, setSettingFaultType] = useState(false);
   // Fetched alongside `detail` so the inline Reports section only shows up
   // once we actually know there's something saved.
   const [hydraulicReports, setHydraulicReports] = useState<HydraulicReportSummary[] | null>(null);
+  // ECU / Signal HIL test reports — same shape and lifecycle, saved from
+  // the Signal HIL page's Test Report card.
+  const [ecuReports, setEcuReports] = useState<HydraulicReportSummary[] | null>(null);
   // Which side panel (if any) is open — client contact details or the
   // financial breakdown, both pulled out of the main card (see SidePanel).
   // Hydraulic reports are shown inline instead (see below), not as a panel.
@@ -1616,8 +1775,14 @@ function InterventionRow({
   // resolves (or if it never runs, e.g. no claimed tech identity), same
   // "unknown vs. known-false" distinction `detail` already uses.
   const [lockStatus, setLockStatus] = useState<JobLockStatus | null>(null);
+  // Bench Report finding: this used to be driven by the card's own
+  // `expanded` — comparing several jobs side by side put all of them in
+  // "view only" for coworkers. Now set only by AddStepForm's own
+  // `onIntentToEdit`, i.e. once someone actually opens the write form.
+  const [wantsToEdit, setWantsToEdit] = useState(false);
 
   const isOnBench = activeHydraulicJob?.ligcdeId === item.id;
+  const isOnSignalBench = activeSignalJob?.ligcdeId === item.id;
 
   // Pulled out of `toggle` so it can also be called from AddStepForm's
   // stale-write recovery path below (see onStaleClose) — same fetch either
@@ -1626,12 +1791,14 @@ function InterventionRow({
     setLoading(true);
     setError('');
     try {
-      const [d, reports] = await Promise.all([
+      const [d, reports, ecu] = await Promise.all([
         invoke<InterventionDetail>('reman_get_intervention', { id: item.id }),
         invoke<HydraulicReportSummary[]>('reman_list_hydraulic_reports', { ligcdeId: item.id }).catch(() => []),
+        invoke<HydraulicReportSummary[]>('reman_list_ecu_reports', { ligcdeId: item.id }).catch(() => []),
       ]);
       setDetail(d);
       setHydraulicReports(reports);
+      setEcuReports(ecu);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1639,11 +1806,33 @@ function InterventionRow({
     }
   }, [item.id]);
 
+  // Scanned-in job: this row mounts already `expanded`, so fetch its detail
+  // once on mount the same way `toggle` would have. Runs only for the
+  // pinned focus row (autoExpand), never the normal list rows.
+  useEffect(() => {
+    if (autoExpand && !detail && !loading) refreshDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot on mount for the focus row
+  }, [autoExpand]);
+
   const toggle = async () => {
     const next = !expanded;
+    // Bench Report finding: the whole card header is a single click
+    // target — collapsing it unmounts AddStepForm and, with it, any
+    // unsaved draft, with zero confirmation. `wantsToEdit` (see the lock
+    // effect below) is already true exactly when the write form is open,
+    // so it's a free signal for "there's a draft to lose" — reused here
+    // rather than adding a second piece of state to track the same thing.
+    if (!next && wantsToEdit && !window.confirm(t('reman.discard_draft_confirm'))) {
+      return;
+    }
     setExpanded(next);
     if (!next) {
       setPanel(null);
+      // A fresh mount of AddStepForm next time this row expands should
+      // start with no edit intent recorded, not whatever was left over
+      // from before — its own internal `expanded` already resets itself
+      // by unmounting; this is the parent-side half of that reset.
+      setWantsToEdit(false);
       return;
     }
     // Always refetch on open, even if this row was expanded once before
@@ -1652,22 +1841,21 @@ function InterventionRow({
     // showing however-old data instead of the job's real current status.
     // Reported directly: "you should trigger the job update when I try to
     // open it, it should show the real status then." The lock (see the
-    // effect below) is acquired separately, reactively, off `expanded`.
+    // effect below) is acquired separately, reactively, off `wantsToEdit`.
     if (!loading) {
       await refreshDetail();
     }
   };
 
-  // Lock lifecycle: acquire (or heartbeat-renew) while this row is
-  // expanded, release the moment it collapses or unmounts — covers a
-  // normal collapse click and the row disappearing out from under an open
-  // card (e.g. a filter/queue change while expanded). Reported directly:
-  // "show an error message if an other user tries to open it at the same
-  // time, it's gonna be view only." Renewed well under the server's
-  // JOB_LOCK_TTL_SECONDS (45s) so a single slow tick never lets an
-  // actively-open job's lock lapse.
+  // Lock lifecycle: acquire (or heartbeat-renew) while AddStepForm itself
+  // is open, release the moment it closes, the card collapses, or this
+  // row unmounts (e.g. a filter/queue change while expanded). Reported
+  // directly: "show an error message if an other user tries to open it at
+  // the same time, it's gonna be view only." Renewed well under the
+  // server's JOB_LOCK_TTL_SECONDS (45s) so a single slow tick never lets
+  // an actively-open job's lock lapse.
   useEffect(() => {
-    if (!expanded || !currentUser?.remanTechId || !currentUser?.remanTechName) return;
+    if (!wantsToEdit || !currentUser?.remanTechId || !currentUser?.remanTechName) return;
     const techId = currentUser.remanTechId;
     const techName = currentUser.remanTechName;
     let cancelled = false;
@@ -1687,12 +1875,21 @@ function InterventionRow({
       setLockStatus(null);
       invoke('reman_release_job_lock', { ligcdeId: item.id, techId }).catch(() => {});
     };
-  }, [expanded, item.id, currentUser?.remanTechId, currentUser?.remanTechName]);
+  }, [wantsToEdit, item.id, currentUser?.remanTechId, currentUser?.remanTechName]);
 
   const deleteHydraulicReport = async (reportId: number) => {
     try {
       await invoke('reman_delete_hydraulic_report', { id: reportId });
       setHydraulicReports(prev => prev?.filter(r => r.id !== reportId) ?? null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const deleteEcuReport = async (reportId: number) => {
+    try {
+      await invoke('reman_delete_ecu_report', { id: reportId });
+      setEcuReports(prev => prev?.filter(r => r.id !== reportId) ?? null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -1706,8 +1903,27 @@ function InterventionRow({
       reference: detail.reference || '',
       vehiclePlate: detail.vehiclePlate || '',
       vehicleModel: detail.vehicleModel || '',
+      codeArt: detail.codeArt || '',
+      libelleArt: detail.libelleArt || '',
     });
     navigateTo('f2evo_hydraulic');
+  };
+
+  // Same handoff as launchHydraulicTest, to the Signal HIL page instead —
+  // SignalPage reads activeSignalJob to prefill its ABS reference search
+  // with the job's article (codeArt).
+  const launchSignalTest = () => {
+    if (!detail) return;
+    setActiveSignalJob({
+      ligcdeId: item.id,
+      clientName: detail.clientName || '',
+      reference: detail.reference || '',
+      vehiclePlate: detail.vehiclePlate || '',
+      vehicleModel: detail.vehicleModel || '',
+      codeArt: detail.codeArt || '',
+      libelleArt: detail.libelleArt || '',
+    });
+    navigateTo('signal');
   };
 
   const setFaultType = async (value: VerifiedFaultTypeValue) => {
@@ -1740,9 +1956,22 @@ function InterventionRow({
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* Bench Report finding: this was a bare `<div onClick>` — no
+          button, role, tabIndex, or keyboard handler — for the single
+          most common interaction on this tab, inconsistent with every
+          nested toggle in this same file (StepHistoryRow,
+          KnowledgeLinkPanel, HydraulicReportRow), which all correctly use
+          real <button> elements. Kept as a div (not a real <button>,
+          which can't validly contain the nested interactive controls —
+          links, buttons — this row does) but now reachable and operable
+          the same way a button is. */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-elevated/50 transition-colors"
         onClick={toggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1795,7 +2024,10 @@ function InterventionRow({
         </span>
       </div>
 
-      <AnimatePresence initial={false}>
+      {/* `initial={!!autoExpand}` — a normal row's detail shouldn't animate
+          when the list first paints, but a scanned-in job mounts already
+          expanded and should slide its detail open. */}
+      <AnimatePresence initial={!!autoExpand}>
         {expanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
@@ -1805,7 +2037,7 @@ function InterventionRow({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border space-y-3 text-xs">
-              {loading && <p className="text-text-tertiary py-2">{t('common.loading')}</p>}
+              {loading && <LoadingRow label={t('common.loading')} />}
               {error && <p className="text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</p>}
               {detail && (
                 <>
@@ -1870,6 +2102,30 @@ function InterventionRow({
                             {t('reman.launch_hydraulic_test')}
                           </button>
                         )}
+                        {isOnSignalBench ? (
+                          <>
+                            <span className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-success/10 border border-success/20 text-success">
+                              <SignalIcon className="w-3.5 h-3.5" />
+                              {t('reman.signal_linked_badge')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => navigateTo('signal')}
+                              className="text-[11px] font-medium text-accent hover:underline"
+                            >
+                              {t('reman.signal_go_to_bench')}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={launchSignalTest}
+                            className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-colors"
+                          >
+                            <SignalIcon className="w-3.5 h-3.5" />
+                            {t('reman.launch_signal_test')}
+                          </button>
+                        )}
                         {hasClientInfo && (
                           <button
                             type="button"
@@ -1890,9 +2146,30 @@ function InterventionRow({
                             {t('reman.montants_title')}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setQrOpen(true)}
+                          className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg bg-elevated border border-border text-text-secondary hover:text-text-primary hover:border-accent/30 transition-colors"
+                        >
+                          <QrCodeIcon className="w-3.5 h-3.5" />
+                          {t('scan.qr_label')}
+                        </button>
                       </div>
                     );
                   })()}
+
+                  <ScanModal
+                    open={qrOpen}
+                    onClose={() => setQrOpen(false)}
+                    entity="job"
+                    entityKey={item.id}
+                    title={detail.reference || item.reference || `#${item.id}`}
+                    subtitleLines={[
+                      detail.clientName || '',
+                      [detail.vehiclePlate, detail.vehicleModel].filter(Boolean).join(' · '),
+                      detail.dateDernInterv || '',
+                    ].filter(Boolean)}
+                  />
 
                   {/* Hydraulic reports — an always-visible inline section
                       right next to the Launch Hydraulic Test control
@@ -1909,6 +2186,20 @@ function InterventionRow({
                       <div className="space-y-1.5">
                         {hydraulicReports.map(r => (
                           <HydraulicReportRow key={r.id} report={r} onDelete={deleteHydraulicReport} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {ecuReports && ecuReports.length > 0 && (
+                    <div className="rounded-lg border border-accent/20 bg-accent/5 p-2.5">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-text-primary mb-2">
+                        <DocumentTextIcon className="w-3.5 h-3.5 text-accent" />
+                        {t('reman.ecu_reports_title')} ({ecuReports.length})
+                      </div>
+                      <div className="space-y-1.5">
+                        {ecuReports.map(r => (
+                          <HydraulicReportRow key={r.id} report={r} onDelete={deleteEcuReport} i18nPrefix="ecu_report" />
                         ))}
                       </div>
                     </div>
@@ -2026,13 +2317,7 @@ function InterventionRow({
                       </div>
                     );
                   })()}
-                  {!detail.soldee && lockStatus?.lockedByOther && (
-                    <div className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-2 rounded-lg bg-warning/10 border border-warning/20 text-warning">
-                      <LockClosedIcon className="w-3.5 h-3.5 shrink-0" />
-                      {t('reman.job_locked_view_only', { name: lockStatus.otherTechName || t('reman.job_locked_unknown_tech') })}
-                    </div>
-                  )}
-                  {!detail.soldee && !lockStatus?.lockedByOther && (
+                  {!detail.soldee && (
                     <AddStepForm
                       ligcdeId={item.id}
                       service={detail.service}
@@ -2042,6 +2327,9 @@ function InterventionRow({
                       onClosed={d => { setDetail(d); onClosed?.(item.id); }}
                       onAccessoiresUpdated={setDetail}
                       onStaleClose={refreshDetail}
+                      onIntentToEdit={setWantsToEdit}
+                      lockedByOther={lockStatus?.lockedByOther}
+                      lockedByName={lockStatus?.otherTechName}
                     />
                   )}
                   <StepHistory steps={detail.steps} />
@@ -2051,7 +2339,17 @@ function InterventionRow({
                     ecuRef={detail.codeArt}
                     ecuBrand={detail.marque}
                     vehicleModel={detail.vehicleModel}
-                    symptomText={[detail.commentaireClient, detail.commentaireInterne, ...detail.steps.map(s => s.commentaire)]
+                    // Bench Report finding: a saved hydraulic bench report's
+                    // raw log — already fetched into this same component,
+                    // right below — is exactly where a DTC/fault code is
+                    // likely to appear, and wasn't feeding the fault-code
+                    // detector at all.
+                    symptomText={[
+                      detail.commentaireClient,
+                      detail.commentaireInterne,
+                      ...detail.steps.map(s => s.commentaire),
+                      ...(hydraulicReports ?? []).map(r => r.reportText),
+                    ]
                       .filter(Boolean)
                       .join(' \n ')}
                   />
@@ -2089,9 +2387,39 @@ const INTERVENTION_QUEUES: { id: InterventionQueueId; labelKey: string }[] = [
   { id: 'closed', labelKey: 'reman.queue_closed' },
 ];
 
-function InterventionsTab({ techId }: { techId?: string }) {
+function InterventionsTab({ techId, focusJobId, onClearFocus }: {
+  techId?: string;
+  // A job reached by scanning its QR code — fetched on its own and pinned,
+  // expanded, above the queue list until dismissed. See RemanPage's
+  // pendingScan effect.
+  focusJobId?: string | null;
+  onClearFocus?: () => void;
+}) {
   const { t } = useTranslation();
   const { currentUser } = useSession();
+  const [focusItem, setFocusItem] = useState<InterventionDetail | null>(null);
+  const [focusLoading, setFocusLoading] = useState(false);
+  const [focusError, setFocusError] = useState('');
+  const focusRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!focusJobId) { setFocusItem(null); setFocusError(''); return; }
+    let cancelled = false;
+    setFocusLoading(true);
+    setFocusError('');
+    invoke<InterventionDetail>('reman_get_intervention', { id: focusJobId })
+      .then(d => { if (!cancelled) setFocusItem(d); })
+      .catch((err: unknown) => { if (!cancelled) setFocusError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (!cancelled) setFocusLoading(false); });
+    // Bring the pinned card into view — the scan may have landed while the
+    // list was scrolled down, or the tab was already open elsewhere. Waits
+    // a frame so the entrance animation is already laying out.
+    const id = window.setTimeout(
+      () => focusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+      80,
+    );
+    return () => { cancelled = true; window.clearTimeout(id); };
+  }, [focusJobId]);
   // Owns its own search box rather than sharing RemanPage's — requested
   // directly: "check how it was done in repair jobs section... all the
   // search like family or date filtering should [be] next to the big
@@ -2285,6 +2613,39 @@ function InterventionsTab({ techId }: { techId?: string }) {
         )}
       </div>
 
+      <AnimatePresence>
+        {focusJobId && (
+          <motion.div
+            key={focusJobId}
+            ref={focusRef}
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98, transition: { duration: 0.15 } }}
+            transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+            className="rounded-xl border border-accent/40 bg-accent/5 ring-2 ring-accent/15 p-2 space-y-2"
+          >
+            <div className="flex items-center justify-between px-1">
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-accent">
+                <QrCodeIcon className="w-3.5 h-3.5" />
+                {t('scan.scanned_job')}
+              </span>
+              <button
+                type="button"
+                onClick={onClearFocus}
+                className="text-[11px] text-text-tertiary hover:text-danger transition-colors"
+              >
+                {t('scan.dismiss')}
+              </button>
+            </div>
+            {focusLoading && <LoadingRow label={t('common.loading')} className="flex items-center gap-1.5 text-xs text-text-tertiary px-1" />}
+            {focusError && (
+              <p className="text-xs text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{focusError}</p>
+            )}
+            {focusItem && <InterventionRow key={`focus-${focusItem.id}`} item={focusItem} autoExpand />}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* The bench forecast reflects everyone currently on the bench —
           only meaningful on the global (unfiltered) view. */}
       {queue === 'open' && !techId && <RemanForecast />}
@@ -2375,7 +2736,7 @@ function MyJobsTab() {
           <p className="text-xs text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{techError}</p>
         )}
         {loadingTechs ? (
-          <p className="text-xs text-text-tertiary">{t('common.loading')}</p>
+          <LoadingRow label={t('common.loading')} className="flex items-center gap-1.5 text-xs text-text-tertiary" />
         ) : (
           <div className="flex items-center gap-2">
             <select
@@ -2511,9 +2872,15 @@ function ClientRow({ item }: { item: ClientSummary }) {
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* See InterventionRow's identical fix above for why this stays a
+          div (not a real <button>) but is now keyboard-reachable. */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-elevated/50 transition-colors"
         onClick={toggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
         <div className="flex-1 min-w-0">
           <span className="text-sm font-semibold text-text-primary">{item.nom || `#${item.id}`}</span>
@@ -2537,7 +2904,7 @@ function ClientRow({ item }: { item: ClientSummary }) {
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border space-y-3 text-xs">
-              {loading && <p className="text-text-tertiary py-2">{t('common.loading')}</p>}
+              {loading && <LoadingRow label={t('common.loading')} />}
               {error && <p className="text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</p>}
               {detail && (
                 <>
@@ -2632,9 +2999,15 @@ function ArticleRow({ item, recentHint }: { item: ArticleSummary; recentHint?: R
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* See InterventionRow's identical fix above for why this stays a
+          div (not a real <button>) but is now keyboard-reachable. */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-elevated/50 transition-colors"
         onClick={toggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
         <div className="flex-1 min-w-0">
           <span className="text-sm font-semibold text-text-primary">{item.designation || item.codeArt}</span>
@@ -2669,7 +3042,7 @@ function ArticleRow({ item, recentHint }: { item: ArticleSummary; recentHint?: R
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border space-y-3 text-xs">
-              {loading && <p className="text-text-tertiary py-2">{t('common.loading')}</p>}
+              {loading && <LoadingRow label={t('common.loading')} />}
               {error && <p className="text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</p>}
               {detail && (
                 <>
@@ -2810,7 +3183,7 @@ function ResultList({
     );
   }
   if (loading) {
-    return <div className="text-center py-12 text-text-tertiary text-sm">{t('reman.searching')}</div>;
+    return <LoadingRow label={t('reman.searching')} className="flex items-center justify-center gap-2 py-12 text-text-tertiary text-sm" spinnerClassName="w-4 h-4" />;
   }
   if (error) {
     return (
@@ -2846,10 +3219,46 @@ function ResultList({
 export default function RemanPage() {
   const { t } = useTranslation();
   const { currentUser } = useSession();
+  const { pendingScan, setPendingScan } = useTestSession();
   const [tab, setTab] = useState<Tab>('interventions');
   const [rawQuery, setRawQuery] = useState('');
   const query = useDebounced(rawQuery, 300);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Job id from a scanned QR code — pinned/expanded at the top of Suivi
+  // d'interventions until dismissed (see InterventionsTab's focus block).
+  const [focusJobId, setFocusJobId] = useState<string | null>(null);
+
+  // Bench Report finding: Interventions/My Jobs unmounted (and so lost
+  // every filter) the instant you switched to any other tab — check
+  // something in Knowledge Base and come back to a reset queue/family/
+  // date filter. Once either has been opened this session it now stays
+  // mounted (just hidden) behind whichever tab is actually showing, so
+  // its filters survive switching away — to another tab, or straight to
+  // the other one of this pair — and back. A tab never opened this
+  // session never mounts at all, so there's no extra background polling
+  // for a view nobody's used yet.
+  const [visitedInterventions, setVisitedInterventions] = useState(true);
+  const [visitedMine, setVisitedMine] = useState(false);
+  useEffect(() => {
+    if (tab === 'interventions') setVisitedInterventions(true);
+    if (tab === 'mine') setVisitedMine(true);
+  }, [tab]);
+
+  // A scan landed (ScanListener has already navigated to REMAN, or it was
+  // the active page): switch to the right tab and act on it. Job → pin it
+  // in Suivi d'interventions; stock → drop the id into the stock search.
+  useEffect(() => {
+    if (!pendingScan) return;
+    if (pendingScan.entity === 'job') {
+      setVisitedInterventions(true);
+      setTab('interventions');
+      setFocusJobId(pendingScan.key);
+    } else if (pendingScan.entity === 'stock') {
+      setTab('stock');
+      setRawQuery(pendingScan.key);
+    }
+    setPendingScan(null);
+  }, [pendingScan]);
 
   const isRosterAdmin = currentUser?.remanTechId === ROSTER_ADMIN_TECH_ID;
 
@@ -2880,6 +3289,7 @@ export default function RemanPage() {
   const contentIsWide = tab === 'analytics' || tab === 'knowledge' || tab === 'roster' || tab === 'finance';
 
   return (
+    <ChangeTabContext.Provider value={changeTab}>
     <div className="p-6 space-y-5 mx-auto max-w-6xl">
       <div>
         <h1 className="text-xl font-bold text-text-primary">REMAN</h1>
@@ -2892,15 +3302,31 @@ export default function RemanPage() {
             key={tabDef.id}
             onClick={() => changeTab(tabDef.id)}
             className={[
-              'flex-1 flex items-center justify-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md transition-all whitespace-nowrap',
+              'relative flex-1 flex items-center justify-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-md whitespace-nowrap transition-colors',
               tab === tabDef.id
-                ? 'bg-accent text-white'
+                ? 'text-white'
                 : 'text-text-secondary hover:text-text-primary',
             ].join(' ')}
           >
-            {tabDef.id === 'analytics' && <ChartBarIcon className="w-3.5 h-3.5" />}
-            {tabDef.id === 'mine' && <UserCircleIcon className="w-3.5 h-3.5" />}
-            {tabDef.label}
+            {/* Shared layoutId — requested directly: "when i click on my
+                jobs it should move not vanish and reappear." Only the
+                active tab renders this, but framer-motion tracks the
+                layoutId across renders and animates a smooth transform
+                between the previous tab's position/size and this one's,
+                instead of the old background just vanishing and a new one
+                popping in. */}
+            {tab === tabDef.id && (
+              <motion.div
+                layoutId="reman-tab-pill"
+                className="absolute inset-0 bg-accent rounded-md"
+                transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-1">
+              {tabDef.id === 'analytics' && <ChartBarIcon className="w-3.5 h-3.5" />}
+              {tabDef.id === 'mine' && <UserCircleIcon className="w-3.5 h-3.5" />}
+              {tabDef.label}
+            </span>
           </button>
         ))}
       </div>
@@ -2930,8 +3356,12 @@ export default function RemanPage() {
           </div>
         )}
 
-        {tab === 'interventions' && <InterventionsTab />}
-        {tab === 'mine' && <MyJobsTab />}
+        {visitedInterventions && (
+          <div className={tab === 'interventions' ? '' : 'hidden'}>
+            <InterventionsTab focusJobId={focusJobId} onClearFocus={() => setFocusJobId(null)} />
+          </div>
+        )}
+        {visitedMine && <div className={tab === 'mine' ? '' : 'hidden'}><MyJobsTab /></div>}
         {tab === 'achat' && <AchatTab query={query} />}
         {tab === 'clients' && <ClientsTab query={query} />}
         {tab === 'stock' && <StockTab query={query} />}
@@ -2941,5 +3371,6 @@ export default function RemanPage() {
         {tab === 'finance' && isRosterAdmin && <RemanFinance />}
       </div>
     </div>
+    </ChangeTabContext.Provider>
   );
 }

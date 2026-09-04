@@ -212,8 +212,8 @@ export function ABSTester({ profile }: ABSTesterProps) {
           </div>
           <div className="flex items-center gap-3">
             <div className="glass-effect rounded-full px-3 py-1.5 flex items-center gap-2">
-              <InformationCircleIcon className="h-4 w-4 text-primary-500" />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              <InformationCircleIcon className="h-4 w-4 text-accent" />
+              <span className="text-sm font-medium text-text-primary">
                 {profile.module.valveCount} valves
               </span>
             </div>
@@ -262,7 +262,7 @@ export function ABSTester({ profile }: ABSTesterProps) {
       {/* Main Content */}
       <div className="glass-effect rounded-xl overflow-hidden">
         {/* Tabs */}
-        <div className="border-b border-slate-200/20 dark:border-slate-700/20 px-6">
+        <div className="border-b border-border px-6">
           <nav className="-mb-px flex space-x-6" aria-label="Tabs">
             {tabs.map(({ id, name, icon: Icon }) => (
               <button
@@ -272,8 +272,8 @@ export function ABSTester({ profile }: ABSTesterProps) {
                   'py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap',
                   'flex items-center gap-2 transition-all duration-200',
                   activeTab === id
-                    ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                    ? 'border-accent text-accent'
+                    : 'border-transparent text-text-tertiary hover:text-text-primary hover:border-border'
                 )}
               >
                 <Icon className="h-5 w-5" />
@@ -297,6 +297,14 @@ export function ABSTester({ profile }: ABSTesterProps) {
                 <div className="flex flex-col md:flex-row gap-6">
                   <div className="flex-1">
                     <div className="flex justify-end gap-3 mb-6">
+                      {/* Bench Report finding: the icon/label were forced
+                          text-white unconditionally, while the button
+                          itself correctly fell back to btn-secondary
+                          (a light background in light mode) when
+                          disconnected — white-on-light-grey, a near-
+                          invisible disabled state. Label color now
+                          follows the same connected/disconnected branch
+                          the button's own variant class already does. */}
                       <button
                         onClick={handleTestSelected}
                         disabled={
@@ -312,11 +320,11 @@ export function ABSTester({ profile }: ABSTesterProps) {
                         )}
                       >
                         {isTesting ? (
-                          <StopIcon className="h-5 w-5 text-white" />
+                          <StopIcon className={clsx('h-5 w-5', isConnected ? 'text-white' : 'text-text-secondary')} />
                         ) : (
-                          <PlayIcon className="h-5 w-5 text-white" />
+                          <PlayIcon className={clsx('h-5 w-5', isConnected ? 'text-white' : 'text-text-secondary')} />
                         )}
-                        <span className="text-white">
+                        <span className={isConnected ? 'text-white' : 'text-text-secondary'}>
                           {isTesting
                             ? 'Stop Test'
                             : `Test Selected (${selectedValves.length})`}
@@ -333,11 +341,11 @@ export function ABSTester({ profile }: ABSTesterProps) {
                         )}
                       >
                         {testingAll ? (
-                          <StopIcon className="h-5 w-5 text-white" />
+                          <StopIcon className={clsx('h-5 w-5', isConnected ? 'text-white' : 'text-text-secondary')} />
                         ) : (
-                          <PlayIcon className="h-5 w-5 text-white" />
+                          <PlayIcon className={clsx('h-5 w-5', isConnected ? 'text-white' : 'text-text-secondary')} />
                         )}
-                        <span className="text-white">
+                        <span className={isConnected ? 'text-white' : 'text-text-secondary'}>
                           {testingAll ? 'Stop All Tests' : 'Test All Valves'}
                         </span>
                       </button>
@@ -386,17 +394,17 @@ export function ABSTester({ profile }: ABSTesterProps) {
           className="glass-effect rounded-xl p-6"
         >
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-text-primary">
               Testing Valves {selectedValves.join(', ')} - {profile.module.name}
             </h2>
-            <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
+            <span className="text-sm font-medium text-accent">
               Running diagnostics...
             </span>
           </div>
           <div className="space-y-4">
-            <div className="h-2 bg-slate-200/20 dark:bg-slate-700/20 rounded-full overflow-hidden">
+            <div className="h-2 bg-elevated rounded-full overflow-hidden">
               <motion.div
-                className="h-full w-1/3 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full"
+                className="h-full w-1/3 bg-accent rounded-full"
                 animate={{ x: ['-100%', '300%'] }}
                 transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
               />
@@ -412,17 +420,17 @@ export function ABSTester({ profile }: ABSTesterProps) {
           className="glass-effect rounded-xl p-6"
         >
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-text-primary">
               Testing All Valves - {profile.module.name}
             </h2>
-            <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
+            <span className="text-sm font-medium text-accent">
               Running diagnostics...
             </span>
           </div>
           <div className="space-y-4">
-            <div className="h-2 bg-slate-200/20 dark:bg-slate-700/20 rounded-full overflow-hidden">
+            <div className="h-2 bg-elevated rounded-full overflow-hidden">
               <motion.div
-                className="h-full w-1/3 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full"
+                className="h-full w-1/3 bg-accent rounded-full"
                 animate={{ x: ['-100%', '300%'] }}
                 transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
               />

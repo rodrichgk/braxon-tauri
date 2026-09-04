@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { useSession } from '@/contexts/SessionContext';
 import { ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
+import Spinner, { LoadingRow } from './Spinner';
 
 // Admin-only Finance tab — requested directly: "can you calculate how
 // much profit we make a year at least try to come up with a number give
@@ -103,6 +104,24 @@ function fiscalYearRange(startYear: number): { from: string; to: string } {
   return { from, to };
 }
 
+// Bench Report finding: revenue was already correctly capped at today for
+// an in-progress fiscal year, but annualFixedCosts/annualSalaries always
+// multiplied the monthly settings by a flat 12 regardless — opening the
+// tab on, say, day 40 of a new fiscal year compared 40 days of real
+// revenue against a full 12 months of projected cost, silently
+// understating profit with no indication that's what was happening.
+// This computes what fraction of the selected fiscal year `to` actually
+// covers, so costs scale down the same way revenue's date range already
+// does — for a *completed* past year (to = the natural year-end) this
+// resolves to ~1.0, so it doesn't change anything for the one case that
+// was already correct.
+function fiscalYearElapsedFraction(from: string, to: string): number {
+  const fromMs = new Date(`${from}T00:00:00Z`).getTime();
+  const toMs = new Date(`${to}T00:00:00Z`).getTime();
+  const daysElapsed = Math.max(1, (toMs - fromMs) / 86_400_000 + 1);
+  return Math.min(1, daysElapsed / 365.25);
+}
+
 export default function RemanFinance() {
   const { t } = useTranslation();
   const { currentUser } = useSession();
@@ -123,6 +142,10 @@ export default function RemanFinance() {
     const current = currentFiscalYearStart(new Date());
     return Array.from({ length: 6 }, (_, i) => current - i);
   }, []);
+
+  const isCurrentFiscalYear = fiscalYearStart === currentFiscalYearStart(new Date());
+  const { from: fyFrom, to: fyTo } = useMemo(() => fiscalYearRange(fiscalYearStart), [fiscalYearStart]);
+  const fyElapsedFraction = useMemo(() => fiscalYearElapsedFraction(fyFrom, fyTo), [fyFrom, fyTo]);
 
   const load = useCallback(() => {
     if (!requestingTechId) return;
@@ -175,14 +198,20 @@ export default function RemanFinance() {
     .filter(r => r.isActive && r.salaryMonthly != null)
     .reduce((sum, r) => sum + (r.salaryMonthly ?? 0), 0);
   const missingSalaryCount = roster.filter(r => r.isActive && r.salaryMonthly == null).length;
+  // Bench Report finding: blank fields silently became €0 with no warning,
+  // unlike the parallel (and already-warned-about) missing-salary case.
+  const missingCostFieldCount = MONTHLY_FIELDS.filter(f => draft[f] == null).length;
 
   const monthlyCostTotal = MONTHLY_FIELDS.reduce((sum, f) => sum + (draft[f] ?? 0), 0);
-  const annualFixedCosts = monthlyCostTotal * 12;
+  // Scaled by fyElapsedFraction (~1.0 for a completed year, <1 for the
+  // in-progress one) so costs cover the same span as revenue's own
+  // date-capped window — see fiscalYearElapsedFraction's doc comment.
+  const annualFixedCosts = monthlyCostTotal * 12 * fyElapsedFraction;
   // Employer charges (charges patronales) applied on top of gross salary
   // — added after the first real comparison against a filed P&L showed
   // salary alone understated true labor cost.
   const employerChargesMultiplier = 1 + (draft.employerChargesPercent ?? 0) / 100;
-  const annualSalaries = activeSalaryMonthlyTotal * 12 * employerChargesMultiplier;
+  const annualSalaries = activeSalaryMonthlyTotal * 12 * employerChargesMultiplier * fyElapsedFraction;
   const revenue = annualRevenue ?? 0;
   // Both live-computed from real supplier invoices (Lig_FactureFr, French
   // ledger accounts), not manual fields — see reman.rs's "Supplier cost
@@ -250,7 +279,7 @@ export default function RemanFinance() {
         </div>
       )}
       {loading && (
-        <div className="text-center py-16 text-text-tertiary text-sm">{t('common.loading')}</div>
+        <LoadingRow label={t('common.loading')} className="flex items-center justify-center gap-2 py-16 text-text-tertiary text-sm" spinnerClassName="w-4 h-4" />
       )}
 
       {!loading && (
@@ -289,9 +318,34 @@ export default function RemanFinance() {
               <p>
                 {t('reman.finance.summary_caveat', { count: roster.filter(r => r.isActive).length })}
                 {missingSalaryCount > 0 && ` ${t('reman.finance.summary_missing_salary', { count: missingSalaryCount })}`}
+                {missingCostFieldCount > 0 && ` ${t('reman.finance.summary_missing_cost_fields', { count: missingCostFieldCount })}`}
                 {supplierCost != null && ` ${t('reman.finance.summary_external_charges_ref', { amount: formatEUR(supplierCost.externalCharges) })}`}
               </p>
             </div>
+            {/* Bench Report findings: (1) fixed costs/salaries used to
+                always project a full 12 months even for the still-
+                in-progress fiscal year, comparing partial-year revenue
+                against a full year of cost with no indication — now
+                scaled to match, but that scaling itself needs explaining
+                so a smaller number doesn't look like a different bug.
+                (2) switching to a *past* fiscal year only re-scopes
+                revenue/parts/subcontracting (all live 4D queries) — costs,
+                salaries, and tax rate have no historical record anywhere
+                in REMAN and always reflect today's settings, which used
+                to look identically scoped to everything else on this
+                card. Both surfaced here instead of silently. */}
+            {isCurrentFiscalYear && fyElapsedFraction < 0.99 && (
+              <div className="flex items-start gap-1.5 text-[10px] text-warning pt-1 border-t border-border">
+                <ExclamationTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <p>{t('reman.finance.summary_partial_year', { percent: Math.round(fyElapsedFraction * 100) })}</p>
+              </div>
+            )}
+            {!isCurrentFiscalYear && (
+              <div className="flex items-start gap-1.5 text-[10px] text-warning pt-1 border-t border-border">
+                <ExclamationTriangleIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <p>{t('reman.finance.summary_not_historically_scoped', { year: `${fiscalYearStart}–${fiscalYearStart + 1}` })}</p>
+              </div>
+            )}
           </div>
 
           {/* Editable fields */}
@@ -324,8 +378,9 @@ export default function RemanFinance() {
               type="button"
               onClick={save}
               disabled={!isDirty || saving}
-              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
             >
+              {saving && <Spinner className="w-3 h-3" />}
               {saving ? t('common.loading') : t('common.save')}
             </button>
           </div>
@@ -335,9 +390,20 @@ export default function RemanFinance() {
   );
 }
 
+// Bench Report finding: this and RemanAnalytics.tsx's KpiCard represent
+// the same concept — a labeled stat — styled two different ways within
+// the same BI section (KpiCard: icon badge, bordered standalone tile;
+// this: plain stacked text). Left deliberately un-cloned rather than
+// reusing KpiCard outright — this renders ten stats packed into one
+// dense grid inside a single outer card, a genuinely different density
+// than KpiCard's five headline stats each getting their own standalone
+// tile, and giving each of these its own icon+border would be visual
+// clutter at that density. A light `bg-elevated` slot per stat instead —
+// enough to read as "the same design language, a denser arrangement of
+// it," without pretending the two contexts call for identical weight.
 function SummaryStat({ label, value, negative, highlight, bold }: { label: string; value: string; negative?: boolean; highlight?: boolean; bold?: boolean }) {
   return (
-    <div>
+    <div className="bg-elevated rounded-lg px-2.5 py-2">
       <p className="text-[10px] text-text-tertiary">{label}</p>
       <p className={[
         bold ? 'text-base font-bold' : 'text-sm font-semibold',

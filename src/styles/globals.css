@@ -20,6 +20,14 @@
   --color-success-rgb:        36 180 72;
   --color-warning-rgb:        215 132 0;
   --color-danger-rgb:         235 52 42;
+  /* Bench Report finding: RemanAnalytics.tsx's COLOR_SOLD/
+     COLOR_SUBCONTRACTOR were flat hex (#32ade6/#af52de — Apple's system
+     cyan/purple, matching the same HIG palette accent/success/warning/
+     danger above already come from) with no dark-mode counterpart, unlike
+     every other outcome color on that page. Apple's own dark-mode values
+     for the same two system colors. */
+  --color-sold-rgb:           50 173 230;  /* #32ade6 */
+  --color-subcontractor-rgb:  175 82 222;  /* #af52de */
 }
 
 /* Dark mode */
@@ -38,6 +46,8 @@
   --color-success-rgb:        48 209 88;   /* #30d158 */
   --color-warning-rgb:        255 214 10;  /* #ffd60a */
   --color-danger-rgb:         255 69 58;   /* #ff453a */
+  --color-sold-rgb:           100 210 255; /* #64d2ff */
+  --color-subcontractor-rgb:  191 90 242;  /* #bf5af2 */
 }
 
 /* ─── Base ──────────────────────────────────────────────────── */
@@ -75,6 +85,34 @@
   /* Suppress the native black outline everywhere — our custom ring/hover states handle focus */
   input, textarea, select, button, a { outline: none; }
   :focus-visible { outline: none; }
+
+  /* Fixes a real, reported flash: "the search focus ring goes first
+     black and then it goes blue... i have that in a lot of places."
+     Tailwind's `ring`/`shadow` utilities all compose through `box-shadow`,
+     and every element starts out with `--tw-ring-shadow`/`--tw-shadow`
+     defaulted to `0 0 #0000` — an invisible shadow whose RGB channels are
+     black, just at zero alpha (Tailwind's own base layer, not ours).
+     Any element that also transitions `box-shadow` (`transition-all`, or
+     an explicit list naming it — used all over this app so borders fade
+     in smoothly) animates FROM that black-at-zero-alpha baseline TOWARD
+     the focus ring's real color. Browsers interpolate a color's RGB and
+     alpha channels independently, so the early part of that animation
+     visibly reads as a black flash before it "catches up" to blue.
+     Rather than hunt down every transition-all + focus:ring combination
+     one at a time across the app, the baseline itself is recolored here
+     to the accent color at zero alpha — still fully invisible at rest
+     (same shape as Tailwind's own default, only the color channel
+     changes), but now every ring transition in the app animates
+     blue-fading-in instead of black-fading-through-to-blue, with no
+     per-component change needed. Any element that explicitly sets its
+     own shadow (`shadow-sm`, `shadow-lg`, `.card`, …) still wins here —
+     class selectors outrank this universal one, so this only affects the
+     implicit zero-value fallback that was causing the flash.
+  */
+  * {
+    --tw-ring-shadow: 0 0 rgb(var(--color-accent-rgb) / 0);
+    --tw-shadow: 0 0 rgb(var(--color-accent-rgb) / 0);
+  }
 }
 
 /* ─── Components ─────────────────────────────────────────────── */
@@ -185,6 +223,17 @@
   .badge-yellow  { @apply bg-warning/15 text-warning; }
   .badge-red     { @apply bg-danger/15  text-danger;  }
   .badge-neutral { @apply bg-text-tertiary/15 text-text-secondary; }
+
+  /* Bench Report finding: ValveIndicator.tsx re-declared this exact
+     @keyframes inline on every mount, with a hardcoded accent-blue rgba
+     that never matched the theme's real accent value. One definition,
+     theme-aware via the same --color-accent-rgb token every other
+     accent color in the app already reads from. */
+  @keyframes pulse-ring {
+    0%, 100% { box-shadow: 0 0 0 rgb(var(--color-accent-rgb) / 0.5); }
+    50%      { box-shadow: 0 0 12px rgb(var(--color-accent-rgb) / 0.25); }
+  }
+  .pulse-ring { animation: pulse-ring 2s infinite ease-in-out; }
 }
 
 /* ─── Scrollbar ─────────────────────────────────────────────── */

@@ -520,6 +520,44 @@ pub mod hydraulic {
         s.trim().replace(',', ".").parse::<f64>().ok()
     }
 
+    /// A pressure cycle's dedup identity — same "before the part that
+    /// differs between a failed attempt and its retest" convention as
+    /// valves' own dedup key (`label.split(':').next()`, above), just
+    /// adapted for pressure cycles' two label shapes (see
+    /// `is_numbered_header`/`is_named_header` in `parse_report`): a
+    /// numbered cycle's identity is just its leading digit and `)` ("1)"
+    /// out of "1) Test: Ok — OK" or "1) Test: NOT Ok — ..."); a named
+    /// cycle's is everything before the colon ("Oil outlet test" out of
+    /// either "Oil outlet test: Ok" or "Oil outlet test: ERROR"). In both
+    /// shapes the pass/fail wording that follows is exactly what changes
+    /// between runs, so it can never be part of the key.
+    fn cycle_dedup_key(label: &str) -> String {
+        let bytes = label.as_bytes();
+        if bytes.len() > 1 && bytes[0].is_ascii_digit() && bytes[1] == b')' {
+            label[..2].to_string()
+        } else {
+            label.split(':').next().unwrap_or(label).trim().to_string()
+        }
+    }
+
+    /// Same "index by identity, a later write replaces the earlier one in
+    /// place" pattern `parse_report`'s valve loop already uses — see
+    /// `cycle_dedup_key`'s doc comment for why this exists.
+    fn push_or_replace_cycle(
+        cycles: &mut Vec<PressureCycle>,
+        cycle_index: &mut std::collections::HashMap<String, usize>,
+        cycle: PressureCycle,
+    ) {
+        let key = cycle_dedup_key(&cycle.label);
+        match cycle_index.get(&key) {
+            Some(&idx) => cycles[idx] = cycle,
+            None => {
+                cycle_index.insert(key, cycles.len());
+                cycles.push(cycle);
+            }
+        }
+    }
+
     /// Parses accumulated `Report:` text (already control-char-decoded to
     /// real newlines, see `parse_line`'s `"Report"` case) into structured
     /// per-test results.
@@ -537,9 +575,32 @@ pub mod hydraulic {
         let mut motor: Option<MotorResult> = None;
         let mut last_motor_status: Option<MotorStatus> = None;
         let mut cycles: Vec<PressureCycle> = Vec::new();
+        // Bench Report finding: unlike valves just above (deduped by
+        // `valve_index`), pressure cycles were never deduped at all —
+        // `cycles.push(c)` unconditionally, both here and at EOF below.
+        // Run Hydraulic Test → repair → retest (exactly what Auto Test &
+        // Repair automates) and the same named cycle appeared twice in
+        // the saved report — once failed from the earlier attempt, once
+        // passing from the retest — with nothing marking which was
+        // current, and the top verdict banner (which only looks at the
+        // *last* `completed` line) could read PASS while this detail
+        // list still showed a red FAIL row from the stale first attempt.
+        // Same "index by identity, later write replaces in place" pattern
+        // as `valve_index`, keyed by `cycle_dedup_key` (see its own doc
+        // comment for why plain `label` can't be the key).
+        let mut cycle_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let mut current_cycle: Option<PressureCycle> = None;
         let mut completed: Option<bool> = None;
-        let mut faulted_channels: Vec<u8> = Vec::new();
+        // No longer accumulated independently during the scan (see where
+        // it's derived, after cycles are finalized below) — same staleness
+        // bug as undeduped cycles, one level up: a channel that faulted on
+        // a first attempt and reads clean on a retest was staying flagged
+        // here for the rest of the session, since nothing ever removed an
+        // id once added. The live gauges (HydraulicBenchDashboard.tsx) read
+        // straight from this list, so a stale entry here wouldn't just be
+        // a report artifact, it'd paint an already-fixed channel red
+        // indefinitely on the dashboard the technician is actually
+        // watching mid-test.
 
         for raw_line in text.lines() {
             let line = raw_line.trim();
@@ -630,7 +691,7 @@ pub mod hydraulic {
             let is_named_header = !is_numbered_header && (line.ends_with(": Ok") || line.ends_with(": ERROR"));
             if is_numbered_header || is_named_header {
                 if let Some(c) = current_cycle.take() {
-                    cycles.push(c);
+                    push_or_replace_cycle(&mut cycles, &mut cycle_index, c);
                 }
                 // "Ok" alone isn't enough — "NOT Ok" also contains "Ok" as
                 // a substring, which previously mis-marked a hypothetical
@@ -675,9 +736,6 @@ pub mod hydraulic {
                             if !cycle.faulted_channels.contains(&ch) {
                                 cycle.faulted_channels.push(ch);
                             }
-                            if !faulted_channels.contains(&ch) {
-                                faulted_channels.push(ch);
-                            }
                         }
                     }
                 }
@@ -697,8 +755,23 @@ pub mod hydraulic {
             }
         }
         if let Some(c) = current_cycle.take() {
-            cycles.push(c);
+            push_or_replace_cycle(&mut cycles, &mut cycle_index, c);
         }
+
+        // Derived from the final, deduped `cycles` list rather than
+        // accumulated independently during the scan (see the doc comment
+        // on this variable's old declaration, above) — a channel counts
+        // as faulted here only if its *latest* cycle occurrence still
+        // flags it, so a retest that comes back clean actually clears it.
+        let mut faulted_channels: Vec<u8> = Vec::new();
+        for c in &cycles {
+            for &ch in &c.faulted_channels {
+                if !faulted_channels.contains(&ch) {
+                    faulted_channels.push(ch);
+                }
+            }
+        }
+        faulted_channels.sort_unstable();
 
         let pressure = if !cycles.is_empty() || completed.is_some() || !faulted_channels.is_empty() {
             Some(PressureTestResult { cycles, completed, faulted_channels })
@@ -937,6 +1010,63 @@ fn raw_event(key: &str, value: Option<&str>) -> F2EvoEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_report_dedupes_retested_pressure_cycles() {
+        // A numbered cycle ("1) ...") failing, then passing on a retest —
+        // exactly what Auto Test & Repair's Hydraulic Test -> repair ->
+        // retest flow produces. Before the fix this appeared as two
+        // separate cycles in the parsed report, the stale failed one
+        // still sitting there next to the fresh passing one.
+        let numbered_retest = "\
+1) NOT Ok
+Channel Pressure1=10.0Bar
+Pump Pressure=20.0Bar
+1) Ok
+Channel Pressure1=11.0Bar
+Pump Pressure=21.0Bar
+";
+        let parsed = hydraulic::parse_report(numbered_retest);
+        let pressure = parsed.pressure.expect("pressure result expected");
+        assert_eq!(pressure.cycles.len(), 1, "retested numbered cycle should collapse to one entry");
+        assert!(pressure.cycles[0].passed, "should reflect the retest's pass, not the first attempt's fail");
+        assert_eq!(pressure.cycles[0].channel_pressures[0], Some(11.0));
+        assert_eq!(pressure.cycles[0].pump_pressure, Some(21.0));
+
+        // A named cycle ("Oil outlet test: ...") failing with a flagged
+        // channel, then passing clean on a retest.
+        let named_retest = "\
+Oil outlet test: ERROR
+Channel Pressure1=5.0Bar - error!!
+Oil outlet test: Ok
+Channel Pressure1=6.0Bar
+";
+        let parsed2 = hydraulic::parse_report(named_retest);
+        let pressure2 = parsed2.pressure.expect("pressure result expected");
+        assert_eq!(pressure2.cycles.len(), 1, "retested named cycle should collapse to one entry");
+        assert!(pressure2.cycles[0].passed, "should reflect the retest's pass");
+        assert_eq!(pressure2.cycles[0].channel_pressures[0], Some(6.0));
+        assert!(pressure2.cycles[0].faulted_channels.is_empty(), "retest's clean reading should clear the earlier fault flag");
+        // The top-level PressureTestResult.faulted_channels (what the live
+        // dashboard gauges actually read from) must clear too, not just
+        // the per-cycle list — this used to be an independently-
+        // accumulated list that never removed an id once added, so a
+        // channel fixed on retest would still paint red on the live
+        // gauges indefinitely.
+        assert!(pressure2.faulted_channels.is_empty(), "top-level faulted_channels must also clear on a clean retest");
+
+        // A channel still genuinely faulted in its *latest* cycle
+        // occurrence must still show up, retest or not.
+        let still_faulted = "\
+Oil outlet test: ERROR
+Channel Pressure2=5.0Bar - error!!
+Oil outlet test: ERROR
+Channel Pressure2=5.5Bar - error!!
+";
+        let parsed3 = hydraulic::parse_report(still_faulted);
+        let pressure3 = parsed3.pressure.expect("pressure result expected");
+        assert_eq!(pressure3.faulted_channels, vec![2]);
+    }
 
     #[test]
     fn electronics_frames_are_stx_prefixed() {

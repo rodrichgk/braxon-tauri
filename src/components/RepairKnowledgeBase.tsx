@@ -6,6 +6,7 @@ import {
   MagnifyingGlassIcon, PlusIcon, XMarkIcon, TrashIcon, PencilIcon,
   ChevronDownIcon, ChevronUpIcon, LinkIcon, ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
+import Spinner, { LoadingRow } from './Spinner';
 
 // Repair Knowledge Base — requested directly: "i want a repair section,
 // that's gonna be better to search in that just comments, where i give
@@ -241,8 +242,9 @@ function EntryForm({
           type="button"
           disabled={saving}
           onClick={() => onSave(form)}
-          className="text-[11px] font-semibold px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent/90 transition-all disabled:opacity-50"
+          className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent/90 transition-all disabled:opacity-50"
         >
+          {saving && <Spinner className="w-3 h-3" />}
           {saving ? t('common.saving') : t('common.save')}
         </button>
         <button
@@ -325,7 +327,7 @@ function JobLinkPicker({ onPick, disabled }: { onPick: (job: JobSearchResult) =>
       />
       {openList && query.trim().length >= 2 && (
         <div className="absolute z-10 mt-1 w-full max-h-52 overflow-y-auto bg-card border border-border rounded-lg shadow-lg">
-          {loading && <p className="text-[11px] text-text-tertiary px-2 py-1.5">{t('reman.searching')}</p>}
+          {loading && <LoadingRow label={t('reman.searching')} className="flex items-center gap-1.5 text-[11px] text-text-tertiary px-2 py-1.5" spinnerClassName="w-3 h-3" />}
           {!loading && results && results.length === 0 && (
             <p className="text-[11px] text-text-tertiary px-2 py-1.5">{t('reman.no_results')}</p>
           )}
@@ -453,8 +455,15 @@ function EntryCard({
             )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {/* Bench Report finding: fault codes are neutral identifiers,
+                not errors — this used to reuse the exact classes the real
+                error banner uses a few hundred lines away (bg-danger/10
+                text-danger border-danger/20), pixel-identical to it.
+                Matches the neutral cause-tag chip's own styling below
+                instead, so "danger red" stays meaningful when something's
+                actually wrong. */}
             {entry.faultCodes.map(c => (
-              <span key={c} className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-danger/10 text-danger border border-danger/20">{c}</span>
+              <span key={c} className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded-md bg-elevated text-text-secondary border border-border">{c}</span>
             ))}
             {[entry.vehicleMake, entry.vehicleModel].filter(Boolean).length > 0 && (
               <span className="text-[11px] text-text-tertiary">{[entry.vehicleMake, entry.vehicleModel, entry.vehicleYear].filter(Boolean).join(' · ')}</span>
@@ -688,7 +697,7 @@ export default function RepairKnowledgeBase() {
         />
       )}
 
-      {loading && <div className="text-center py-10 text-text-tertiary text-xs">{t('reman.searching')}</div>}
+      {loading && <LoadingRow label={t('reman.searching')} className="flex items-center justify-center gap-1.5 py-10 text-text-tertiary text-xs" />}
       {error && (
         <div className="bg-danger/10 border border-danger/20 rounded-xl px-4 py-3">
           <p className="text-xs text-danger">{error}</p>

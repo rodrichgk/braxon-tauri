@@ -139,17 +139,30 @@ export function useUdsSession(send: SendFn, isConnected: boolean) {
     return !!held && !held.closed && held.sendId === sendId && held.recvId === recvId;
   }, []);
 
-  // The bus is gone — the session went with it.
+  // The bus is gone — the session goes with it. Debounced: a brief transport
+  // blip (USB CDC stall, a Kvaser bus-off that self-recovers, an auto-reconnect
+  // cycle) would otherwise tear the session down and leave the scanner stuck
+  // between "opening" and "not connected". A real drop keeps `isConnected`
+  // false long past this window; the ECU's own S3 timeout (~5 s) is the backstop.
   useEffect(() => {
-    if (!isConnected) closeSession();
+    if (isConnected) return;
+    const t = setTimeout(() => { if (!isConnected) closeSession(); }, 1800);
+    return () => clearTimeout(t);
   }, [isConnected, closeSession]);
 
-  // Never leak the keep-alive interval past unmount.
-  useEffect(() => () => {
-    mountedRef.current = false;
-    genRef.current += 1;
-    handleRef.current?.close();
-    handleRef.current = null;
+  // Never leak the keep-alive interval past unmount. The setup half matters:
+  // under React.StrictMode the mount→unmount→remount cycle runs this cleanup
+  // once, and without re-arming `mountedRef` here every later ensureSession()
+  // would see the component as unmounted — opening the session, reporting
+  // success, but never flipping the UI to "open" or holding the keep-alive.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      genRef.current += 1;
+      handleRef.current?.close();
+      handleRef.current = null;
+    };
   }, []);
 
   return { session, ensureSession, closeSession, hasSessionFor };

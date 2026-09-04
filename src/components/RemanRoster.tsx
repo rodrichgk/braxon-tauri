@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { useSession } from '@/contexts/SessionContext';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { LoadingRow } from './Spinner';
 
 // Admin-only roster page — requested directly: assign roles (technicien,
 // commercial, responsable technique, responsable de site — someone can
@@ -93,7 +94,7 @@ export default function RemanRoster() {
         </div>
       )}
       {loading && entries.length === 0 && (
-        <div className="text-center py-16 text-text-tertiary text-sm">{t('common.loading')}</div>
+        <LoadingRow label={t('common.loading')} className="flex items-center justify-center gap-2 py-16 text-text-tertiary text-sm" spinnerClassName="w-4 h-4" />
       )}
       {entries.length > 0 && (
         <div className="bg-card border border-border rounded-xl overflow-hidden">

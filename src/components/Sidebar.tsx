@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 import { motion } from 'framer-motion';
@@ -16,6 +16,7 @@ import {
   CogIcon,
   EyeIcon,
   SparklesIcon,
+  QrCodeIcon,
 } from '@heroicons/react/24/outline';
 import {
   HomeIcon as HomeSolid,
@@ -31,12 +32,23 @@ import {
   SparklesIcon as SparklesSolid,
 } from '@heroicons/react/24/solid';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
+import { useSignalBoard } from '@/hooks/useSignalBoard';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useSession } from '@/contexts/SessionContext';
+import { useScanRouter } from '@/hooks/useScanRouter';
 import NotificationBell from './NotificationBell';
-import type { Page } from './Navigation';
+import QrScannerPanel from './QrScannerPanel';
+import type { Page } from '@/lib/pages';
 
 const BAUD_RATES = ['9600', '19200', '38400', '57600', '115200', '230400', '460800', '500000', '921600'];
+
+// CAN bus bitrates the Kvaser interface supports here. 500 k is the ISO 15765-4
+// / OBD-II default; 250 k covers the odd Renault/Nissan diagnostic bus.
+const CAN_BITRATES = [
+  { value: '250000', label: '250 kbit/s' },
+  { value: '500000', label: '500 kbit/s' },
+  { value: '1000000', label: '1 Mbit/s' },
+];
 
 const TAB_DEFS: {
   id: Page;
@@ -70,6 +82,8 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
   const { legacyMode, setLegacyMode } = useAppSettings();
   const { currentUser, currentJob, isGuest, logout } = useSession();
+  const routeScan = useScanRouter();
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const {
     isConnected: serialConnected,
@@ -83,7 +97,20 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     baudRate,
     setBaudRate,
     picoDetected,
+    source,
+    setSource,
+    kvaserChannels,
+    refreshKvaserChannels,
+    selectedKvaserChannel,
+    setSelectedKvaserChannel,
+    canBitrate,
+    setCanBitrate,
   } = useClientSerialConnection();
+
+  const isKvaser = source === 'kvaser';
+
+  // Second transport: the WSS signal board (only relevant alongside the Kvaser).
+  const sb = useSignalBoard();
 
   // Refresh ports on mount
   useEffect(() => { refreshPorts(); }, []);
@@ -144,6 +171,13 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               </span>
             </div>
             <span className="flex-1 text-xs font-medium text-text-primary truncate">{currentUser.name}</span>
+            <button
+              onClick={() => setScannerOpen(true)}
+              title={t('scan.open_scanner', { defaultValue: 'Scan a QR code' })}
+              className="p-1 text-text-tertiary hover:text-accent transition-colors shrink-0"
+            >
+              <QrCodeIcon className="w-3.5 h-3.5" />
+            </button>
             <NotificationBell />
             <button
               onClick={logout}
@@ -185,7 +219,9 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               connected ? 'text-success' : 'text-text-tertiary',
             ].join(' ')}>
               {connected
-                ? `${selectedPort ?? 'Serial'} · ${baudRate}`
+                ? (isKvaser
+                    ? `${kvaserChannels[selectedKvaserChannel]?.name ?? `CAN ch ${selectedKvaserChannel}`} · ${Math.round((parseInt(canBitrate, 10) || 0) / 1000)}k`
+                    : `${selectedPort ?? 'Serial'} · ${baudRate}`)
                 : t('connection.no_connection')}
             </span>
           </div>
@@ -194,35 +230,79 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               NANO
             </span>
           )}
-          {!legacyMode && picoDetected && !serialConnected && (
+          {isKvaser && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-purple-400/15 text-purple-400 shrink-0">
+              KVASER
+            </span>
+          )}
+          {!legacyMode && !isKvaser && picoDetected && !serialConnected && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-accent/15 text-accent shrink-0">
               PICO
             </span>
           )}
         </div>
 
+        {/* Interface picker — board bridge vs a Kvaser CANlib device */}
+        {!serialConnected && (
+          <div className="flex gap-0.5 p-0.5 bg-app rounded-lg">
+            {(['board', 'kvaser'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setSource(s)}
+                className={[
+                  'flex-1 py-1 text-[10px] font-semibold rounded-md transition-colors',
+                  source === s
+                    ? 'bg-elevated text-text-primary shadow-sm'
+                    : 'text-text-tertiary hover:text-text-secondary',
+                ].join(' ')}
+              >
+                {s === 'board' ? 'Board' : 'Kvaser'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Serial controls */}
         {!serialConnected ? (
           <>
-            {/* Port + refresh */}
+            {/* Port / channel + refresh */}
             <div className="flex items-center gap-1.5">
-              <select
-                value={selectedPort ?? ''}
-                onChange={e => setSelectedPort(e.target.value || null)}
-                className="flex-1 min-w-0 bg-elevated border border-border rounded-lg px-2 py-1.5
-                  text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
-                  focus:border-accent/50 transition-all"
-              >
-                <option value="">
-                  {ports.length === 0 ? t('connection.no_ports') : t('connection.select_port')}
-                </option>
-                {ports.map(p => (
-                  <option key={p.port_name} value={p.port_name}>{p.port_name}</option>
-                ))}
-              </select>
+              {isKvaser ? (
+                <select
+                  value={selectedKvaserChannel}
+                  onChange={e => setSelectedKvaserChannel(parseInt(e.target.value, 10))}
+                  className="flex-1 min-w-0 bg-elevated border border-border rounded-lg px-2 py-1.5
+                    text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
+                    focus:border-accent/50 transition-all"
+                >
+                  {kvaserChannels.length === 0 && (
+                    <option value={0}>No Kvaser device</option>
+                  )}
+                  {kvaserChannels.map(ch => (
+                    <option key={ch.index} value={ch.index}>
+                      {ch.name}{ch.serial ? ` · #${ch.serial}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={selectedPort ?? ''}
+                  onChange={e => setSelectedPort(e.target.value || null)}
+                  className="flex-1 min-w-0 bg-elevated border border-border rounded-lg px-2 py-1.5
+                    text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
+                    focus:border-accent/50 transition-all"
+                >
+                  <option value="">
+                    {ports.length === 0 ? t('connection.no_ports') : t('connection.select_port')}
+                  </option>
+                  {ports.map(p => (
+                    <option key={p.port_name} value={p.port_name}>{p.port_name}</option>
+                  ))}
+                </select>
+              )}
               <button
-                onClick={refreshPorts}
-                title="Refresh ports"
+                onClick={isKvaser ? refreshKvaserChannels : refreshPorts}
+                title={isKvaser ? 'Refresh Kvaser channels' : 'Refresh ports'}
                 className="p-1.5 bg-elevated border border-border rounded-lg text-text-tertiary
                   hover:text-text-primary transition-all shrink-0"
               >
@@ -230,21 +310,43 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               </button>
             </div>
 
-            {/* Baud rate */}
-            <select
-              value={baudRate}
-              onChange={e => setBaudRate(e.target.value)}
-              className="w-full bg-elevated border border-border rounded-lg px-2 py-1.5
-                text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
-                focus:border-accent/50 transition-all"
-            >
-              {BAUD_RATES.map(r => (
-                <option key={r} value={r}>{r} baud</option>
-              ))}
-            </select>
+            {/* Baud rate / CAN bitrate */}
+            {isKvaser ? (
+              <select
+                value={canBitrate}
+                onChange={e => setCanBitrate(e.target.value)}
+                className="w-full bg-elevated border border-border rounded-lg px-2 py-1.5
+                  text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
+                  focus:border-accent/50 transition-all"
+              >
+                {CAN_BITRATES.map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={baudRate}
+                onChange={e => setBaudRate(e.target.value)}
+                className="w-full bg-elevated border border-border rounded-lg px-2 py-1.5
+                  text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40
+                  focus:border-accent/50 transition-all"
+              >
+                {BAUD_RATES.map(r => (
+                  <option key={r} value={r}>{r} baud</option>
+                ))}
+              </select>
+            )}
 
-            {ports.length === 0 && (
-              <p className="text-[10px] text-warning px-1">Connect Pico via USB then refresh ↻</p>
+            {isKvaser ? (
+              kvaserChannels.length === 0 && (
+                <p className="text-[10px] text-warning px-1">
+                  Plug in the Kvaser (install “Kvaser Drivers for Windows”) then refresh ↻
+                </p>
+              )
+            ) : (
+              ports.length === 0 && (
+                <p className="text-[10px] text-warning px-1">Connect Pico via USB then refresh ↻</p>
+              )
             )}
             {serialError && (
               <p className="text-[10px] text-danger px-1 break-words">{serialError}</p>
@@ -252,14 +354,16 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           </>
         ) : (
           <div className="px-1 text-[11px] text-text-secondary">
-            {selectedPort} @ {baudRate} baud
+            {isKvaser
+              ? `${kvaserChannels[selectedKvaserChannel]?.name ?? `CAN ch ${selectedKvaserChannel}`} @ ${Math.round((parseInt(canBitrate, 10) || 0) / 1000)} kbit/s`
+              : `${selectedPort} @ ${baudRate} baud`}
           </div>
         )}
 
         {/* Connect / Disconnect button */}
         <button
           onClick={() => serialConnected ? serialDisconnect() : serialConnect()}
-          disabled={!serialConnected && !selectedPort}
+          disabled={!serialConnected && (isKvaser ? kvaserChannels.length === 0 : !selectedPort)}
           className={[
             'w-full py-2 text-xs font-semibold rounded-lg transition-all duration-150',
             'disabled:opacity-40 disabled:cursor-not-allowed',
@@ -270,6 +374,62 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         >
           {serialConnected ? t('connection.disconnect') : t('connection.connect')}
         </button>
+
+        {/* ── Signal board (WSS) — second transport, Kvaser mode only ── */}
+        {isKvaser && (
+          <div className="pt-1.5 border-t border-sidebar-border space-y-1.5">
+            <div className="flex items-center gap-2 px-1">
+              <span className={[
+                'w-1.5 h-1.5 rounded-full shrink-0',
+                sb.isConnected ? 'bg-success animate-pulse-slow' : 'bg-text-tertiary',
+              ].join(' ')} />
+              <span className="text-[10px] font-medium text-text-secondary flex-1">
+                Signal board (WSS)
+              </span>
+              {sb.isConnected && (
+                <span className="text-[9px] text-success">{sb.selectedPort}</span>
+              )}
+            </div>
+
+            {!sb.isConnected && (
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={sb.selectedPort ?? ''}
+                  onChange={e => sb.setSelectedPort(e.target.value || null)}
+                  className="flex-1 min-w-0 bg-elevated border border-border rounded-lg px-2 py-1
+                    text-[11px] text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40"
+                >
+                  <option value="">{sb.ports.length === 0 ? 'no ports' : 'select port'}</option>
+                  {sb.ports.map(p => (
+                    <option key={p.port_name} value={p.port_name}>{p.port_name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={sb.refreshPorts}
+                  title="Refresh ports"
+                  className="p-1 bg-elevated border border-border rounded-lg text-text-tertiary hover:text-text-primary shrink-0"
+                >
+                  <ArrowPathIcon className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            <button
+              onClick={() => sb.isConnected ? sb.disconnect() : sb.connect()}
+              disabled={!sb.isConnected && !sb.selectedPort}
+              className={[
+                'w-full py-1.5 text-[11px] font-semibold rounded-lg transition-all',
+                'disabled:opacity-40 disabled:cursor-not-allowed',
+                sb.isConnected
+                  ? 'bg-danger/10 text-danger hover:bg-danger/20 border border-danger/20'
+                  : 'bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20',
+              ].join(' ')}
+            >
+              {sb.isConnected ? 'Disconnect board' : 'Connect board'}
+            </button>
+            {sb.error && <p className="text-[10px] text-danger px-1 break-words">{sb.error}</p>}
+          </div>
+        )}
 
         {/* Legacy mode toggle */}
         <div className="flex items-center justify-between px-1 pt-1 border-t border-sidebar-border">
@@ -299,6 +459,12 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
         </div>
 
       </div>
+
+      <QrScannerPanel
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onResult={routeScan}
+      />
 
       {/* ── Language switcher ── */}
       <div className="border-t border-sidebar-border shrink-0 px-3 py-2 flex items-center justify-between">

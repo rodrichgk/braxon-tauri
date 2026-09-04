@@ -1,5 +1,5 @@
 ﻿
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
 import { SignalIcon, ArrowDownTrayIcon, XCircleIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
@@ -10,11 +10,13 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 interface RawField { label: string; name: string; value: string; ph: string; }
 
 interface CanFrame {
+  /** monotonically increasing — a stable React key for the sliding window */
+  seq: number;
   timestamp: string;
   direction: 'TX' | 'RX';
   /** formatted display string for TX or unparsed lines */
   message?: string;
-  /** present for parsed RX frames */
+  /** CAN arbitration ID (present for parsed RX frames) */
   id?: number;
   dlc?: number;
   data?: number[];
@@ -30,6 +32,13 @@ interface CANSettingsProps {
   sendMessage?: (message: string) => Promise<boolean | void>;
   canReceivedData?: { idLine?: string; byte?: string; value?: string };
   legacyMode?: boolean;
+  /** Passive bus monitor only: the legacy-style frame log + activity light,
+   *  no CAN-speed selector, no raw-send fields, no NANO badge. Works on both
+   *  transports (listens serial-data + kvaser-data). The card also becomes a
+   *  flex column so the frame log fills whatever height it's given. */
+  monitorOnly?: boolean;
+  /** Extra classes on the root card (e.g. `h-full` to fill a grid column). */
+  className?: string;
 }
 
 // The Nano firmware receives the literal kbps value: 250, 500, or 1000.
@@ -88,9 +97,15 @@ export default function CANSettings({
   isConnected,
   sendMessage,
   legacyMode = false,
+  monitorOnly = false,
+  className = '',
 }: CANSettingsProps) {
   const { legacyCanSpeed, setLegacyCanSpeed, legacySensorType, legacyFreq } = useAppSettings();
   const { t } = useTranslation();
+
+  // Whether to render the frame-log monitor (legacy mode, or an explicit
+  // monitor-only panel on the Pico/Kvaser path).
+  const monitor = legacyMode || monitorOnly;
 
   const [canData, setCanData] = useState({
     speed: result.canSpeed,
@@ -104,8 +119,15 @@ export default function CANSettings({
   const [hasCan, setHasCan] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
+  const MAX_FRAMES = 200;
+  // A busy CAN bus is hundreds of frames/sec — buffer them and flush to state a
+  // few times a second so the list isn't re-rendered on every single frame.
+  const pendingRef     = useRef<CanFrame[]>([]);
+  const matchTotalRef  = useRef(0);
+  const lastFrameAtRef = useRef(0);
+  const frameSeqRef    = useRef(0);
+
   // Stable refs so interval/timeout callbacks never see stale values
-  const canTimeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasCanRef      = useRef(false);
   const prevHasCanRef  = useRef(false);
   const sendMsgRef     = useRef(sendMessage);
@@ -129,23 +151,23 @@ export default function CANSettings({
     });
   }, [result.canSpeed, result.canByte, result.canIdLine, result.canValue]);
 
-  // Auto-scroll
+  // Auto-scroll — but leave the user alone if they've scrolled up to inspect.
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+    const el = logRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [frames]);
 
-  // Legacy mode: listen to serial-data and parse Nano CAN frames
+  // Monitor: listen to bus frames, buffer them (no render per frame).
   useEffect(() => {
-    if (!legacyMode) return;
-    const unsub = listen<string>('serial-data', e => {
-      const line = e.payload;
+    if (!monitor) return;
+    const onLine = (line: string) => {
       const parsed = parseNanoFrame(line);
       if (!parsed) return; // not a CAN frame (e.g. "Freq : 12.3" or "init")
 
-      // CAN activity tracking â€” green for 2 s after last frame
-      setHasCan(true);
-      if (canTimeoutRef.current) clearTimeout(canTimeoutRef.current);
-      canTimeoutRef.current = setTimeout(() => setHasCan(false), 2000);
+      lastFrameAtRef.current = Date.now();
 
       const isMatch = matchId !== null && parsed.id === matchId;
       const matchByteValue =
@@ -153,7 +175,10 @@ export default function CANSettings({
           ? parsed.data[matchByte]
           : undefined;
 
-      const frame: CanFrame = {
+      if (isMatch) matchTotalRef.current += 1;
+
+      pendingRef.current.push({
+        seq: frameSeqRef.current++,
         timestamp: ts(),
         direction: 'RX',
         id: parsed.id,
@@ -161,19 +186,35 @@ export default function CANSettings({
         data: parsed.data,
         isMatch,
         matchByteValue,
-      };
-
-      setFrames(prev => {
-        const next = prev.length >= 200 ? [...prev.slice(1), frame] : [...prev, frame];
-        return next;
       });
-      if (isMatch) setMatchCount(c => c + 1);
-    });
-    return () => {
-      unsub.then(u => u());
-      if (canTimeoutRef.current) clearTimeout(canTimeoutRef.current);
+      // Don't let the buffer grow without bound if a flush is ever missed.
+      if (pendingRef.current.length > MAX_FRAMES * 3) {
+        pendingRef.current.splice(0, pendingRef.current.length - MAX_FRAMES);
+      }
     };
-  }, [legacyMode, matchId, matchByte]);
+    // Board bridge and Kvaser interface print frames identically.
+    const subs = (['serial-data', 'kvaser-data'] as const).map(evt =>
+      listen<string>(evt, e => onLine(e.payload))
+    );
+    return () => { subs.forEach(s => s.then(u => u())); };
+  }, [monitor, matchId, matchByte]);
+
+  // Flush the buffer to state ~7×/sec.
+  useEffect(() => {
+    if (!monitor) return;
+    const iv = setInterval(() => {
+      if (pendingRef.current.length) {
+        const batch = pendingRef.current;
+        pendingRef.current = [];
+        setFrames(prev => (prev.length + batch.length > MAX_FRAMES
+          ? [...prev, ...batch].slice(-MAX_FRAMES)
+          : [...prev, ...batch]));
+      }
+      setMatchCount(matchTotalRef.current);
+      setHasCan(Date.now() - lastFrameAtRef.current < 2000);
+    }, 150);
+    return () => clearInterval(iv);
+  }, [monitor]);
 
   // Retry CAN speed every second while no CAN frames are arriving
   useEffect(() => {
@@ -202,17 +243,17 @@ export default function CANSettings({
     if (!hasCan) prevHasCanRef.current = false;
   }, [hasCan, legacyMode]);
 
-  // Pico mode: send handshake ping
+  // Pico settings mode: send handshake ping (not in the passive monitor)
   useEffect(() => {
-    if (legacyMode || !isConnected || !sendMessage) return;
+    if (legacyMode || monitorOnly || !isConnected || !sendMessage) return;
     const t = setTimeout(() => sendMessage('t\n'), 1000);
     return () => clearTimeout(t);
-  }, [legacyMode, isConnected, sendMessage]);
+  }, [legacyMode, monitorOnly, isConnected, sendMessage]);
 
   const addTx = (msg: string) => {
     setFrames(prev => {
-      const frame: CanFrame = { timestamp: ts(), direction: 'TX', message: msg };
-      return prev.length >= 200 ? [...prev.slice(1), frame] : [...prev, frame];
+      const frame: CanFrame = { seq: frameSeqRef.current++, timestamp: ts(), direction: 'TX', message: msg };
+      return prev.length >= MAX_FRAMES ? [...prev.slice(1), frame] : [...prev, frame];
     });
   };
 
@@ -233,7 +274,12 @@ export default function CANSettings({
     await sendMessage(`SEND:${canData.idLine}:${canData.value}:${canData.byte}`);
   };
 
-  const clearLog = () => { setFrames([]); setMatchCount(0); };
+  const clearLog = () => {
+    pendingRef.current = [];
+    matchTotalRef.current = 0;
+    setFrames([]);
+    setMatchCount(0);
+  };
 
   const picoFields: RawField[] = [
     { label: 'CAN Speed', name: 'speed',  value: canData.speed,  ph: '500kbps' },
@@ -245,11 +291,11 @@ export default function CANSettings({
   // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
-    <div className="card">
+    <div className={['card', className].filter(Boolean).join(' ')}>
       {/* Header */}
-      <h2 className="card-header flex items-center gap-2">
+      <h2 className="card-header flex items-center gap-2 shrink-0">
         <SignalIcon className="h-4 w-4 text-text-tertiary" />
-        {legacyMode ? t('can.monitor') : t('can.settings')}
+        {monitor ? t('can.monitor') : t('can.settings')}
 
         {/* CAN activity indicator */}
         <span
@@ -277,8 +323,8 @@ export default function CANSettings({
         )}
       </h2>
 
-      {/* â”€â”€ Legacy mode: CAN speed selector â”€â”€ */}
-      {legacyMode ? (
+      {/* â”€â”€ Legacy mode: CAN speed selector (Nano only) â”€â”€ */}
+      {legacyMode && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-medium text-text-secondary">{t('can.bus_speed')}</span>
@@ -310,8 +356,10 @@ export default function CANSettings({
             ))}
           </div>
         </div>
-      ) : (
-        /* â”€â”€ Pico mode: 4 text fields â”€â”€ */
+      )}
+
+      {/* â”€â”€ Pico settings mode: 4 text fields (not in the passive monitor) â”€â”€ */}
+      {!legacyMode && !monitorOnly && (
         <div className="grid grid-cols-2 gap-3 mb-4">
           {picoFields.map(f => (
             <div key={f.name}>
@@ -327,19 +375,19 @@ export default function CANSettings({
       )}
 
       {/* â”€â”€ Toolbar row â”€â”€ */}
-      <div className="flex items-center justify-between mb-3 gap-2">
+      <div className="flex items-center justify-between mb-3 gap-2 shrink-0">
         {/* Status */}
         <div className="flex items-center gap-2 text-xs">
           <span className={['w-2 h-2 rounded-full shrink-0', isConnected ? 'bg-success' : 'bg-text-tertiary'].join(' ')} />
           <span className={isConnected ? 'text-success' : 'text-text-tertiary'}>
             {isConnected ? t('common.connected') : t('common.not_connected')}
           </span>
-          {legacyMode && matchCount > 0 && (
+          {monitor && matchCount > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-success/15 text-success border border-success/20 font-semibold">
               {matchCount} {matchCount !== 1 ? t('can.matches') : t('can.match')}
             </span>
           )}
-          {legacyMode && frames.filter(f => f.direction === 'RX').length > 0 && (
+          {monitor && frames.filter(f => f.direction === 'RX').length > 0 && (
             <span className="text-[10px] text-text-tertiary">
               {frames.filter(f => f.direction === 'RX').length} {t('can.frames')}
             </span>
@@ -348,11 +396,13 @@ export default function CANSettings({
 
         {/* Actions */}
         <div className="flex items-center gap-1.5">
-          <button onClick={() => setShowLog(v => !v)}
-            className="p-1 rounded-lg hover:bg-elevated transition-colors text-text-tertiary">
-            {showLog ? <ChevronUpIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
-          </button>
-          {!legacyMode && (
+          {!monitorOnly && (
+            <button onClick={() => setShowLog(v => !v)}
+              className="p-1 rounded-lg hover:bg-elevated transition-colors text-text-tertiary">
+              {showLog ? <ChevronUpIcon className="h-4 w-4" /> : <ChevronDownIcon className="h-4 w-4" />}
+            </button>
+          )}
+          {!legacyMode && !monitorOnly && (
             <button onClick={sendCanMessage} disabled={!isConnected} className="btn-primary text-xs px-2.5 py-1 flex items-center gap-1">
               <ArrowDownTrayIcon className="h-3 w-3" /> Send
             </button>
@@ -364,28 +414,37 @@ export default function CANSettings({
       </div>
 
       {/* â”€â”€ Frame log â”€â”€ */}
-      {showLog && (
+      {(showLog || monitorOnly) && (
         <div
           ref={logRef}
-          className="bg-elevated border border-border rounded-xl p-3 overflow-y-auto overscroll-y-contain font-mono text-xs space-y-1"
-          style={{ height: legacyMode ? '11rem' : '8rem' }}
+          className={[
+            'bg-elevated border border-border rounded-xl p-3 overflow-y-auto overscroll-y-contain font-mono text-xs space-y-1',
+            monitorOnly ? 'h-[calc(100vh-24rem)] min-h-[16rem] max-h-[42rem]' : '',
+          ].join(' ')}
+          style={monitorOnly ? undefined : { height: monitor ? '11rem' : '8rem' }}
         >
           {!isConnected ? (
             <span className="text-text-tertiary italic">{t('common.not_connected')}…</span>
           ) : frames.length === 0 ? (
             <span className="text-text-tertiary italic">
-              {legacyMode ? t('can.waiting') : t('can.no_messages')}
+              {monitor ? t('can.waiting') : t('can.no_messages')}
             </span>
-          ) : frames.map((f, i) => (
-            <FrameRow key={i} frame={f} matchByte={matchByte} result={result} />
+          ) : frames.map(f => (
+            <FrameRow
+              key={f.seq}
+              frame={f}
+              matchByte={matchByte}
+              matchValue={result.canValue}
+              matchByteLabel={result.canByte}
+            />
           ))}
         </div>
       )}
 
-      {/* Match legend (legacy only) */}
-      {legacyMode && result.canIdLine && (
-        <p className="text-[10px] text-text-tertiary mt-2 px-0.5">
-          <span className="text-success font-semibold">â˜…</span> = frame ID matches selected entry
+      {/* Match legend (monitor only) */}
+      {monitor && result.canIdLine && (
+        <p className="text-[10px] text-text-tertiary mt-2 px-0.5 shrink-0">
+          <span className="text-success font-semibold">Highlighted</span> = frame ID matches selected entry
           {result.canIdLine && ` (0x${hex(parseCanIdStr(result.canIdLine) ?? 0, 3)})`}
           {result.canByte && `, byte [${result.canByte}]`}
         </p>
@@ -396,14 +455,18 @@ export default function CANSettings({
 
 // â”€â”€ FrameRow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function FrameRow({
+// memo + primitive props so a re-render of the parent doesn't re-render every
+// row — only genuinely new/changed rows repaint.
+const FrameRow = memo(function FrameRow({
   frame,
   matchByte,
-  result,
+  matchValue,
+  matchByteLabel,
 }: {
   frame: CanFrame;
   matchByte: number | null;
-  result: { canValue: string; canIdLine: string; canByte: string };
+  matchValue: string;
+  matchByteLabel: string;
 }) {
   if (frame.direction === 'TX') {
     return (
@@ -433,7 +496,7 @@ function FrameRow({
   let dataDisplay: React.ReactNode = <span className="text-text-primary">{dataHex}</span>;
   if (frame.isMatch && matchByte !== null && matchByte < frame.data.length) {
     const bytes = frame.data.map(hex);
-    const expected = parseCanIdStr(result.canValue);
+    const expected = parseCanIdStr(matchValue);
     const actual = frame.data[matchByte];
     const ok = expected !== null && actual === expected;
     dataDisplay = (
@@ -457,8 +520,8 @@ function FrameRow({
     ].join(' ')}>
       <span className="text-text-tertiary shrink-0">[{frame.timestamp}]</span>
       {frame.isMatch
-        ? <span className="text-success shrink-0 font-bold">â˜… RX</span>
-        : <span className="text-text-tertiary shrink-0">   RX</span>
+        ? <span className="text-success shrink-0 font-bold">&#9656; RX</span>
+        : <span className="text-text-tertiary shrink-0 pl-2.5">RX</span>
       }
       <span className={['shrink-0 font-semibold w-14', frame.isMatch ? 'text-success' : 'text-text-secondary'].join(' ')}>
         {idHex}
@@ -467,12 +530,12 @@ function FrameRow({
       <span className="font-mono">{dataDisplay}</span>
       {frame.isMatch && frame.matchByteValue !== undefined && (
         <span className="ml-auto text-[10px] text-success shrink-0">
-          [{result.canByte}]={hex(frame.matchByteValue)}
-          {parseCanIdStr(result.canValue) !== null
-            && frame.matchByteValue === parseCanIdStr(result.canValue)
+          [{matchByteLabel}]={hex(frame.matchByteValue)}
+          {parseCanIdStr(matchValue) !== null
+            && frame.matchByteValue === parseCanIdStr(matchValue)
             ? ' âœ“' : ' ?'}
         </span>
       )}
     </div>
   );
-}
+});

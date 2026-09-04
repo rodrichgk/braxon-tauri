@@ -1,19 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MagnifyingGlassIcon, BriefcaseIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, BriefcaseIcon, QrCodeIcon } from '@heroicons/react/24/outline';
 import SignalTester from '@/components/SignalTester/SignalTesterMain';
+import ScanModal from '@/components/ScanModal';
 import LegacySignalPanel from '@/components/LegacySignalPanel';
 import CANSettings from '@/components/CANSettings';
 import CANAnalyzer from '@/components/CANAnalyzer';
-import DTCScanner from '@/components/DTCScanner';
+import Diagnostics from '@/components/Diagnostics';
+import TestReportCard from '@/components/TestReportCard';
+import { useReports } from '@/contexts/ReportsContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import type { WSSChannels } from '@/contexts/AppSettingsContext';
 import { WHEEL_LABELS } from '@/contexts/AppSettingsContext';
-import BenchPower from '@/components/BenchPower';
 import PowerIndicators from '@/components/PowerIndicators';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
+import { useSignalBoard } from '@/hooks/useSignalBoard';
 import { useSession } from '@/contexts/SessionContext';
+import { useTestSession } from '@/contexts/TestSessionContext';
 import { useTranslation } from 'react-i18next';
 
 interface ABSDataRow {
@@ -37,6 +41,19 @@ interface ABSDataRow {
 
 type EditMode = 'view' | 'edit' | 'add';
 
+// Minimal subset of Reman.tsx's InterventionSummary — enough to show a
+// pick list and build a TestSessionContext LinkedJob. Mirrors the F2-EVO
+// hydraulic bench's own LinkCandidate (HydraulicBenchDashboard.tsx).
+interface LinkCandidate {
+  id: string;
+  reference?: string;
+  clientName?: string;
+  codeArt?: string;
+  libelleArt?: string;
+  vehiclePlate?: string;
+  vehicleModel?: string;
+}
+
 /* ── animation variants ── */
 const sectionVariants = {
   hidden:  { opacity: 0, y: 12 },
@@ -59,8 +76,16 @@ const resultItemVariants = {
 
 export default function SignalPage() {
   const { t } = useTranslation();
-  const { isConnected, sendCommand: serialSendCommand } = useClientSerialConnection();
+  const { isConnected, sendCommand: serialSendCommand, source: transportSource } = useClientSerialConnection();
+  // When the CAN side is on the Kvaser, WSS / power / waveform commands go to a
+  // second board on USB instead of the (Kvaser) main transport.
+  const signalBoard = useSignalBoard();
+  const dualTransport = transportSource === 'kvaser';
+  const signalConnected = dualTransport ? signalBoard.isConnected : isConnected;
+  const signalSend = dualTransport ? signalBoard.sendCommand : serialSendCommand;
   const { currentJob, linkJobToRef } = useSession();
+  const { pendingScan, setPendingScan, activeSignalJob, setActiveSignalJob } = useTestSession();
+  const { patchIdent: reportPatchIdent, setWssChannels: reportSetWssChannels, resetCanActivity: reportResetCan } = useReports();
   const {
     legacyMode,
     legacyFreq,
@@ -75,6 +100,23 @@ export default function SignalPage() {
   const [results, setResults] = useState<ABSDataRow[]>([]);
   const [selected, setSelected] = useState<ABSDataRow | null>(null);
   const [searching, setSearching] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  // Reference from a scanned ABS QR — remembered so the matching row can be
+  // auto-opened once the search it triggers returns.
+  const scannedRef = useRef<string | null>(null);
+  // Last REMAN job whose article was pushed into the search box — keyed by
+  // ligcdeId so a newly-linked job re-seeds, but typing over it (or
+  // re-renders) doesn't.
+  const seededJobRef = useRef<string | null>(null);
+
+  // Inline "link a REMAN job from here" search — mirrors the F2-EVO
+  // hydraulic bench's own. Scoped to the 'open' queue: a tech linking a
+  // job at the HIL rig is almost always on active work, not something
+  // already closed.
+  const [linkQuery, setLinkQuery] = useState('');
+  const [linkResults, setLinkResults] = useState<LinkCandidate[]>([]);
+  const [linkSearching, setLinkSearching] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const legacyFreqRef = useRef(legacyFreq);
   legacyFreqRef.current = legacyFreq;
@@ -118,6 +160,74 @@ export default function SignalPage() {
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
+
+  // A scanned ABS QR: run its reference through the search box, and open
+  // the exact-match row when the results come back.
+  useEffect(() => {
+    if (pendingScan?.entity !== 'abs') return;
+    scannedRef.current = pendingScan.key;
+    setQuery(pendingScan.key);
+    setPendingScan(null);
+  }, [pendingScan]);
+
+  // A linked REMAN job (from a job card's "Signal HIL" button, or the
+  // inline search below): seed the ABS reference search with the job's
+  // article so the tech doesn't retype it, and reuse the scanned-QR path
+  // to auto-open the exact matching row if there is one.
+  useEffect(() => {
+    if (!activeSignalJob) return;
+    if (seededJobRef.current === activeSignalJob.ligcdeId) return;
+    const seed = (activeSignalJob.codeArt || activeSignalJob.libelleArt || '').trim();
+    if (!seed) return;
+    seededJobRef.current = activeSignalJob.ligcdeId;
+    scannedRef.current = seed;
+    setSelected(null);
+    setEditMode('view');
+    setQuery(seed);
+  }, [activeSignalJob]);
+
+  useEffect(() => {
+    if (!scannedRef.current) return;
+    const want = scannedRef.current.toLowerCase();
+    const hit = results.find(r => r.reference.toLowerCase() === want);
+    if (hit) {
+      setSelected(hit);
+      setEditMode('view');
+      scannedRef.current = null;
+    }
+  }, [results]);
+
+  // Debounced job search for the inline "link a job" box.
+  useEffect(() => {
+    const trimmed = linkQuery.trim();
+    if (trimmed.length < 2) { setLinkResults([]); setLinkSearching(false); return; }
+    setLinkSearching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      invoke<LinkCandidate[]>('reman_search_interventions', {
+        query: trimmed, queue: 'open', techId: null, family: null, faultType: null, dateFrom: null, dateTo: null,
+      })
+        .then(r => { if (!cancelled) setLinkResults(r.slice(0, 8)); })
+        .catch(() => { if (!cancelled) setLinkResults([]); })
+        .finally(() => { if (!cancelled) setLinkSearching(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [linkQuery]);
+
+  const linkJob = (job: LinkCandidate) => {
+    setActiveSignalJob({
+      ligcdeId: job.id,
+      clientName: job.clientName ?? '',
+      reference: job.reference ?? '',
+      vehiclePlate: job.vehiclePlate ?? '',
+      vehicleModel: job.vehicleModel ?? '',
+      codeArt: job.codeArt ?? '',
+      libelleArt: job.libelleArt ?? '',
+    });
+    setLinkQuery('');
+    setLinkResults([]);
+    setLinkOpen(false);
+  };
 
   // Auto-configure everything when a reference is selected in legacy mode
   useEffect(() => {
@@ -171,6 +281,39 @@ export default function SignalPage() {
     return () => { if (waveformTimer !== null) clearTimeout(waveformTimer); };
   }, [selected?.id, legacyMode]);
 
+  // ── Feed the Test Report draft ─────────────────────────────
+  // The selected ABS reference is the report's identity; a new reference
+  // also resets the passive CAN-activity counter so "traffic seen" means
+  // "since this unit went on the bench", not the whole app session.
+  const lastReportedRefRef = useRef<string | null>(null);
+  useEffect(() => {
+    reportPatchIdent({
+      absRef: selected?.reference,
+      manufacturer: selected?.manufacturer,
+      wssType: selected?.wssType,
+    });
+    const ref = selected?.reference ?? null;
+    if (ref && ref !== lastReportedRefRef.current) {
+      lastReportedRefRef.current = ref;
+      reportResetCan();
+    }
+  }, [selected, reportPatchIdent, reportResetCan]);
+
+  useEffect(() => {
+    reportSetWssChannels(
+      (['FL', 'FR', 'RL', 'RR'] as const).map((wheel, i) => {
+        const ch = wssChannels[i];
+        return {
+          wheel,
+          canId: ch?.canId ?? null,
+          byteIdx: ch?.byteIdx ?? null,
+          kmhPerHz: ch?.kmhPerHz ?? null,
+          assigned: !!ch,
+        };
+      }),
+    );
+  }, [wssChannels, reportSetWssChannels]);
+
   const saveCalibration = async () => {
     if (!selected) return;
     setCalStatus('saving');
@@ -187,6 +330,8 @@ export default function SignalPage() {
   };
 
   const handleSendMessage = (message: string) => serialSendCommand(message);
+  // WSS / power / waveform — goes to the signal board in dual-transport mode.
+  const handleSignalMessage = (message: string) => signalSend(message);
 
   /* ── Edit / Add handlers ── */
 
@@ -276,7 +421,72 @@ export default function SignalPage() {
         </p>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Linked REMAN job — same handoff as the F2-EVO hydraulic bench.
+          When a job is attached its article seeds the ABS search above;
+          when none is, an inline search lets one be linked from here. */}
+      {activeSignalJob ? (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mb-6 bg-accent/10 border border-accent/20 rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <BriefcaseIcon className="w-4 h-4 shrink-0 text-accent" />
+            <span className="font-semibold text-accent shrink-0">{t('signal.linked_job')}</span>
+            <span className="text-text-primary truncate">
+              {[activeSignalJob.clientName, activeSignalJob.reference].filter(Boolean).join(' · ')}
+            </span>
+            {[activeSignalJob.codeArt, activeSignalJob.vehiclePlate, activeSignalJob.vehicleModel].filter(Boolean).length > 0 && (
+              <span className="text-text-tertiary text-xs truncate hidden sm:inline">
+                {[activeSignalJob.codeArt, activeSignalJob.vehiclePlate, activeSignalJob.vehicleModel].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setActiveSignalJob(null)}
+            className="text-xs font-medium text-text-tertiary hover:text-danger transition-colors px-3 py-1.5 rounded-lg border border-border bg-elevated shrink-0"
+          >
+            {t('signal.unlink_job')}
+          </button>
+        </motion.div>
+      ) : (
+        <div className="relative mb-6">
+          <input
+            type="text"
+            value={linkQuery}
+            onChange={e => { setLinkQuery(e.target.value); setLinkOpen(true); }}
+            onFocus={() => setLinkOpen(true)}
+            onBlur={() => setTimeout(() => setLinkOpen(false), 150)}
+            placeholder={t('signal.link_job_placeholder')}
+            className="w-full text-sm bg-card border border-border rounded-xl px-4 py-2.5 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/40"
+          />
+          {linkOpen && linkQuery.trim().length >= 2 && (
+            <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto bg-card border border-border rounded-xl shadow-lg">
+              {linkSearching && <p className="text-xs text-text-tertiary px-4 py-2">{t('common.loading')}</p>}
+              {!linkSearching && linkResults.length === 0 && (
+                <p className="text-xs text-text-tertiary px-4 py-2">{t('signal.link_no_matches')}</p>
+              )}
+              {!linkSearching && linkResults.map(job => (
+                <button
+                  key={job.id}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => linkJob(job)}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-elevated transition-colors border-b border-border last:border-0"
+                >
+                  <span className="text-text-primary font-medium">{job.clientName || `#${job.id}`}</span>
+                  <span className="text-text-tertiary ml-2 text-xs">
+                    {[job.reference, job.codeArt, job.vehiclePlate, job.vehicleModel].filter(Boolean).join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
         {/* ── Left column ── */}
         <div className="space-y-6">
@@ -400,6 +610,13 @@ export default function SignalPage() {
                             {selected!.testValidated.toLowerCase() === 'yes' ? t('signal.validated_yes') : t('signal.validated_no')}
                           </span>
                         )}
+                        <button
+                          onClick={() => setQrOpen(true)}
+                          title={t('scan.qr_label')}
+                          className="text-[10px] btn-secondary px-1.5 py-0.5 flex items-center"
+                        >
+                          <QrCodeIcon className="w-3.5 h-3.5" />
+                        </button>
                         <button onClick={startEdit} className="text-[10px] btn-secondary px-2 py-0.5">
                           {t('common.edit')}
                         </button>
@@ -545,21 +762,24 @@ export default function SignalPage() {
             </AnimatePresence>
           </motion.div>
 
-          {/* CAN Settings */}
-          <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
-            <CANSettings
-              result={canData}
-              isConnected={isConnected}
-              sendMessage={handleSendMessage}
-              canReceivedData={canReceivedData}
-              legacyMode={legacyMode}
-            />
-          </motion.div>
-
-          {/* DTC Scanner */}
-          <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
-            <DTCScanner sendMessage={handleSendMessage} isConnected={isConnected} absReference={selected?.reference} />
-          </motion.div>
+          {/* Legacy mode keeps the full CAN Settings (speed selector + monitor)
+              here; non-legacy gets a compact Power Control, and the passive
+              CAN Bus Monitor moves to the right column. */}
+          {legacyMode ? (
+            <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
+              <CANSettings
+                result={canData}
+                isConnected={isConnected}
+                sendMessage={handleSendMessage}
+                canReceivedData={canReceivedData}
+                legacyMode
+              />
+            </motion.div>
+          ) : (
+            <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
+              <PowerIndicators sendMessage={handleSignalMessage} isConnected={signalConnected} />
+            </motion.div>
+          )}
         </div>
 
         {/* ── Right column ── */}
@@ -567,30 +787,57 @@ export default function SignalPage() {
           {legacyMode ? (
             <>
               <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
-                <LegacySignalPanel sendMessage={handleSendMessage} isConnected={isConnected} />
+                <LegacySignalPanel sendMessage={handleSignalMessage} isConnected={signalConnected} />
               </motion.div>
               <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
                 <CANAnalyzer result={canData} />
               </motion.div>
             </>
           ) : (
-            <>
-              <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
-                <PowerIndicators sendMessage={handleSendMessage} />
-              </motion.div>
-              <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
-                <BenchPower sendMessage={handleSendMessage} />
-              </motion.div>
-            </>
+            <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
+              <CANSettings
+                result={canData}
+                isConnected={isConnected}
+                sendMessage={handleSendMessage}
+                canReceivedData={canReceivedData}
+                monitorOnly
+              />
+            </motion.div>
           )}
         </div>
       </div>
 
+      {/* Diagnostics — full width: DTC read/clear, ECU ident, active tests, bus recorder */}
+      <motion.div custom={3} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
+        <Diagnostics sendMessage={handleSendMessage} isConnected={isConnected} absReference={selected?.reference} />
+      </motion.div>
+
       {/* Signal Tester — full width, normal mode only */}
       {!legacyMode && (
         <motion.div custom={4} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
-          <SignalTester sendMessage={handleSendMessage} isConnected={isConnected} />
+          <SignalTester sendMessage={handleSignalMessage} isConnected={signalConnected} />
         </motion.div>
+      )}
+
+      {/* Test Report — ECU / Hydraulic / Full, generated from here */}
+      <motion.div custom={5} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
+        <TestReportCard
+          jobLabel={activeSignalJob ? `${activeSignalJob.clientName} (${activeSignalJob.reference})` : undefined}
+          jobNumber={activeSignalJob?.reference || undefined}
+          ligcdeId={activeSignalJob?.ligcdeId}
+          canBitrate={selected?.canSpeed || undefined}
+        />
+      </motion.div>
+
+      {selected && (
+        <ScanModal
+          open={qrOpen}
+          onClose={() => setQrOpen(false)}
+          entity="abs"
+          entityKey={selected.reference}
+          title={selected.reference}
+          subtitleLines={[selected.manufacturer, selected.wssType || ''].filter(Boolean)}
+        />
       )}
     </div>
   );

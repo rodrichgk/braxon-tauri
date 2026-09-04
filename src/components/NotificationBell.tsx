@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/api/notification';
 import { useSession } from '@/contexts/SessionContext';
-import { BellIcon } from '@heroicons/react/24/outline';
+import { BellIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { BellIcon as BellSolid } from '@heroicons/react/24/solid';
 
 // Requested directly: "if I mark a job attente de nettoyage, I want to
@@ -33,7 +33,12 @@ interface NotificationRecord {
 // and it's a small, per-recipient table). Reported directly as feeling
 // slow for something "supposed to be on my postgres database" — lowered
 // to make the badge itself feel snappy, decoupled from the 4D-driven
-// views' cadence.
+// views' cadence. Also (2026-09-01) reman_search_interventions and
+// reman_get_intervention now trigger the backend's cross-client
+// notification scan directly whenever *they* refresh from 4D, instead of
+// only that scan's own independent 30s timer — so a notification for
+// something that just showed up in a list refresh is usually already
+// sitting in Postgres well before this poll would have caught it anyway.
 const NOTIFICATIONS_POLL_MS = 5 * 1000;
 
 export default function NotificationBell() {
@@ -111,6 +116,32 @@ export default function NotificationBell() {
     }
   };
 
+  // Requested directly: "give me the option to clear them" — "mark read"
+  // only ever dimmed a notification, there was no way to actually remove
+  // one. dismissOne removes a single row without waiting on the next
+  // poll; clearAll wipes the whole list (read and unread both — this is
+  // a fresh start, not a bulk "mark read").
+  const dismissOne = async (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    if (!techId) return;
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    try {
+      await invoke('reman_delete_notification', { id, techId });
+    } catch {
+      fetchNotifications();
+    }
+  };
+
+  const clearAll = async () => {
+    if (!techId || notifications.length === 0) return;
+    setNotifications([]);
+    try {
+      await invoke('reman_clear_all_notifications', { techId });
+    } catch {
+      fetchNotifications();
+    }
+  };
+
   if (!techId) return null;
 
   return (
@@ -132,29 +163,39 @@ export default function NotificationBell() {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute left-full bottom-0 ml-2 z-50 w-72 max-h-96 overflow-y-auto bg-card border border-border rounded-xl shadow-2xl">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-card">
-              <span className="text-xs font-semibold text-text-primary">{t('reman.notifications.title')}</span>
-              {unreadCount > 0 && (
-                <button
-                  type="button"
-                  onClick={markAllRead}
-                  className="text-[10px] font-medium text-accent hover:opacity-70 transition-opacity"
-                >
-                  {t('reman.notifications.mark_all_read')}
-                </button>
-              )}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-card gap-2">
+              <span className="text-xs font-semibold text-text-primary shrink-0">{t('reman.notifications.title')}</span>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={markAllRead}
+                    className="text-[10px] font-medium text-accent hover:opacity-70 transition-opacity"
+                  >
+                    {t('reman.notifications.mark_all_read')}
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    className="text-[10px] font-medium text-text-tertiary hover:text-danger transition-colors"
+                  >
+                    {t('reman.notifications.clear_all')}
+                  </button>
+                )}
+              </div>
             </div>
             {notifications.length === 0 ? (
               <p className="text-[11px] text-text-tertiary text-center py-6">{t('reman.notifications.empty')}</p>
             ) : (
               <div className="divide-y divide-border">
                 {notifications.map(n => (
-                  <button
+                  <div
                     key={n.id}
-                    type="button"
                     onClick={() => !n.read && markRead(n.id)}
                     className={[
-                      'w-full text-left px-3 py-2 transition-colors',
+                      'group relative w-full text-left pl-3 pr-7 py-2 transition-colors cursor-pointer',
                       n.read ? 'opacity-60' : 'bg-accent/5 hover:bg-accent/10',
                     ].join(' ')}
                   >
@@ -165,7 +206,15 @@ export default function NotificationBell() {
                         <p className="text-[9px] text-text-tertiary mt-0.5">{new Date(n.createdAt).toLocaleString()}</p>
                       </div>
                     </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={e => dismissOne(e, n.id)}
+                      title={t('reman.notifications.dismiss')}
+                      className="absolute right-1.5 top-1.5 p-0.5 rounded text-text-tertiary hover:text-danger hover:bg-danger/10 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <XMarkIcon className="w-3 h-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

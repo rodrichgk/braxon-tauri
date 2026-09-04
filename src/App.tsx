@@ -9,9 +9,11 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppSettingsProvider } from "./contexts/AppSettingsContext";
 import { SessionProvider } from "./contexts/SessionContext";
 import { TestSessionProvider } from "./contexts/TestSessionContext";
+import { ReportsProvider } from "./contexts/ReportsContext";
 import LoginModal from "./components/LoginModal";
 import UpdateChecker from "./components/UpdateChecker";
-import type { Page } from "./components/Navigation";
+import ScanListener from "./components/ScanListener";
+import type { Page } from "./lib/pages";
 
 import HomePage from "./pages/Home";
 import ValvesPage from "./pages/Valves";
@@ -95,6 +97,7 @@ function App() {
     <SessionProvider>
     <AppSettingsProvider>
     <TestSessionProvider navigateTo={setCurrentPage}>
+    <ReportsProvider>
         <div className={[
           "h-screen flex bg-app overflow-hidden",
           windowed ? "rounded-xl ring-1 ring-white/[0.06]" : "",
@@ -119,6 +122,7 @@ function App() {
           >
             <TitleBar />
             <UpdateChecker />
+            <ScanListener />
 
             <div className="flex flex-1 min-h-0">
               <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
@@ -170,6 +174,7 @@ function App() {
             error:   { iconTheme: { primary: '#ff453a', secondary: '#1c1c1e' } },
           }}
         />
+    </ReportsProvider>
     </TestSessionProvider>
     </AppSettingsProvider>
     </SessionProvider>

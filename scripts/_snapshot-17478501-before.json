@@ -1,0 +1,29 @@
+{
+  "ligcdeId": 39559,
+  "isSoldee": false,
+  "ligcde": {
+    "NOINT_LIGCDE": 39559,
+    "NOINTERVENTION": "17478501",
+    "NOINT_CDE": 39052,
+    "CODEART": "10091501093",
+    "LIBELLEART": "Calculateur ABS ATE MK100",
+    "DERNIÈREINTERV": "",
+    "DATEDERNINTERV": null,
+    "TECHDERNINTERV": 0,
+    "NOMDERNIERTECH": "",
+    "NETTOYAGE": "fals",
+    "CAUSEPANNE": 0,
+    "SEMAINEGARANTIE": 0,
+    "HEURELIGSOLDÉE": "00:00:00",
+    "DERINTERV_TECHNIQUE": "",
+    "DATEDERINTERV_TECHNIQUE": null,
+    "HEUREDERINTERV_TECHNIQUE": "00:00:00",
+    "SERVICETECHNIQUE": "",
+    "TYPE_SERVICE": "101",
+    "HEUREMODIF": "15:46:11",
+    "DATEMODIF": "03/08/2026 00:00",
+    "DATELIMITELIVRAISON": "06/08/2026 00:00"
+  },
+  "steps": [],
+  "capturedAt": "2026-08-04T11:42:59.049Z"
+}

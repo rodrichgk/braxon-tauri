@@ -3,7 +3,10 @@ import HydraulicBenchDashboard from '@/components/HydraulicBenchDashboard';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 
 export default function F2EvoHydraulicPage() {
-  const { isConnected } = useClientSerialConnection();
+  // Bench Report finding: only isConnected was ever passed down, so the
+  // dashboard couldn't tell a brief, self-healing reconnect apart from a
+  // real disconnect — see HydraulicBenchDashboard's own doc comment.
+  const { isConnected, isReconnecting, reconnectAttempt } = useClientSerialConnection();
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -25,7 +28,7 @@ export default function F2EvoHydraulicPage() {
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}
         className="mb-6"
       >
-        <HydraulicBenchDashboard isConnected={isConnected} />
+        <HydraulicBenchDashboard isConnected={isConnected} isReconnecting={isReconnecting} reconnectAttempt={reconnectAttempt} />
       </motion.div>
     </div>
   );

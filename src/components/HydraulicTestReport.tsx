@@ -9,7 +9,7 @@ import {
   type ParsedReport, type ValveResult, type ValveStatusKind, type MotorStatusKind, type Verdict,
   type PressureCycle, computeVerdict,
 } from '@/lib/hydraulicReport';
-import { REMAN_LOGO_PNG, BRAXON_ICON_PNG } from '@/lib/pdfLogos';
+import { REMAN_LOGO_PNG, BRAXON_WORDMARK_PNG } from '@/lib/pdfLogos';
 
 const VALVE_BADGE: Record<ValveStatusKind, string> = {
   ok: 'bg-success/10 text-success border-success/20',
@@ -230,15 +230,11 @@ export default function HydraulicTestReport({
     // ── Header ──
     fill(COLOR.headerBg);
     doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
-    const iconH = 13;
-    const iconY = (HEADER_H - iconH) / 2;
-    const iconW = drawLogo(BRAXON_ICON_PNG, X0, iconY, iconH, 'left');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-    ink([245, 245, 247]);
-    doc.text('BRAXON', X0 + iconW + 4, iconY + 5.6);
+    // BRAXON wordmark (white art) on the left, subtitle flush beneath it.
+    drawLogo(BRAXON_WORDMARK_PNG, X0, 7, 5, 'left');
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
     ink(COLOR.gray2);
-    doc.text('ABS Hydraulic Diagnostics', X0 + iconW + 4, iconY + 10.2);
+    doc.text('ABS Hydraulic Diagnostics', X0, 16.8);
     drawLogo(REMAN_LOGO_PNG, X1, (HEADER_H - 11) / 2, 11, 'right');
 
     // ── Title block: title, date, verdict pill, reason line ──

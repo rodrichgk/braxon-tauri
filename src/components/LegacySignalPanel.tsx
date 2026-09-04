@@ -194,11 +194,18 @@ export default function LegacySignalPanel({ sendMessage, isConnected }: LegacySi
           </div>
         </div>
 
+        {/* Bench Report finding: this was hardcoded to the dark-mode
+            accent hex specifically — the slider thumb stayed dark-mode
+            blue in light mode while every other accent element on the
+            page correctly switched to #007aff. `accent-accent` (the
+            theme token, same pattern already used for AddStepForm's
+            radio buttons in Reman.tsx) resolves to the right shade in
+            both themes. */}
         <input
           type="range" min="0" max="1000" step="1" value={legacyFreq}
           onChange={e => handleFreqChange(parseInt(e.target.value))}
           disabled={!isConnected || isAutoTest || legacySensorType === 0}
-          className="w-full h-1.5 bg-elevated rounded-full appearance-none cursor-pointer accent-[#0a84ff] disabled:opacity-40"
+          className="w-full h-1.5 bg-elevated rounded-full appearance-none cursor-pointer accent-accent disabled:opacity-40"
         />
 
         <div className="flex flex-wrap gap-1.5 mt-2 items-center">

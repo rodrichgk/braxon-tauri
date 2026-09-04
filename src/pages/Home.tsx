@@ -174,10 +174,17 @@ export default function HomePage() {
 
           <div className="mt-5 pt-4 border-t border-border">
             <h3 className="text-xs font-semibold text-text-secondary mb-3 tracking-wide uppercase">{t('home.pages')}</h3>
+            {/* Bench Report finding: this list hadn't been updated since
+                before the REMAN integration — Jobs, Reman Data, and the
+                whole F2-EVO bench (now the majority of the sidebar) went
+                unmentioned in a new user's very first orientation. */}
             <div className="space-y-2 text-sm text-text-secondary">
               <div><span className="text-text-primary font-medium">{t('nav.valves')}</span> — {t('home.valve_desc')}</div>
               <div><span className="text-text-primary font-medium">{t('nav.motors')}</span> — {t('home.motor_desc')}</div>
               <div><span className="text-text-primary font-medium">{t('nav.signal')}</span> — {t('home.signal_desc')}</div>
+              <div><span className="text-text-primary font-medium">{t('nav.jobs')}</span> — {t('home.jobs_desc')}</div>
+              <div><span className="text-text-primary font-medium">{t('nav.reman')}</span> — {t('home.reman_desc')}</div>
+              <div><span className="text-text-primary font-medium">{t('nav.f2evo')}</span> — {t('home.f2evo_desc')}</div>
             </div>
           </div>
         </div>

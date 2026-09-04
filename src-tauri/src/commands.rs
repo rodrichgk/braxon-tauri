@@ -1,4 +1,5 @@
 use crate::database::{self, ABSData, ABSModule, DbConfig, MotorTest, SignalProfile};
+use crate::kvaser::{self, KvaserChannelInfo};
 use crate::reman;
 use crate::serial::{self, SerialPortData};
 use crate::AppState;
@@ -123,6 +124,66 @@ pub async fn send_serial_message(message: String, state: State<'_, AppState>) ->
 #[tauri::command]
 pub async fn is_serial_connected(state: State<'_, AppState>) -> Result<bool, String> {
     let conn = state.serial_connection.lock().await;
+    Ok(conn.is_connected())
+}
+
+// ---- Kvaser CAN Interface Commands ----
+//
+// Same shape as the serial commands above, so clientSerial.ts can pick either
+// pair. The worker emits `kvaser-data` / `kvaser-disconnected` mirroring
+// `serial-data` / `serial-disconnected`; the JS-side ISO-TP / UDS / DTC stack
+// is transport-agnostic and needs no changes.
+
+#[tauri::command]
+pub async fn get_kvaser_channels(
+    state: State<'_, AppState>,
+) -> Result<Vec<KvaserChannelInfo>, String> {
+    let mut conn = state.kvaser_connection.lock().await;
+    conn.list_channels()
+}
+
+#[tauri::command]
+pub async fn connect_kvaser(
+    channel: i32,
+    bitrate: u32,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let (lib, handle, rx) = {
+        let mut conn = state.kvaser_connection.lock().await;
+        conn.connect(channel, bitrate)?
+    };
+    let stop_flag = {
+        let conn = state.kvaser_connection.lock().await;
+        conn.stop_flag()
+    };
+
+    std::thread::spawn(move || {
+        kvaser::run_worker(lib, handle, rx, stop_flag, app_handle);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_kvaser(state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.kvaser_connection.lock().await;
+    conn.disconnect();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn send_kvaser_message(
+    message: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conn = state.kvaser_connection.lock().await;
+    conn.send_message(message)
+}
+
+#[tauri::command]
+pub async fn is_kvaser_connected(state: State<'_, AppState>) -> Result<bool, String> {
+    let conn = state.kvaser_connection.lock().await;
     Ok(conn.is_connected())
 }
 
@@ -255,10 +316,26 @@ pub async fn search_abs_data(query: String, state: State<'_, AppState>) -> Resul
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await?;
     let pattern = format!("%{}%", query);
+    // Part numbers get typed (and scanned) with or without their dot/dash
+    // separators — "10.0961-0364.3" vs "10096103643". Match a separator-
+    // stripped form of the query against a separator-stripped form of the
+    // reference columns too, so either spelling finds the row. Free-text
+    // columns (manufacturer, wssType) keep the plain substring match —
+    // stripping non-alphanumerics there would just cause odd hits.
+    let normalized: String = query.chars().filter(|c| c.is_alphanumeric()).collect();
+    let norm_pattern = format!("%{}%", normalized);
     let rows = client
         .query(
-            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt"::text, "updatedAt"::text FROM "ABSData" WHERE reference ILIKE $1 OR manufacturer ILIKE $1 OR "wssType" ILIKE $1 OR "otherReferences" ILIKE $1 ORDER BY reference LIMIT 50"#,
-            &[&pattern],
+            r#"SELECT id, reference, manufacturer, "wssType", "absAdapter", "absConnector", "canSpeed", "canIdLine", "canByte", "canValue", comments, "testValidated", "otherReferences", "kLine", "createdAt"::text, "updatedAt"::text
+               FROM "ABSData"
+               WHERE reference ILIKE $1
+                  OR manufacturer ILIKE $1
+                  OR "wssType" ILIKE $1
+                  OR "otherReferences" ILIKE $1
+                  OR regexp_replace(reference, '[^0-9A-Za-z]', '', 'g') ILIKE $2
+                  OR regexp_replace("otherReferences", '[^0-9A-Za-z]', '', 'g') ILIKE $2
+               ORDER BY reference LIMIT 50"#,
+            &[&pattern, &norm_pattern],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -1471,6 +1548,117 @@ pub async fn save_text_file(path: String, content: String) -> Result<(), String>
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+// ---- Bus capture store ----
+//
+// The DTC Scanner's bus recorder holds a capture in memory and only reaches
+// disk if the user completes a "Save log…" dialog. That lost a real
+// ABS-vs-Autel session once already. Every stopped recording is now also
+// auto-written here, under %APPDATA%\braxon\bus-captures\, and listed back in
+// the app so "I forgot where I saved it" can't happen.
+
+fn bus_captures_dir() -> std::path::PathBuf {
+    let dir = database::config_dir().join("bus-captures");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BusCaptureFile {
+    name: String,
+    path: String,
+    size: u64,
+    modified_ms: i64,
+}
+
+/// Write a capture into the app-data captures folder. `filename` is reduced to
+/// a sanitised bare basename. Returns the absolute path written.
+#[tauri::command]
+pub async fn save_bus_capture(filename: String, content: String) -> Result<String, String> {
+    let base = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("capture.log");
+    let safe: String = base
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .collect();
+    let safe = if safe.trim_matches('.').is_empty() {
+        "capture.log".to_string()
+    } else {
+        safe
+    };
+    let path = bus_captures_dir().join(safe);
+    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// `.log` / `.txt` files in the captures folder, newest first. Empty (not an
+/// error) when the folder doesn't exist yet.
+#[tauri::command]
+pub async fn list_bus_captures() -> Result<Vec<BusCaptureFile>, String> {
+    let mut out = Vec::new();
+    let entries = match std::fs::read_dir(bus_captures_dir()) {
+        Ok(e) => e,
+        Err(_) => return Ok(out),
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let is_log = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("log") || e.eq_ignore_ascii_case("txt"))
+            .unwrap_or(false);
+        if !is_log {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        out.push(BusCaptureFile {
+            name: p.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string(),
+            path: p.to_string_lossy().into_owned(),
+            size: meta.len(),
+            modified_ms,
+        });
+    }
+    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    Ok(out)
+}
+
+/// Open the OS file manager with `path` selected.
+#[tauri::command]
+pub async fn reveal_path(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{path}"))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("reveal is only supported on Windows in this build".into())
+    }
+}
+
 // ---- REMAN forecast-vs-actual comparison ----
 //
 // Went through four designs across two days before landing here, each
@@ -1574,4 +1762,92 @@ pub async fn reman_forecast_accuracy_history(state: State<'_, AppState>) -> Resu
             Ok(ForecastAccuracyDay { date, units_with_tech, predicted, actual })
         })
         .collect()
+}
+
+// ---- Raw label printing ----
+//
+// Sends bytes straight to a network label printer's raw/JetDirect socket
+// (TCP 9100 by default). Used for ZPL to the shop's Zebra ZD420 — no
+// driver, no OS print queue, no PDF. The frontend builds the ZPL (see
+// src/lib/zplLabel.ts) and passes it here as `data`.
+
+#[tauri::command]
+pub async fn print_label_raw(host: String, port: u16, data: String) -> Result<(), String> {
+    use std::io::Write;
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let addr = format!("{host}:{port}");
+        let sock = addr
+            .to_socket_addrs()
+            .map_err(|e| format!("bad printer address {addr}: {e}"))?
+            .next()
+            .ok_or_else(|| format!("could not resolve printer address {addr}"))?;
+        let mut stream = TcpStream::connect_timeout(&sock, Duration::from_secs(5))
+            .map_err(|e| format!("could not reach printer at {addr}: {e}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .map_err(|e| e.to_string())?;
+        stream
+            .write_all(data.as_bytes())
+            .map_err(|e| format!("send to printer failed: {e}"))?;
+        stream.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Like `print_label_raw` but also reads whatever the printer sends back
+/// within `read_ms` — for `~HI` / `~HS` (model, firmware, status/errors)
+/// and other SGD queries used by the printer-tools panel.
+#[tauri::command]
+pub async fn printer_query(host: String, port: u16, data: String, read_ms: u64) -> Result<String, String> {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let addr = format!("{host}:{port}");
+        let sock = addr
+            .to_socket_addrs()
+            .map_err(|e| format!("bad printer address {addr}: {e}"))?
+            .next()
+            .ok_or_else(|| format!("could not resolve printer address {addr}"))?;
+        let mut stream = TcpStream::connect_timeout(&sock, Duration::from_secs(5))
+            .map_err(|e| format!("could not reach printer at {addr}: {e}"))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+        stream
+            .write_all(data.as_bytes())
+            .map_err(|e| format!("send to printer failed: {e}"))?;
+        stream.flush().ok();
+
+        stream
+            .set_read_timeout(Some(Duration::from_millis(read_ms.clamp(200, 8000))))
+            .ok();
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() > 16 * 1024 {
+                        break;
+                    }
+                }
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    break
+                }
+                Err(e) => return Err(format!("read from printer failed: {e}")),
+            }
+        }
+        Ok(String::from_utf8_lossy(&buf).trim().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

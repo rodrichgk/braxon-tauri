@@ -1,0 +1,17 @@
+{
+  "name": "braxon-scan-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BRAXON QR scan endpoint — writes phone scans into Postgres for the desktop app to pick up",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "pg": "^8.11.0"
+  }
+}

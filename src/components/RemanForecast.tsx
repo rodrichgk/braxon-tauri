@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SparklesIcon, ChevronDownIcon, ChevronUpIcon, ArrowPathIcon, ScaleIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import { LoadingRow } from './Spinner';
 
 // New units can land on the bench at any time — re-fetch periodically so
 // the panel doesn't go stale while it's sitting open. Requested directly:
@@ -345,7 +346,7 @@ export default function RemanForecast() {
             className="overflow-hidden"
           >
             <div className="pt-3 border-t border-border mt-3">
-              {comparing && <p className="text-xs text-text-tertiary">{t('common.loading')}</p>}
+              {comparing && <LoadingRow label={t('common.loading')} className="flex items-center gap-1.5 text-xs text-text-tertiary" />}
               {compareError && <p className="text-xs text-danger">{compareError}</p>}
               {comparison && (
                 <ForecastComparisonView comparison={comparison} />
@@ -365,7 +366,7 @@ export default function RemanForecast() {
             className="overflow-hidden"
           >
             <div className="pt-3 border-t border-border mt-3">
-              {historyLoading && <p className="text-xs text-text-tertiary">{t('common.loading')}</p>}
+              {historyLoading && <LoadingRow label={t('common.loading')} className="flex items-center gap-1.5 text-xs text-text-tertiary" />}
               {historyError && <p className="text-xs text-danger">{historyError}</p>}
               {history && (
                 history.length === 0
@@ -397,6 +398,15 @@ export default function RemanForecast() {
                   { label: t('reman.analytics.outcome_nd'), v: f.predicted.nonRepairable, c: COLOR_ND },
                   { label: t('reman.analytics.outcome_subcontractor'), v: f.predicted.sentToSubcontractor, c: COLOR_SUBCONTRACTOR },
                 ].sort((a, b) => b.v - a.v)[0] : null;
+                // Bench Report finding: this used to just name the
+                // highest-probability outcome unconditionally — a real
+                // 40/35/25 historical split read as a flat, confident
+                // "likely Repaired" with no sense that it's barely ahead
+                // of the alternatives. Now shows the actual share, and
+                // only uses the confident "likely" phrasing once it's an
+                // outright majority (≥50%) — a weaker plurality reads as
+                // "X leads (38%)" instead, an honestly softer claim.
+                const topShare = topOutcome && famTotal > 0 ? topOutcome.v / famTotal : 0;
                 return (
                   <div
                     key={f.family}
@@ -407,7 +417,10 @@ export default function RemanForecast() {
                     {topOutcome && topOutcome.v > 0 ? (
                       <span className="flex items-center gap-1 text-text-tertiary truncate">
                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: topOutcome.c }} />
-                        {t('reman.forecast.likely', { outcome: topOutcome.label })}
+                        {t(topShare >= 0.5 ? 'reman.forecast.likely' : 'reman.forecast.leads', {
+                          outcome: topOutcome.label,
+                          percent: Math.round(topShare * 100),
+                        })}
                       </span>
                     ) : (
                       <span className="text-text-tertiary italic">{t('reman.forecast.no_history')}</span>

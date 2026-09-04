@@ -26,13 +26,20 @@ export default {
         success:         'rgb(var(--color-success-rgb) / <alpha-value>)',
         warning:         'rgb(var(--color-warning-rgb) / <alpha-value>)',
         danger:          'rgb(var(--color-danger-rgb) / <alpha-value>)',
-
-        // Legacy aliases so existing pages keep working
-        primary: {
-          50:  '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
-          400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
-          800: '#1e40af', 900: '#1e3a8a',
-        },
+        // Two outcome-identity colors (not really "semantic" the way the
+        // four above are — see RemanAnalytics.tsx's COLOR_SOLD/
+        // COLOR_SUBCONTRACTOR), now theme-aware tokens instead of the
+        // flat hex they used to be inlined as directly in that file.
+        sold:            'rgb(var(--color-sold-rgb) / <alpha-value>)',
+        subcontractor:   'rgb(var(--color-subcontractor-rgb) / <alpha-value>)',
+        // The `primary-*` legacy alias (a static, non-theme-aware blue
+        // scale) was removed here — Bench Report finding: it existed
+        // solely to keep ABSTester.tsx working, the one file still
+        // reaching for it instead of `accent`. Now migrated onto tokens
+        // (see ABSTester.tsx's own Bench Report comments), so the alias
+        // had no remaining reason to exist and stood as an open invitation
+        // for future code to reach for it out of habit. Confirmed no
+        // other file referenced it before removing.
       },
       animation: {
         'fade-in':    'fadeIn 0.25s ease-out',

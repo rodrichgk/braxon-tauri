@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useStickyLog } from '@/hooks/useStickyLog';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useTestSession } from '@/contexts/TestSessionContext';
+import { useReports } from '@/contexts/ReportsContext';
 import toast from 'react-hot-toast';
 import PressureGauge from './PressureGauge';
 import HydraulicTestReport from './HydraulicTestReport';
@@ -35,6 +36,19 @@ interface Telemetry {
   protection_faults: string[];
   test_step_index: number;
   valve_under_test: number;
+}
+
+// Minimal subset of reman.rs's InterventionSummary — just enough to show
+// a pickable search result and build a TestSessionContext LinkedJob out
+// of it. Mirrors Reman.tsx's own InterventionSummary field names exactly
+// (camelCase, via reman_search_interventions) rather than redeclaring the
+// whole thing.
+interface LinkCandidate {
+  id: string;
+  reference?: string;
+  clientName?: string;
+  vehiclePlate?: string;
+  vehicleModel?: string;
 }
 
 type F2EvoEvent =
@@ -102,12 +116,66 @@ type HydraulicCmd =
 
 interface HydraulicBenchDashboardProps {
   isConnected: boolean;
+  // Bench Report finding: a brief USB blip that self-heals a second later
+  // used to wipe telemetry, the resolved model, the loaded program, and
+  // abort any running auto-repair — identically to a real, sustained
+  // disconnect, with no visible sign it was "just reconnecting." Optional
+  // only so an older caller that doesn't pass it degrades to the old
+  // immediate-wipe behavior rather than a type error.
+  isReconnecting?: boolean;
+  reconnectAttempt?: number;
 }
 
-export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchDashboardProps) {
+export default function HydraulicBenchDashboard({ isConnected, isReconnecting = false, reconnectAttempt = 0 }: HydraulicBenchDashboardProps) {
   const { t } = useTranslation();
   const { activeHydraulicJob, setActiveHydraulicJob } = useTestSession();
+  const { setHydraulicSnapshot } = useReports();
   const { hydraulicOilMax, setHydraulicOilMax } = useAppSettings();
+  // Bench Report finding: linking a job could only ever be started from
+  // Reman.tsx's own job card — a technician already at the bench wanting
+  // to attach the current run to a job had to leave this page, find the
+  // job over there, link it, then come back. This is that missing path,
+  // scoped to a small inline search rather than reusing Reman.tsx's full
+  // multi-filter search UI, which assumes a lot more screen space than
+  // fits here.
+  const [linkQuery, setLinkQuery] = useState('');
+  const [linkResults, setLinkResults] = useState<LinkCandidate[]>([]);
+  const [linkSearching, setLinkSearching] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+
+  useEffect(() => {
+    const trimmed = linkQuery.trim();
+    if (trimmed.length < 2) { setLinkResults([]); setLinkSearching(false); return; }
+    setLinkSearching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      // 'open' — the same default landing queue as Interventions itself
+      // (RemanPage's `useState<Tab>('interventions')`) — a technician
+      // linking a job at the bench is almost always looking for
+      // currently-active work, not something already closed.
+      invoke<LinkCandidate[]>('reman_search_interventions', {
+        query: trimmed, queue: 'open', techId: null, family: null, faultType: null, dateFrom: null, dateTo: null,
+      })
+        .then(r => { if (!cancelled) setLinkResults(r.slice(0, 8)); })
+        .catch(() => { if (!cancelled) setLinkResults([]); })
+        .finally(() => { if (!cancelled) setLinkSearching(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [linkQuery]);
+
+  const linkJob = (job: LinkCandidate) => {
+    setActiveHydraulicJob({
+      ligcdeId: job.id,
+      clientName: job.clientName ?? '',
+      reference: job.reference ?? '',
+      vehiclePlate: job.vehiclePlate ?? '',
+      vehicleModel: job.vehicleModel ?? '',
+    });
+    setLinkQuery('');
+    setLinkResults([]);
+    setLinkOpen(false);
+  };
+
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [modelStatus, setModelStatus] = useState<'none' | 'detecting' | 'unknown' | 'resolved' | null>(null);
   const [resolvedModel, setResolvedModel] = useState<AbsModelOption | null>(null);
@@ -810,8 +878,36 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Bench Report finding: this used to fire immediately on `!isConnected`
+  // — a brief USB blip that self-heals a second later wiped telemetry,
+  // the resolved model, the loaded program, and aborted any running
+  // auto-repair sequence, exactly like a real, sustained disconnect,
+  // with nothing on screen explaining why. `useClientSerialConnection`
+  // already distinguishes "reconnecting" from "disconnected" (`Sidebar`/
+  // `ConnectionBar` show it correctly); this dashboard just never
+  // received that distinction — `isReconnecting` is now threaded through
+  // from `F2EvoHydraulic.tsx`. A short grace window absorbs a genuine
+  // blip either way (auto-reconnect's own `reconnecting` event usually
+  // arrives well within it); a longer one while auto-reconnect is
+  // actively retrying gives it real room to work; either window resets
+  // the moment `isConnected` flips back true, and a stuck `isReconnecting`
+  // (should that ever happen) still can't wedge stale state forever since
+  // the longer window is a hard ceiling regardless.
+  const disconnectWipeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!isConnected) {
+    const clearPendingWipe = () => {
+      if (disconnectWipeTimerRef.current) {
+        clearTimeout(disconnectWipeTimerRef.current);
+        disconnectWipeTimerRef.current = null;
+      }
+    };
+
+    if (isConnected) {
+      clearPendingWipe();
+      return;
+    }
+
+    const wipeConnectionState = () => {
       setLinked(false);
       setTelemetry(null);
       setModelStatus(null);
@@ -844,8 +940,12 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
       setSafetyPrompt(null);
       tempWarnedRef.current = false;
       oilWarnedRef.current = false;
-    }
-  }, [isConnected]);
+    };
+
+    clearPendingWipe();
+    disconnectWipeTimerRef.current = setTimeout(wipeConnectionState, isReconnecting ? 60_000 : 3_000);
+    return clearPendingWipe;
+  }, [isConnected, isReconnecting]);
 
   useEffect(() => {
     if (!reportText) { setParsedReport(null); return; }
@@ -855,6 +955,19 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
       .catch(() => {});
     return () => { cancelled = true; };
   }, [reportText]);
+
+  // Publish the latest hydraulic result cross-bench so the Signal HIL
+  // page's Test Report card can fold it into a combined PDF without
+  // reaching into this dashboard's state.
+  useEffect(() => {
+    if (!reportText && !parsedReport) return;
+    setHydraulicSnapshot({
+      parsed: parsedReport,
+      rawText: reportText,
+      jobRef: activeHydraulicJob?.reference,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [parsedReport, reportText, activeHydraulicJob, setHydraulicSnapshot]);
 
   // Ref mirrors so the once-subscribed event listener effect and the
   // long-running auto-sequence loop (both below) can read fresh values
@@ -955,6 +1068,16 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
   // covers the step-indexed Hydraulic Test sequence; this covers every
   // test button (Valves, Motor, Bleeding, Cycle) so the top banner reflects
   // whichever one is actually active, not just Hydraulic Test.
+  // Bench Report finding — see the Current tile's own doc comment below
+  // for the full reasoning. Only ever flags out-of-spec once there's both
+  // a real reading and a real model spec to check it against.
+  const currentOutOfSpec = Boolean(
+    telemetry && resolvedModel && (
+      (resolvedModel.correnteMax !== null && telemetry.current_amps > resolvedModel.correnteMax) ||
+      (resolvedModel.correnteMin !== null && telemetry.current_amps < resolvedModel.correnteMin)
+    )
+  );
+
   const activeTestLabel = useMemo(() => {
     if (currentStepLabel) return currentStepLabel;
     if (!activeTest) return null;
@@ -1337,6 +1460,16 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Bench Report finding: a reconnect used to look identical to a
+          full disconnect — nothing on screen said "hang on, it's coming
+          back," so a brief USB blip read as everything having just been
+          wiped for no visible reason. */}
+      {!isConnected && isReconnecting && (
+        <div className="bg-warning/10 border border-warning/20 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-warning">
+          <SignalIcon className="w-4 h-4 shrink-0 animate-pulse" />
+          Reconnecting to the bench{reconnectAttempt ? ` (attempt ${reconnectAttempt})` : ''}…
+        </div>
+      )}
       {activeHydraulicJob && (
         <div className="bg-accent/10 border border-accent/20 rounded-xl px-4 py-3 flex items-center justify-between">
           <div className="text-sm">
@@ -1352,6 +1485,41 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
           >
             Unlink Job
           </button>
+        </div>
+      )}
+      {!activeHydraulicJob && (
+        <div className="relative">
+          <input
+            type="text"
+            value={linkQuery}
+            onChange={e => { setLinkQuery(e.target.value); setLinkOpen(true); }}
+            onFocus={() => setLinkOpen(true)}
+            onBlur={() => setTimeout(() => setLinkOpen(false), 150)}
+            placeholder="Link a job — client, article, or reference"
+            className="w-full text-sm bg-card border border-border rounded-xl px-4 py-3 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent/40"
+          />
+          {linkOpen && linkQuery.trim().length >= 2 && (
+            <div className="absolute z-10 mt-1 w-full max-h-64 overflow-y-auto bg-card border border-border rounded-xl shadow-lg">
+              {linkSearching && <p className="text-xs text-text-tertiary px-4 py-2">Searching…</p>}
+              {!linkSearching && linkResults.length === 0 && (
+                <p className="text-xs text-text-tertiary px-4 py-2">No open jobs match.</p>
+              )}
+              {!linkSearching && linkResults.map(job => (
+                <button
+                  key={job.id}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => linkJob(job)}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-elevated transition-colors border-b border-border last:border-0"
+                >
+                  <span className="text-text-primary font-medium">{job.clientName || `#${job.id}`}</span>
+                  <span className="text-text-tertiary ml-2 text-xs">
+                    {[job.reference, job.vehiclePlate, job.vehicleModel].filter(Boolean).join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       
@@ -1693,21 +1861,48 @@ export default function HydraulicBenchDashboard({ isConnected }: HydraulicBenchD
         </div>
       )}
 
-      {/* Gauges */}
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
-        <PressureGauge label={t('f2evo.channel_1')} value={telemetry?.channel1.primary ?? 0} secondary={telemetry?.channel1.secondary} showSecondary />
-        <PressureGauge label={t('f2evo.channel_2')} value={telemetry?.channel2.primary ?? 0} secondary={telemetry?.channel2.secondary} showSecondary />
-        <PressureGauge label={t('f2evo.pump')} value={telemetry?.pump_pressure ?? 0} />
-        <PressureGauge label={t('f2evo.channel_3')} value={telemetry?.channel3.primary ?? 0} secondary={telemetry?.channel3.secondary} showSecondary />
-        <PressureGauge label={t('f2evo.channel_4')} value={telemetry?.channel4.primary ?? 0} secondary={telemetry?.channel4.secondary} showSecondary />
+      {/* Gauges. Bench Report findings: (1) these always read a confident
+          "0" before any telemetry arrived, indistinguishable from a real
+          zero-bar reading — the Current/Temperature tiles right below
+          already show "—" for the same case, `noData` brings the gauges
+          in line. (2) the board's own per-channel fault flags
+          (parsedReport.pressure.faulted_channels — already parsed and
+          already used to target the auto-repair flow, see ~line 1181)
+          never reached these live gauges at all; a faulting channel just
+          looked like an ordinary number mid-test until the report opened
+          afterward. */}
+      {/* Bench Report finding: five gauges at 140px with 9px tick labels
+          is fine up close but small for a hands-busy, glance-from-a-
+          distance bench workflow — a modest size/spacing bump (not the
+          bigger "bench view" display mode the report separately proposes
+          as its own next-level feature). */}
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 mb-4">
+        <PressureGauge label={t('f2evo.channel_1')} value={telemetry?.channel1.primary ?? 0} secondary={telemetry?.channel1.secondary} showSecondary noData={!telemetry} error={parsedReport?.pressure?.faulted_channels.includes(1) ?? false} dangerThreshold={resolvedModel?.pressioneMax ?? undefined} />
+        <PressureGauge label={t('f2evo.channel_2')} value={telemetry?.channel2.primary ?? 0} secondary={telemetry?.channel2.secondary} showSecondary noData={!telemetry} error={parsedReport?.pressure?.faulted_channels.includes(2) ?? false} dangerThreshold={resolvedModel?.pressioneMax ?? undefined} />
+        <PressureGauge label={t('f2evo.pump')} value={telemetry?.pump_pressure ?? 0} noData={!telemetry} dangerThreshold={resolvedModel?.pressioneMax ?? undefined} />
+        <PressureGauge label={t('f2evo.channel_3')} value={telemetry?.channel3.primary ?? 0} secondary={telemetry?.channel3.secondary} showSecondary noData={!telemetry} error={parsedReport?.pressure?.faulted_channels.includes(3) ?? false} dangerThreshold={resolvedModel?.pressioneMax ?? undefined} />
+        <PressureGauge label={t('f2evo.channel_4')} value={telemetry?.channel4.primary ?? 0} secondary={telemetry?.channel4.secondary} showSecondary noData={!telemetry} error={parsedReport?.pressure?.faulted_channels.includes(4) ?? false} dangerThreshold={resolvedModel?.pressioneMax ?? undefined} />
       </div>
 
-      {/* Current / Temperature */}
+      {/* Current / Temperature. Bench Report finding: temperature and oil
+          both get a proactive safetyPrompt heads-up ahead of the board's
+          own hard cutoff (using resolvedModel.temperatura, see the effect
+          above) — current draw got no threshold treatment at all despite
+          resolvedModel.correnteMax/correnteMin being fetched and already
+          shown as a static spec badge elsewhere on this page. A lighter
+          touch than a full safetyPrompt clone: just color the tile itself
+          out-of-spec-red the same way the pressure gauges do, rather than
+          adding a second proactive-dialog flow for this pass. */}
       <div className="grid grid-cols-2 gap-2 mb-4">
-        <div className="rounded-xl p-3 text-center bg-elevated border border-border">
-          <div className="text-[10px] font-semibold text-text-tertiary tracking-wide">{t('f2evo.current')}</div>
-          <div className="text-xl font-bold tabular-nums text-text-primary mt-0.5">
-            {telemetry ? telemetry.current_amps.toFixed(1) : '—'}<span className="text-sm text-text-tertiary ml-1">A</span>
+        <div className={[
+          'rounded-xl p-3 text-center border',
+          currentOutOfSpec ? 'bg-danger/10 border-danger/30' : 'bg-elevated border-border',
+        ].join(' ')}>
+          <div className={['text-[10px] font-semibold tracking-wide', currentOutOfSpec ? 'text-danger' : 'text-text-tertiary'].join(' ')}>
+            {t('f2evo.current')}
+          </div>
+          <div className={['text-xl font-bold tabular-nums mt-0.5', currentOutOfSpec ? 'text-danger' : 'text-text-primary'].join(' ')}>
+            {telemetry ? telemetry.current_amps.toFixed(1) : '—'}<span className={currentOutOfSpec ? 'text-sm text-danger/70 ml-1' : 'text-sm text-text-tertiary ml-1'}>A</span>
           </div>
         </div>
         <div className="rounded-xl p-3 text-center bg-elevated border border-border">

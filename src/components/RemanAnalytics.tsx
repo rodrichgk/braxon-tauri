@@ -9,7 +9,10 @@ import {
   ExclamationTriangleIcon, ArrowDownTrayIcon, WrenchScrewdriverIcon,
   CheckCircleIcon, ClockIcon, BanknotesIcon, ArrowUturnLeftIcon,
   ArchiveBoxIcon, ChatBubbleLeftRightIcon, DocumentTextIcon, SparklesIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline';
+import { LoadingRow } from './Spinner';
+import RemanForecast from './RemanForecast';
 
 /* ── Types (mirror RemanAnalytics / DayCount / OutcomeBreakdown /
      FamilyOutcome / TechnicianActivity in src-tauri/src/reman.rs) ──── */
@@ -133,18 +136,57 @@ const outcomeDecided = (o: OutcomeBreakdown) => outcomeTotal(o) - o.inProgress;
 // repair or exchange or sell, that's what's important. the mix."
 const outcomeTransformed = (o: OutcomeBreakdown) => o.repaired + o.standardExchange + o.sold;
 
+function transformationRateOf(d: RemanAnalyticsData | null): number | null {
+  if (!d) return null;
+  const decided = outcomeDecided(d.outcomes);
+  if (decided === 0) return null;
+  return Math.round((outcomeTransformed(d.outcomes) / decided) * 100);
+}
+
+// Bench Report finding: no period-over-period comparison anywhere in the
+// KPI row — shown as a small arrow + delta next to whichever of these
+// three has a meaningful trend direction (a raw count like "active
+// technicians" doesn't). `higherIsBetter` flips the color: more
+// comebacks is worse, so a rising comeback count is colored like a
+// decline everywhere else on the page, not a gain.
+function TrendBadge({ current, previous, higherIsBetter = true }: {
+  current: number | null;
+  previous: number | null;
+  higherIsBetter?: boolean;
+}) {
+  if (current === null || previous === null || previous === 0) return null;
+  const deltaPct = Math.round(((current - previous) / Math.abs(previous)) * 100);
+  if (deltaPct === 0) return null;
+  const isUp = deltaPct > 0;
+  const isGood = isUp === higherIsBetter;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold ${isGood ? 'text-success' : 'text-danger'}`}>
+      {isUp ? '▲' : '▼'} {Math.abs(deltaPct)}%
+    </span>
+  );
+}
+
 // iOS-system-color inspired palette, consistent with the app's existing
-// success/warning/danger/accent theme tokens (see tailwind.config.js);
-// extra hues added for outcomes this app's palette has no token for yet
-// (sold, subcontractor, unclassified).
+// success/warning/danger/accent theme tokens (see tailwind.config.js).
+// Bench Report finding: COLOR_SOLD/COLOR_SUBCONTRACTOR used to be flat
+// hex with no dark-mode counterpart, unlike every other color here —
+// --color-sold-rgb/--color-subcontractor-rgb (globals.css) are real
+// tokens now, same pattern as the four below.
 const COLOR_REPAIRED = 'rgb(var(--color-success-rgb))';
 const COLOR_ND = 'rgb(var(--color-danger-rgb))';
 const COLOR_NFF = 'rgb(var(--color-warning-rgb))';
 const COLOR_EXCHANGE = 'rgb(var(--color-accent-rgb))';
-const COLOR_SOLD = '#32ade6';
-const COLOR_SUBCONTRACTOR = '#af52de';
+const COLOR_SOLD = 'rgb(var(--color-sold-rgb))';
+const COLOR_SUBCONTRACTOR = 'rgb(var(--color-subcontractor-rgb))';
 const COLOR_OTHER = 'rgb(var(--color-text-tertiary-rgb) / 0.8)';
-const COLOR_REVENUE = '#ffd60a';
+// Bench Report finding: this was `#ffd60a`, an exact match for
+// `--color-warning-rgb` in dark mode (`255 214 10`, globals.css) — the
+// same yellow meant "euros" on the revenue chart and "no fault found" a
+// few sections down on the outcome donut/family bars/leaderboard, in the
+// same theme, on the same page. An indigo distinct from every other
+// color already in use here (accent blue, success green, warning amber,
+// danger red, the sold-cyan/subcontractor-purple pair) in both themes.
+const COLOR_REVENUE = '#5e5ce6';
 
 function toISO(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -168,6 +210,42 @@ type QuickRange = 'today' | '30d' | '90d' | '6m' | '1y';
 const TECH_SORT_OPTIONS = ['units', 'repaired', 'exchange', 'sold', 'nff', 'nd', 'subcontractor', 'other'] as const;
 type TechSortBy = typeof TECH_SORT_OPTIONS[number];
 
+// Bench Report finding: sortedTechnicians reordered correctly by whichever
+// stat this map is keyed on, but the "Units touched" view's displayed bar
+// width and number always read raw `units` regardless — sorting by "Most
+// non-repairable" reordered the rows, but the bar/number next to each row
+// still said "units touched," so a technician could visibly rank above a
+// coworker with a longer bar for reasons the screen didn't explain.
+// Module-level (not re-created per render, and shared between the sort
+// itself and the units-view render below, which now reads the same value
+// it's sorted by).
+const TECH_SORT_VALUE: Record<TechSortBy, (t: TechnicianActivity) => number> = {
+  units: t => t.units,
+  repaired: t => t.outcomes.repaired,
+  exchange: t => t.outcomes.standardExchange,
+  sold: t => t.outcomes.sold,
+  nff: t => t.outcomes.noFaultFound,
+  nd: t => t.outcomes.nonRepairable,
+  subcontractor: t => t.outcomes.sentToSubcontractor,
+  other: t => t.outcomes.other,
+};
+
+// Bench Report finding: none of transformation rate, revenue, or
+// comebacks had any period-over-period comparison — a number like "62%"
+// had no anchor for good, bad, improving, or slipping. The immediately
+// preceding period of equal length (e.g. viewing the last 30 days shows
+// the 30 days before that) — a plain, deliberately simple baseline, not
+// a same-period-last-year comparison, which would need its own separate
+// design decision this wasn't asked to make.
+function previousPeriodRange(from: string, to: string): { from: string; to: string } {
+  const fromMs = new Date(`${from}T00:00:00Z`).getTime();
+  const toMs = new Date(`${to}T00:00:00Z`).getTime();
+  const spanMs = Math.max(86_400_000, toMs - fromMs);
+  const prevTo = new Date(fromMs - 86_400_000);
+  const prevFrom = new Date(prevTo.getTime() - spanMs);
+  return { from: toISO(prevFrom), to: toISO(prevTo) };
+}
+
 function rangeFor(quick: QuickRange): { from: string; to: string } {
   const to = new Date();
   const from = new Date();
@@ -180,8 +258,8 @@ function rangeFor(quick: QuickRange): { from: string; to: string } {
 }
 
 function KpiCard({
-  icon, label, value, sub, tooltip,
-}: { icon: React.ReactNode; label: string; value: string; sub?: string; tooltip?: string }) {
+  icon, label, value, sub, tooltip, trend,
+}: { icon: React.ReactNode; label: string; value: string; sub?: string; tooltip?: string; trend?: React.ReactNode }) {
   return (
     <div className="bg-card border border-border rounded-xl p-4 flex items-start gap-3" title={tooltip}>
       <div className="w-9 h-9 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
@@ -192,8 +270,20 @@ function KpiCard({
             "Active technicians" / "Warranty comebacks" clipped to
             "Transformation ..." even with visible room to spare below.
             Wraps instead; the card's height is already flexible. */}
-        <p className="text-[11px] text-text-tertiary leading-snug">{label}</p>
-        <p className="text-xl font-bold text-text-primary leading-tight mt-0.5">{value}</p>
+        <div className="flex items-center gap-1">
+          <p className="text-[11px] text-text-tertiary leading-snug">{label}</p>
+          {/* Bench Report finding: the revenue tooltip's carefully-written
+              accuracy caveat (the number most likely to be over-trusted)
+              sat behind a bare native `title=` with no visual affordance
+              at all that a card was hoverable — this icon is that
+              affordance, shown only on cards that actually carry a
+              tooltip. */}
+          {tooltip && <InformationCircleIcon className="w-3 h-3 text-text-tertiary/70 shrink-0" />}
+        </div>
+        <div className="flex items-baseline gap-1.5">
+          <p className="text-xl font-bold text-text-primary leading-tight mt-0.5">{value}</p>
+          {trend}
+        </div>
         {sub && <p className="text-[11px] text-text-tertiary mt-0.5">{sub}</p>}
       </div>
     </div>
@@ -235,6 +325,10 @@ export default function RemanAnalytics() {
   const [data, setData] = useState<RemanAnalyticsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Trend baseline — the immediately preceding period of equal length.
+  // Best-effort and silent on failure: a missing trend arrow is a minor
+  // loss, not worth surfacing as an error alongside the main data.
+  const [prevData, setPrevData] = useState<RemanAnalyticsData | null>(null);
 
   // Live "right now" view — independent of the historical date-range
   // controls below, requested directly as headline content: "the most
@@ -259,6 +353,12 @@ export default function RemanAnalytics() {
       .then(r => { if (!cancelled) setData(r); })
       .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
+
+    const prev = previousPeriodRange(from, to);
+    invoke<RemanAnalyticsData>('reman_analytics', { fromDate: prev.from, toDate: prev.to })
+      .then(r => { if (!cancelled) setPrevData(r); })
+      .catch(() => { if (!cancelled) setPrevData(null); });
+
     return () => { cancelled = true; };
   }, [from, to]);
 
@@ -281,12 +381,8 @@ export default function RemanAnalytics() {
     setTo(r.to);
   };
 
-  const transformationRatePct = useMemo(() => {
-    if (!data) return null;
-    const decided = outcomeDecided(data.outcomes);
-    if (decided === 0) return null;
-    return Math.round((outcomeTransformed(data.outcomes) / decided) * 100);
-  }, [data]);
+  const transformationRatePct = useMemo(() => transformationRateOf(data), [data]);
+  const prevTransformationRatePct = useMemo(() => transformationRateOf(prevData), [prevData]);
 
   const outcomePieData = useMemo(() => {
     if (!data) return [];
@@ -318,17 +414,8 @@ export default function RemanAnalytics() {
 
   const sortedTechnicians = useMemo(() => {
     if (!data) return [];
-    const keyFor: Record<TechSortBy, (t: TechnicianActivity) => number> = {
-      units: t => t.units,
-      repaired: t => t.outcomes.repaired,
-      exchange: t => t.outcomes.standardExchange,
-      sold: t => t.outcomes.sold,
-      nff: t => t.outcomes.noFaultFound,
-      nd: t => t.outcomes.nonRepairable,
-      subcontractor: t => t.outcomes.sentToSubcontractor,
-      other: t => t.outcomes.other,
-    };
-    return [...data.technicians].sort((a, b) => keyFor[techSortBy](b) - keyFor[techSortBy](a));
+    const value = TECH_SORT_VALUE[techSortBy];
+    return [...data.technicians].sort((a, b) => value(b) - value(a));
   }, [data, techSortBy]);
 
   const technicianChartData = useMemo(() => {
@@ -449,6 +536,16 @@ export default function RemanAnalytics() {
         </div>
       </div>
 
+      {/* Bench Report finding: this panel only ever lived inside
+          Interventions' unfiltered Open queue view — someone looking for
+          "the forecast" here, in Analytics, alongside every other BI
+          panel, wouldn't find it. Shown here too (not moved — it's still
+          useful in-context while triaging the bench) — it isn't scoped by
+          the date-range controls above, it's always "the bench right
+          now," independent of whatever historical window the rest of
+          this page is showing. */}
+      <RemanForecast />
+
       {error && (
         <div className="bg-danger/10 border border-danger/20 rounded-xl px-4 py-3 flex items-start gap-2">
           <ExclamationTriangleIcon className="w-4 h-4 text-danger shrink-0 mt-0.5" />
@@ -460,7 +557,7 @@ export default function RemanAnalytics() {
       )}
 
       {loading && !data && (
-        <div className="text-center py-16 text-text-tertiary text-sm">{t('reman.analytics.loading')}</div>
+        <LoadingRow label={t('reman.analytics.loading')} className="flex items-center justify-center gap-2 py-16 text-text-tertiary text-sm" spinnerClassName="w-4 h-4" />
       )}
 
       {data && (
@@ -478,6 +575,7 @@ export default function RemanAnalytics() {
               value={transformationRatePct !== null ? `${transformationRatePct}%` : '—'}
               sub={t('reman.analytics.kpi_transformation_rate_sub', { count: outcomeDecided(data.outcomes) })}
               tooltip={t('reman.analytics.kpi_transformation_rate_tooltip')}
+              trend={<TrendBadge current={transformationRatePct} previous={prevTransformationRatePct} />}
             />
             <KpiCard
               icon={<WrenchScrewdriverIcon className="w-4.5 h-4.5" />}
@@ -491,6 +589,7 @@ export default function RemanAnalytics() {
               value={formatEUR(data.totalRevenue)}
               sub={t('reman.analytics.kpi_revenue_sub')}
               tooltip={t('reman.analytics.kpi_revenue_tooltip')}
+              trend={<TrendBadge current={data.totalRevenue} previous={prevData?.totalRevenue ?? null} />}
             />
             <KpiCard
               icon={<ArrowUturnLeftIcon className="w-4.5 h-4.5" />}
@@ -502,6 +601,7 @@ export default function RemanAnalytics() {
                   : t('reman.analytics.kpi_comebacks_sub')
               }
               tooltip={t('reman.analytics.kpi_comebacks_tooltip')}
+              trend={<TrendBadge current={data.comebackCount} previous={prevData?.comebackCount ?? null} higherIsBetter={false} />}
             />
           </div>
 
@@ -629,9 +729,19 @@ export default function RemanAnalytics() {
 
               {techView === 'units' ? (
                 <div className="space-y-1.5">
+                  {/* Bar/number now read the same value the list is
+                      sorted by (see TECH_SORT_VALUE) — sorting by, say,
+                      "Most non-repairable" used to reorder the rows while
+                      the bar/number kept showing raw units touched,
+                      which could visibly rank a technician above a
+                      coworker with a longer bar for no explained reason.
+                      Units touched still shows as a secondary figure
+                      whenever the sort is on something else, so that
+                      count isn't lost, just no longer the headline one. */}
                   {sortedTechnicians.slice(0, 12).map((tech, i) => {
-                    const max = sortedTechnicians[0]?.units || 1;
-                    const pct = Math.max(4, Math.round((tech.units / max) * 100));
+                    const value = TECH_SORT_VALUE[techSortBy](tech);
+                    const max = TECH_SORT_VALUE[techSortBy](sortedTechnicians[0]) || 1;
+                    const pct = Math.max(4, Math.round((value / max) * 100));
                     return (
                       <div key={tech.techId} className="flex items-center gap-2.5">
                         <span className="text-[10px] text-text-tertiary w-4 text-right shrink-0">{i + 1}</span>
@@ -642,8 +752,13 @@ export default function RemanAnalytics() {
                           <div className="h-full rounded-full bg-accent/70" style={{ width: `${pct}%` }} />
                         </div>
                         <span className="text-xs font-semibold text-text-primary w-10 text-right shrink-0">
-                          {tech.units}
+                          {value}
                         </span>
+                        {techSortBy !== 'units' && (
+                          <span className="text-[10px] text-text-tertiary w-20 text-right shrink-0">
+                            {t('reman.analytics.tech_units_secondary', { count: tech.units })}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -668,6 +783,14 @@ export default function RemanAnalytics() {
               <p className="text-[10px] text-text-tertiary mt-3 italic">
                 {t('reman.analytics.tech_name_caveat')}
               </p>
+              {/* Bench Report finding: a hard slice(0, 12) with no
+                  indication the shop had more active technicians in the
+                  period than the leaderboard shows. */}
+              {sortedTechnicians.length > 12 && (
+                <p className="text-[10px] text-text-tertiary mt-1">
+                  {t('reman.analytics.tech_leaderboard_truncated', { count: sortedTechnicians.length - 12 })}
+                </p>
+              )}
             </ChartCard>
           )}
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=BRAXON QR scan endpoint
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=braxon-scan
+WorkingDirectory=/opt/braxon-scan
+EnvironmentFile=/etc/braxon-scan/env
+ExecStart=/usr/bin/node /opt/braxon-scan/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/braxon-scan
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
