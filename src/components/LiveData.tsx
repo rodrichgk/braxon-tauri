@@ -21,6 +21,7 @@ import {
 import { isoTpRequest } from '@/lib/isotp';
 import { type Protocol } from '@/lib/ecu';
 import { builtinLiveFor, type LivePreset } from '@/lib/builtinLiveSignals';
+import { decodeVwMeasuringBlock } from '@/lib/vwKwp';
 
 type Svc = '21' | '22' | '01' | 'can';
 
@@ -50,6 +51,12 @@ interface Props {
   family?: string | null;
   /** Guarantees the diagnostic session is open before a request goes out. */
   prepareSession: () => Promise<{ ok: boolean; detail?: string }>;
+  /**
+   * VW TP2.0 units: a request sender bound to the held channel. When set, Live
+   * Data runs in "measuring block" mode — `21 <block>` through the channel,
+   * decoded by the VW formula table (no ISO-TP session, no manual addressing).
+   */
+  vwRequest?: ((data: number[]) => Promise<{ payload: number[] } | null>) | null;
 }
 
 const POLL_MS = 300;
@@ -85,8 +92,11 @@ function fmt(n: number): string {
 }
 
 export default function LiveData({
-  isConnected, send, sendId, recvId, protocol, absRef, family, prepareSession,
+  isConnected, send, sendId, recvId, protocol, absRef, family, prepareSession, vwRequest,
 }: Props) {
+  const vwMode = !!vwRequest;
+  const vwReqRef = useRef(vwRequest);
+  vwReqRef.current = vwRequest;
   const [open, setOpen]       = useState(false);
   const [svc, setSvc]         = useState<Svc>(protocol === 'OBD2' ? '01' : '21');
   const [idHex, setIdHex]     = useState('01');
@@ -110,9 +120,9 @@ export default function LiveData({
 
   const unit = absRef || family || 'generic';
   const isCan = svc === 'can';
-  const ready = isCan ? isConnected : (isConnected && sendId !== null && recvId !== null);
-  const storeKey = keyFor(unit, svc, idHex);
-  const presets = builtinLiveFor(family);
+  const ready = vwMode ? isConnected : (isCan ? isConnected : (isConnected && sendId !== null && recvId !== null));
+  const storeKey = keyFor(unit, vwMode ? 'vw' as Svc : svc, idHex);
+  const presets = vwMode ? [] : builtinLiveFor(family);
 
   // Load / save signal map for the current (unit + request) key.
   useEffect(() => {
@@ -162,6 +172,11 @@ export default function LiveData({
   }, [idHex, svc]);
 
   const requestOnce = useCallback(async (): Promise<number[] | null> => {
+    if (vwReqRef.current) {
+      const block = parseInt(idHex.replace(/[^0-9a-fA-F]/g, ''), 16) & 0xff || 1;
+      const r = await vwReqRef.current([0x21, block]);
+      return r ? r.payload : null;
+    }
     if (sendId === null || recvId === null) return null;
     const sid = svcReqSid(svc);
     const res = await isoTpRequest({
@@ -173,7 +188,7 @@ export default function LiveData({
       accept: (p) => p[0] === (sid + 0x40) || (p[0] === 0x7f && p[1] === sid),
     });
     return res ? res.payload : null;
-  }, [svc, idBytes, sendId, recvId]);
+  }, [svc, idBytes, sendId, recvId, idHex]);
 
   // CAN broadcast source — passively decode a frame off the monitor stream.
   useEffect(() => {
@@ -211,14 +226,16 @@ export default function LiveData({
     };
 
     (async () => {
-      const gate = await prepRef.current();
-      if (!alive) return;
-      if (!gate.ok) { setErr(gate.detail || 'session not open'); setPolling(false); return; }
+      if (!vwMode) {
+        const gate = await prepRef.current();
+        if (!alive) return;
+        if (!gate.ok) { setErr(gate.detail || 'session not open'); setPolling(false); return; }
+      }
       tick();
     })();
 
     return () => { alive = false; clearTimeout(timer); };
-  }, [polling, ready, requestOnce]);
+  }, [polling, ready, requestOnce, vwMode]);
 
   const runSweep = async () => {
     if (!ready || sweeping) return;
@@ -231,13 +248,22 @@ export default function LiveData({
     setSweepRows([]);
     setSweepDone(0);
 
-    const gate = await prepRef.current();
-    if (!gate.ok) { setErr(gate.detail || 'session not open'); setSweeping(false); return; }
+    if (!vwMode) {
+      const gate = await prepRef.current();
+      if (!gate.ok) { setErr(gate.detail || 'session not open'); setSweeping(false); return; }
+    }
 
     const sid = svcReqSid(svc);
     const rows: SweepRow[] = [];
     for (let id = from; id <= to; id++) {
       if (sweepCancel.current) break;
+      if (vwReqRef.current) {
+        const r = await vwReqRef.current([0x21, id]);
+        if (r && r.payload[0] === 0x61) { rows.push({ id, len: r.payload.length }); setSweepRows([...rows]); }
+        else if (r && r.payload[0] === 0x7f && r.payload[2] !== 0x31 && r.payload[2] !== 0x11) { rows.push({ id, len: 0, nrc: r.payload[2] }); setSweepRows([...rows]); }
+        setSweepDone(id - from + 1);
+        continue;
+      }
       const res = await isoTpRequest({
         send: (m) => sendRef.current(m),
         sendId: sendId!, recvIds: [recvId!],
@@ -279,14 +305,14 @@ export default function LiveData({
           <ChartBarIcon className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
           <span className="text-[11px] font-semibold text-text-primary shrink-0">Live Data</span>
           {polling && <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />}
-          {presets.length > 0 && (
+          {(presets.length > 0 || vwMode) && (
             <span className="text-[9px] font-semibold text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded shrink-0">
-              {family}
+              {vwMode ? 'VAG TP2.0' : family}
             </span>
           )}
           <span className="text-[10px] text-text-tertiary truncate">
-            {isCan ? `CAN 0x${idHex.toUpperCase()}` : `${svc} ${idHex.toUpperCase()}`}
-            {signals.length ? ` · ${signals.length} signal${signals.length !== 1 ? 's' : ''}` : ''}
+            {vwMode ? `Measuring block ${parseInt(idHex, 16) || 1}` : isCan ? `CAN 0x${idHex.toUpperCase()}` : `${svc} ${idHex.toUpperCase()}`}
+            {!vwMode && signals.length ? ` · ${signals.length} signal${signals.length !== 1 ? 's' : ''}` : ''}
           </span>
         </div>
         {open ? <ChevronUpIcon className="w-3.5 h-3.5 text-text-tertiary shrink-0" /> : <ChevronDownIcon className="w-3.5 h-3.5 text-text-tertiary shrink-0" />}
@@ -323,26 +349,43 @@ export default function LiveData({
 
               {/* Request row */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                <div className="flex gap-0.5 p-0.5 bg-app rounded-lg">
-                  {(['21', '22', '01', 'can'] as Svc[]).map(s => (
-                    <button
-                      key={s}
-                      onClick={() => setSvc(s)}
-                      className={[
-                        'px-2 py-0.5 text-[10px] font-semibold rounded-md transition-colors',
-                        svc === s ? 'bg-elevated text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary',
-                      ].join(' ')}
-                    >
-                      {s === '21' ? '21 KWP' : s === '22' ? '22 UDS' : s === '01' ? '01 OBD' : 'CAN'}
-                    </button>
-                  ))}
-                </div>
+                {vwMode ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-text-tertiary">Block</span>
+                    <input
+                      value={parseInt(idHex, 16) || 1}
+                      onChange={e => {
+                        const n = Math.max(1, Math.min(0xff, parseInt(e.target.value, 10) || 1));
+                        setIdHex(n.toString(16).toUpperCase().padStart(2, '0'));
+                      }}
+                      type="number" min={1} max={255}
+                      className="w-14 input-field !py-1 text-xs text-center"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex gap-0.5 p-0.5 bg-app rounded-lg">
+                    {(['21', '22', '01', 'can'] as Svc[]).map(s => (
+                      <button
+                        key={s}
+                        onClick={() => setSvc(s)}
+                        className={[
+                          'px-2 py-0.5 text-[10px] font-semibold rounded-md transition-colors',
+                          svc === s ? 'bg-elevated text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary',
+                        ].join(' ')}
+                      >
+                        {s === '21' ? '21 KWP' : s === '22' ? '22 UDS' : s === '01' ? '01 OBD' : 'CAN'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!vwMode && (
                 <input
                   value={idHex}
                   onChange={e => setIdHex(e.target.value.replace(/[^0-9a-fA-F]/g, '').slice(0, svc === '22' ? 4 : svc === 'can' ? 3 : 2))}
                   placeholder={svc === '22' ? 'DID' : svc === 'can' ? 'CAN ID' : 'ID'}
                   className="w-16 input-field !py-1 font-mono text-xs text-center uppercase"
                 />
+                )}
                 <button
                   onClick={() => setPolling(v => !v)}
                   disabled={!ready}
@@ -367,6 +410,26 @@ export default function LiveData({
               </div>
 
               {err && <p className="text-[10px] text-danger">{err}</p>}
+
+              {/* VW measuring block — formula-decoded, read-only */}
+              {vwMode && payload && payload[0] === 0x61 && (() => {
+                const mb = decodeVwMeasuringBlock(payload);
+                if (!mb) return null;
+                return (
+                  <div className="flex flex-wrap gap-2">
+                    {mb.values.map((v, i) => (
+                      <div key={i} className="px-2 py-1 rounded-lg bg-app border border-border">
+                        <div className="text-[9px] text-text-tertiary">field {i + 1}</div>
+                        <div className="text-[12px] font-semibold text-text-primary font-mono">
+                          {typeof v.value === 'number' ? (+v.value.toFixed(2)) : v.value}
+                          {v.unit && v.unit !== '' && <span className="text-[10px] text-text-tertiary ml-1">{v.unit}</span>}
+                        </div>
+                      </div>
+                    ))}
+                    {mb.values.length === 0 && <span className="text-[10px] text-text-tertiary">block {mb.slot}: no fields</span>}
+                  </div>
+                );
+              })()}
 
               {/* Raw bytes — click one to pin a signal at that offset */}
               {payload && (

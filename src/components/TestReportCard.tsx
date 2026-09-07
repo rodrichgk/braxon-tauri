@@ -4,10 +4,11 @@ import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import {
   DocumentChartBarIcon, DocumentArrowDownIcon, CpuChipIcon, BeakerIcon, Square3Stack3DIcon,
-  CheckCircleIcon, ExclamationTriangleIcon, XCircleIcon, BookmarkIcon,
+  CheckCircleIcon, ExclamationTriangleIcon, XCircleIcon, BookmarkIcon, ClockIcon,
 } from '@heroicons/react/24/outline';
 import { useReports } from '@/contexts/ReportsContext';
 import EcuTestReport from './EcuTestReport';
+import SignalHilHistory from './SignalHilHistory';
 import {
   computeEcuVerdict, ecuReasonSummary, ecuReportHasData, activeDtcCount, peakCurrent,
   type EcuReportDraft, type Verdict,
@@ -15,7 +16,7 @@ import {
 import { computeVerdict, reportHasData, type ParsedReport } from '@/lib/hydraulicReport';
 import { generateHydraulicReportPdf, generateCombinedReportPdf } from '@/lib/combinedReport';
 
-type Mode = 'ecu' | 'hydraulic' | 'combined';
+type Mode = 'ecu' | 'hydraulic' | 'combined' | 'history';
 
 interface Props {
   jobLabel?: string;
@@ -159,6 +160,7 @@ export default function TestReportCard({ jobLabel, jobNumber, ligcdeId, canBitra
     { id: 'ecu', label: t('signal.report_mode_ecu'), icon: <CpuChipIcon className="w-3.5 h-3.5" /> },
     { id: 'hydraulic', label: t('signal.report_mode_hydraulic'), icon: <BeakerIcon className="w-3.5 h-3.5" /> },
     { id: 'combined', label: t('signal.report_mode_combined'), icon: <Square3Stack3DIcon className="w-3.5 h-3.5" /> },
+    { id: 'history', label: t('signal.report_mode_history'), icon: <ClockIcon className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -188,9 +190,12 @@ export default function TestReportCard({ jobLabel, jobNumber, ligcdeId, canBitra
         <EcuTestReport
           jobLabel={jobLabel}
           jobNumber={jobNumber}
+          ligcdeId={ligcdeId}
           onSave={ligcdeId ? (type) => saveToJob(type, ecuReportText(signalDraft, verdictLabel(ecuVerdict))) : undefined}
         />
       )}
+
+      {mode === 'history' && <SignalHilHistory defaultSearch={jobNumber} />}
 
       {mode === 'hydraulic' && (
         <div className="space-y-4">

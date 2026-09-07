@@ -13,7 +13,10 @@
     "reman":         "REMAN",
     "reman_sub":     "Interventions, clients, stock",
     "f2evo":         "Banc F2-EVO",
-    "f2evo_sub":     "Protocole GRMtronics historique"
+    "f2evo_sub":     "Protocole GRMtronics historique",
+    "dev_hide":         "Masquer aux autres utilisateurs",
+    "dev_unhide":       "Afficher pour tous",
+    "dev_toggle_error": "Échec — vérifier la connexion à la base"
   },
   "auth": {
     "sign_in_tab":    "Connexion",
@@ -187,7 +190,25 @@
     "report_status_dtc":        "défauts",
     "report_status_curve":      "pts courbe",
     "report_status_yes":        "oui",
-    "report_status_no":         "non"
+    "report_status_no":         "non",
+
+    "report_mode_history":      "Historique",
+    "history_title":            "Unités testées",
+    "history_subtitle":         "Tous les rapports Signal HIL générés sur ce banc — liés à un dossier ou non.",
+    "history_search_placeholder": "Rechercher réf. ABS, ECU, dossier…",
+    "history_refresh":          "Actualiser",
+    "history_empty":            "Aucune unité testée pour l'instant.",
+    "history_empty_search":     "Aucune unité ne correspond à cette recherche.",
+    "history_loading":          "Chargement de l'historique…",
+    "history_error_load":       "Impossible de charger l'historique",
+    "history_error_save":       "Impossible d'enregistrer ce test dans l'historique",
+    "history_no_job":           "Sans dossier",
+    "history_operator":         "Opérateur",
+    "history_faults":           "Défauts",
+    "history_download":         "Télécharger le PDF",
+    "history_delete":           "Supprimer",
+    "history_delete_confirm":   "Supprimer cet enregistrement de l'historique ? Cette action est irréversible.",
+    "history_unidentified":     "Unité non identifiée"
   },
   "home": {
     "title":          "Tableau de bord",

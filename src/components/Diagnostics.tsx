@@ -14,6 +14,7 @@ import {
   SignalIcon,
   StopIcon,
   ArrowDownTrayIcon,
+  Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
 import clientSerial, { type SerialEvent } from '@/lib/clientSerial';
 import { useSession } from '@/contexts/SessionContext';
@@ -29,86 +30,13 @@ import {
   toHex3,
 } from '@/lib/ecu';
 import { isoTpRequest } from '@/lib/isotp';
+import { describeDtc } from '@/lib/dtcGeneric';
 import { builtinActuatorsFor } from '@/lib/builtinActuators';
 import LiveData from '@/components/LiveData';
+import { openVwTp20Channel, type VwTp20Channel } from '@/lib/vwtp20';
+import { decodeVwDtcs } from '@/lib/vwKwp';
 import { useUdsSession } from '@/hooks/useUdsSession';
 import { useReports } from '@/contexts/ReportsContext';
-
-/* ── Fallback DTC description lookup ────────────────────────── */
-const DTC_DESC: Record<string, string> = {
-  P0500: 'Vehicle Speed Sensor Malfunction',
-  P0501: 'Vehicle Speed Sensor Range/Performance',
-  P0502: 'Vehicle Speed Sensor Low Input',
-  P0503: 'Vehicle Speed Sensor Intermittent/Erratic/High',
-  P0504: 'Brake Switch A/B Correlation',
-  P0571: 'Brake Switch A Circuit Malfunction',
-  P0572: 'Brake Switch A Circuit Low',
-  P0573: 'Brake Switch A Circuit High',
-  C0035: 'Left Front Wheel Speed Sensor Circuit',
-  C0036: 'Left Front Wheel Speed Sensor Range/Performance',
-  C0040: 'Right Front Wheel Speed Sensor Circuit',
-  C0041: 'Right Front Wheel Speed Sensor Range/Performance',
-  C0045: 'Left Rear Wheel Speed Sensor Circuit',
-  C0046: 'Left Rear Wheel Speed Sensor Range/Performance',
-  C0050: 'Right Rear Wheel Speed Sensor Circuit',
-  C0051: 'Right Rear Wheel Speed Sensor Range/Performance',
-  C0060: 'LF ABS Solenoid #1 Circuit Malfunction',
-  C0065: 'RF ABS Solenoid #1 Circuit Malfunction',
-  C0070: 'RR ABS Solenoid #1 Circuit Malfunction',
-  C0080: 'LR ABS Solenoid #1 Circuit Malfunction',
-  C0110: 'ABS Motor Circuit Malfunction',
-  C0121: 'ABS Valve Relay Circuit Malfunction',
-  C0131: 'ABS System Pressure Circuit Malfunction',
-  C0161: 'ABS/TCS Brake Switch Circuit',
-  C0186: 'Lateral Accelerometer Sensor Performance',
-  C0196: 'Yaw Rate Sensor Performance',
-  C0200: 'Right Front Wheel Speed Sensor Circuit',
-  C0205: 'Right Rear Wheel Speed Sensor Circuit',
-  C0210: 'Left Rear Wheel Speed Sensor Circuit',
-  C0215: 'Left Front Wheel Speed Sensor Circuit',
-  C0221: 'Right Front Wheel Speed Sensor Fault',
-  C0222: 'Right Front Wheel Speed Signal Erratic',
-  C0225: 'Left Front Wheel Speed Sensor Fault',
-  C0235: 'Rear Wheel Speed Sensor Signal Erratic',
-  C0238: 'Wheel Speed Mismatch',
-  C0245: 'Wheel Speed Sensor Frequency Error',
-  C0250: 'ABS Modulator Valve Fault',
-  C0274: 'Solenoid Power Relay Circuit',
-  C0281: 'Brake Switch Circuit Fault',
-  C0290: 'Lost Communication with ABS Module',
-  C0300: 'Rear Wheel Speed Sensor Malfunction',
-  C1210: 'ABS Warning Lamp Circuit Open',
-  C1214: 'System Relay Contact or Coil Circuit Open',
-  C1217: 'Pump Motor Shorted To Ground',
-  C1218: 'Pump Motor Circuit Shorted To Voltage',
-  C1221: 'LF Wheel Speed Sensor Input Signal = Zero',
-  C1222: 'RF Wheel Speed Sensor Input Signal = Zero',
-  C1223: 'LR Wheel Speed Sensor Input Signal = Zero',
-  C1224: 'RR Wheel Speed Sensor Input Signal = Zero',
-  C1225: 'Left Front Excessive Wheel Speed Variation',
-  C1226: 'Right Front Excessive Wheel Speed Variation',
-  C1227: 'Left Rear Excessive Wheel Speed Variation',
-  C1228: 'Right Rear Excessive Wheel Speed Variation',
-  C1232: 'Left Front Wheel Speed Circuit Open/Shorted',
-  C1233: 'Right Front Wheel Speed Circuit Open/Shorted',
-  C1234: 'Left Rear Wheel Speed Circuit Open/Shorted',
-  C1235: 'Right Rear Wheel Speed Circuit Open/Shorted',
-  C1236: 'Low System Supply Voltage',
-  C1237: 'High System Supply Voltage',
-  C1241: 'ABS Relay Valve Circuit Open',
-  C1243: 'Pump Motor Circuit Short To Ground',
-  C1244: 'Pump Motor Circuit Open',
-  C1245: 'ECU Hardware Failure',
-  C1255: 'EBCM Internal Fault',
-  C1261: 'LF Inlet Valve Coil Malfunction',
-  C1262: 'LF Outlet Valve Coil Malfunction',
-  C1263: 'RF Inlet Valve Coil Malfunction',
-  C1264: 'RF Outlet Valve Coil Malfunction',
-  C1265: 'LR Inlet Valve Coil Malfunction',
-  C1266: 'LR Outlet Valve Coil Malfunction',
-  C1267: 'RR Inlet Valve Coil Malfunction',
-  C1268: 'RR Outlet Valve Coil Malfunction',
-};
 
 /* ── Types ────────────────────────────────────────────────────── */
 export type { Protocol, VehicleBrand } from '@/lib/ecu';
@@ -128,6 +56,8 @@ export interface DTCEntry {
   udsStatus?: number;
   rawValue: number;
   ecuName?: string;
+  /** How the DB text was matched — see the Rust `EcuDtcEntry.source`. */
+  dtcSource?: 'ecu-exact' | 'ddt-exact' | 'cross-unit';
 }
 
 export interface DTCScan {
@@ -173,6 +103,8 @@ interface EcuDtcEntry {
   dtcCode: string;
   description: string;
   ecuName: string;
+  source: 'ecu-exact' | 'ddt-exact' | 'cross-unit';
+  ecuFile?: string | null;
 }
 
 interface IdentMatch {
@@ -253,17 +185,13 @@ function relTime(ms: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-/* ── Decode 2-byte OBD-II/KWP DTC ────────────────────────────── */
-function decodeDTC(high: number, low: number): DTCEntry {
-  const types = ['P', 'C', 'B', 'U'] as const;
-  const type = types[(high >> 6) & 0x03];
-  const d1 = (high >> 4) & 0x03;
-  const d2 = (high & 0x0F).toString(16).toUpperCase();
-  const d3 = ((low >> 4) & 0x0F).toString(16).toUpperCase();
-  const d4 = (low & 0x0F).toString(16).toUpperCase();
-  const code = `${type}${d1}${d2}${d3}${d4}`;
-  const rawValue = (high << 8) | low;
-  return { code, description: DTC_DESC[code] ?? `${type}-code — manufacturer specific`, rawValue };
+/* ── Decode a DTC ────────────────────────────────────────────────
+   Delegates to the SAE J2012 / ISO 14229 generic decoder in ./lib/dtcGeneric
+   (code letters = bit math, C0xxx meanings + failure-type byte = static
+   standard tables). `ftb` = 3rd byte of a UDS DTC record; omit for 2-byte. */
+function decodeDTC(high: number, low: number, ftb?: number | null): DTCEntry {
+  const d = describeDtc(high, low, ftb);
+  return { code: d.code, description: d.text, rawValue: d.raw };
 }
 
 /* ── Parse OBD-II mode 03 (0x43) response payload ────────────── */
@@ -302,10 +230,10 @@ function parseUDSPayload(payload: number[]): DTCEntry[] {
     if ((b1 | b2 | b3) === 0) continue;
     // 0x01 testFailed, 0x08 confirmedDTC — a real, current fault.
     if ((status & 0x09) === 0) continue;
-    const sae = decodeDTC(b1, b2);
+    const sae = decodeDTC(b1, b2, b3);
     codes.push({
       code: `${hx(b1)} ${hx(b2)} ${hx(b3)}`,
-      description: DTC_DESC[sae.code] ?? `Manufacturer fault ${sae.code} (not in DB)`,
+      description: `${sae.code} — ${sae.description}`,
       rawValue: sae.rawValue,
       udsStatus: status,
     });
@@ -328,13 +256,19 @@ function parseKWPPayload(payload: number[]): DTCEntry[] {
 }
 
 /**
- * Traffic the held session generates on its own: TesterPresent acks (7E) and
- * "response pending" (7F <sid> 78). Neither is an answer to whatever request
- * a caller is waiting on, so every listener has to step over them.
+ * Traffic the held session generates on its own: TesterPresent acks (7E), a
+ * negative response to TesterPresent itself (7F 3E <nrc> — some ECUs reject
+ * the keep-alive's subfunction, e.g. a Ford/ATE unit wanting 0x00 where this
+ * app sends the KWP-style 0x01; the session stays fine regardless), and
+ * "response pending" (7F <sid> 78). None of these are an answer to whatever
+ * request a caller is waiting on, so every listener has to step over them —
+ * otherwise a keep-alive tick that lands mid-scan gets mistaken for the
+ * scan's own request being rejected.
  */
 function isSessionNoise(payload: number[]): boolean {
   if (!payload.length) return true;
   if (payload[0] === 0x7E) return true;
+  if (payload[0] === 0x7F && payload[1] === 0x3E) return true;
   return payload[0] === 0x7F && payload[2] === 0x78;
 }
 
@@ -356,7 +290,7 @@ const SCAN_TIMEOUT_MS = 3500;
 
 export default function Diagnostics({ sendMessage, isConnected, absReference }: Props) {
   const { currentJob } = useSession();
-  const { patchIdent: reportPatchIdent, setDtc: reportSetDtc } = useReports();
+  const { patchIdent: reportPatchIdent, setDtc: reportSetDtc, resetSignalDraft } = useReports();
 
   // One diagnostic session held for the ECU on the bench. Every request below
   // goes out inside it — these ECUs silently ignore anything sent outside one.
@@ -370,7 +304,20 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   const [useBroadcast, setUseBroadcast] = useState(true);
   const [scanState, setScanState]       = useState<ScanState>('idle');
   const [scan, setScan]                 = useState<DTCScan | null>(null);
+  // VW TP2.0 channel — the pre-UDS VAG transport, held like a session.
+  const vwChanRef                       = useRef<VwTp20Channel | null>(null);
+  const [vwOpen, setVwOpen]             = useState(false);
+  const [vwTrace, setVwTrace]           = useState<string[]>([]);
+  // Technician setup (addressing / discovery / protocol / bus recorder) is
+  // folded away by default — operators pick a reference and hit Scan.
+  const [setupOpen, setSetupOpen]       = useState(() => {
+    try { return localStorage.getItem('braxon.diag.setupOpen') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('braxon.diag.setupOpen', setupOpen ? '1' : '0'); } catch { /* ignore */ }
+  }, [setupOpen]);
   const [saveStatus, setSaveStatus]     = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [refSaveStatus, setRefSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [noteOpen, setNoteOpen]         = useState(false);
   const [errorMsg, setErrorMsg]         = useState('');
   const [dbEnriching, setDbEnriching]   = useState(false);
@@ -380,6 +327,9 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   const [ecuList, setEcuList]           = useState<EcuInfo[]>([]);
   const [selectedEcu, setSelectedEcu]   = useState<EcuInfo | null>(null);
   const [actuators, setActuators]       = useState<ActuatorEntry[]>([]);
+  // DDT4ALL full-import (Ddt* tables): calibration / programming procedures for
+  // the selected ECU that the ABS-only EcuActuator import may not carry.
+  const [ddtProcs, setDdtProcs]         = useState<ActuatorEntry[]>([]);
   const [activeTestOpen, setActiveTestOpen] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [partNumber, setPartNumber]     = useState('');
@@ -408,6 +358,13 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   const rawLinesRef      = useRef<string[]>([]);
   // Every frame on the response ID during the scan window, formatted as hex.
   const respFramesRef    = useRef<string[]>([]);
+  // The service ID this scan actually asked for (0x03/0x19/0x18) — a negative
+  // response only counts as "the scan was rejected" if it names this SID, not
+  // an unrelated one (e.g. the keep-alive's own 7F 3E landing mid-scan).
+  const reqSidRef        = useRef<number | null>(null);
+  // "<absRef>:<protocol>" already written back to the DB this session — a
+  // verified positive response only needs to correct the stored protocol once.
+  const learnedProtocolRef = useRef<string | null>(null);
   const listenerRef      = useRef<((e: SerialEvent) => void) | null>(null);
   const timeoutRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendRef          = useRef(sendMessage);
@@ -432,11 +389,21 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     invoke<EcuInfo[]>('get_ecu_list').then(setEcuList).catch(() => setEcuList([]));
   }, [brand]);
 
-  // Load actuators when ECU selection changes
+  // Load actuators + DDT4ALL calibration procedures when ECU selection changes
   useEffect(() => {
-    if (!selectedEcu) { setActuators([]); return; }
+    if (!selectedEcu) { setActuators([]); setDdtProcs([]); return; }
     invoke<ActuatorEntry[]>('get_ecu_actuators', { ecuFile: selectedEcu.ecuFile })
       .then(setActuators).catch(() => setActuators([]));
+    invoke<{ kind: string; sentBytes: string; minBytes: number | null; name: string }[]>(
+      'ddt_calibration_procedures', { ecuFile: selectedEcu.ecuFile })
+      .then(rows => setDdtProcs(rows.map(r => ({
+        id: `ddt:${r.sentBytes}`,
+        name: r.name,
+        label: r.name.replace(/^(Routine|IO Control|Write)\s*-\s*/i, '').slice(0, 40),
+        sentBytes: r.sentBytes,
+        category: 'calibration',
+      }))))
+      .catch(() => setDdtProcs([]));
   }, [selectedEcu]);
 
   // Brand switch is a manual action: clear the model picked under the old
@@ -447,6 +414,7 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     setBrand(next);
     setSelectedEcu(null);
     setActuators([]);
+    setDdtProcs([]);
   };
 
   // Response ID the ECU will answer on, most specific source first: the
@@ -524,19 +492,30 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     if (session.sendId !== null && nextSendId !== session.sendId) closeSession();
   };
 
-  // Silently enrich DTC descriptions from the ECU DB after a scan
+  // Silently enrich DTC descriptions from the ECU DB after a scan. One batch
+  // round-trip, scoped to the unit on the bench: an exact `EcuDtc`/`DdtDevice`
+  // row for `selectedEcu.ecuFile` wins; failing that, the same raw value from
+  // any other unit (ATE/Bosch fault tables are shared across OEMs) — flagged
+  // `cross-unit` so the UI can mark it as borrowed.
   const enrichFromDb = useCallback(async (codes: DTCEntry[]): Promise<DTCEntry[]> => {
     if (!codes.length) return codes;
-    return Promise.all(
-      codes.map(async (dtc) => {
-        try {
-          const entry = await invoke<EcuDtcEntry | null>('lookup_dtc', { dtcRaw: dtc.rawValue });
-          if (entry) return { ...dtc, description: entry.description, ecuName: entry.ecuName };
-        } catch { /* DB not populated yet — keep fallback */ }
-        return dtc;
-      })
-    );
-  }, []);
+    // VW TP2.0 DTCs are the VAG 5-digit number on the wire → the Ross-Tech wiki
+    // table is keyed exactly the same way.
+    const ecuFile = protocol === 'VWTP20' ? 'VAG_WIKI' : (selectedEcu?.ecuFile ?? null);
+    try {
+      const hits = await invoke<(EcuDtcEntry | null)[]>('lookup_dtcs', {
+        dtcRaws: codes.map(c => c.rawValue),
+        ecuFile,
+      });
+      return codes.map((dtc, i) => {
+        const e = hits[i];
+        if (!e) return dtc;
+        return { ...dtc, description: e.description, ecuName: e.ecuName, dtcSource: e.source };
+      });
+    } catch {
+      return codes; // DB not populated yet — keep the generic SAE fallback
+    }
+  }, [selectedEcu, protocol]);
 
   const guessedFamily = guessHardwareFamily(partNumber);
 
@@ -546,12 +525,23 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     ? ecuList.filter(e => e.hardwareFamily === guessedFamily)
     : ecuList;
 
-  // Active tests: DDT4ALL DB entries for the selected ECU, else a built-in set
-  // for the hardware family (units the DB doesn't cover yet, e.g. MK61).
+  // Active tests: DDT4ALL DB entries for the selected ECU, plus any built-in
+  // ones for the hardware family — merged, not either/or, so a family the DB
+  // only *mostly* covers still gets the gap filled in alongside the real
+  // entries (used today for the MK61 return-pump test).
   const testFamily = selectedEcu?.hardwareFamily ?? guessedFamily;
-  const builtinActuators = actuators.length === 0 ? builtinActuatorsFor(testFamily) : [];
-  const shownActuators = actuators.length > 0 ? actuators : builtinActuators;
-  const usingBuiltinActuators = actuators.length === 0 && builtinActuators.length > 0;
+  // A `10.0961-…` part number guesses "MK61" (Renault ATE), but the same ATE
+  // hardware ships in VW/Audi too — on the VW TP2.0 transport it is NOT a
+  // Renault MK61, so its Renault built-ins (pump test, 21 04 wheel speeds)
+  // must not appear.
+  const familyForBuiltins = protocol === 'VWTP20' ? null : testFamily;
+  const builtinActuators = builtinActuatorsFor(familyForBuiltins)
+    .filter(b => !actuators.some(a => a.id === b.id));
+  const extraDdtProcs = ddtProcs.filter(
+    p => !actuators.some(a => a.sentBytes === p.sentBytes) &&
+         !builtinActuators.some(b => b.sentBytes === p.sentBytes));
+  const shownActuators = [...actuators, ...builtinActuators, ...extraDdtProcs];
+  const usingBuiltinActuators = builtinActuators.length > 0 || extraDdtProcs.length > 0;
   // Address to send actuator frames to: the DB ECU's send ID, else the
   // manually configured / auto-configured request ID from the address row.
   const actuatorSendId = selectedEcu?.sendId ?? (parseCanId(ecuIdHex) !== null ? ecuIdHex : null);
@@ -676,13 +666,140 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
   };
 
+  // ── VW TP2.0 path ─────────────────────────────────────────────────────
+  // A persistent channel replaces the UDS session; `18 02 FF 00` replaces the
+  // ISO-TP DTC request. Everything renders into the same `scan` UI.
+  const openVwChannel = async (): Promise<VwTp20Channel | null> => {
+    if (vwChanRef.current?.open) return vwChanRef.current;
+    const { channel, log } = await openVwTp20Channel({ send: sendMessage, logicalAddress: 0x03 });
+    vwChanRef.current = channel;
+    setVwTrace(log);
+    setVwOpen(!!channel);
+    if (channel) await channel.request([0x10, 0x89], { timeoutMs: 1500 }); // best-effort session
+    return channel;
+  };
+
+  const closeVwChannel = () => {
+    vwChanRef.current?.close();
+    vwChanRef.current = null;
+    setVwOpen(false);
+    setVwTrace([]);
+  };
+
+  const hexFrame = (id: number, bytes: number[]) =>
+    `${toHex3(id)}  ${bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')}`;
+
+  // Persist the current protocol + addressing + family against this ABS
+  // reference, so next time the operator picks it everything preloads and they
+  // just hit Scan. (An `18` positive also auto-writes the protocol; this button
+  // is the explicit "remember this whole setup" the tech asked for.)
+  const saveRefSettings = async () => {
+    if (!absReference?.trim()) return;
+    setRefSaveStatus('saving');
+    try {
+      const sid = protocol === 'VWTP20' ? null : (parseCanId(ecuIdHex) !== null ? ecuIdHex : null);
+      const rid = protocol === 'VWTP20' ? null : (recvIdHex.trim() || null);
+      await invoke('save_abs_ref_ecu', {
+        absRef: absReference,
+        ecuFile: selectedEcu?.ecuFile ?? null,
+        sendId: sid,
+        recvId: rid,
+        protocol,
+        hardwareFamily: selectedEcu?.hardwareFamily ?? testFamily ?? null,
+        source: 'manual',
+      });
+      setRefSaveStatus('saved');
+      setTimeout(() => setRefSaveStatus('idle'), 2500);
+    } catch {
+      setRefSaveStatus('error');
+      setTimeout(() => setRefSaveStatus('idle'), 2500);
+    }
+  };
+
+  const vwScan = async () => {
+    stopScan();
+    setScanState('scanning');
+    setScan(null);
+    setSaveStatus('idle');
+    setErrorMsg('');
+    protocolRef.current = protocol;
+    brandRef.current = brand;
+
+    const ch = await openVwChannel();
+    if (!ch) {
+      setScanState('no_session');
+      setErrorMsg('VW TP2.0 channel did not open — see the trace above');
+      return;
+    }
+    const r = await ch.request([0x18, 0x02, 0xff, 0x00], { timeoutMs: 3000 });
+    const rawResponse = r ? [hexFrame(ch.rxId, r.payload)] : [];
+    const base = { timestamp: new Date().toISOString(), protocol, brand, rawLines: [] as string[], rawResponse };
+
+    if (!r) {
+      setScan({ ...base, codes: [], gotPositive: false });
+      setScanState('no_response');
+      return;
+    }
+    if (r.payload[0] === 0x7f) {
+      setScan({ ...base, codes: [], gotPositive: false, nrc: { sid: r.payload[1], code: r.payload[2] } });
+      setScanState('rejected');
+      return;
+    }
+    let codes: DTCEntry[] = decodeVwDtcs(r.payload).map(d => ({
+      code: d.code,
+      description: d.elaborationText,
+      rawValue: d.raw,
+      udsStatus: d.status,
+    }));
+    setScan({ ...base, codes, gotPositive: true });
+    setScanState('done');
+
+    // A working TP2.0 read proves the protocol for this reference — remember it
+    // so next time the operator just picks the ref and scans.
+    if (absReference?.trim()) {
+      const key = `${absReference}:VWTP20`;
+      if (learnedProtocolRef.current !== key) {
+        learnedProtocolRef.current = key;
+        invoke('save_abs_ref_ecu', {
+          absRef: absReference, ecuFile: null, sendId: null, recvId: null,
+          protocol: 'VWTP20', hardwareFamily: null, source: 'confirmed',
+        }).catch(() => { learnedProtocolRef.current = null; });
+      }
+    }
+    if (codes.length) {
+      setDbEnriching(true);
+      const enriched = await enrichFromDb(codes);
+      setScan(prev => prev ? { ...prev, codes: enriched } : prev);
+      setDbEnriching(false);
+    }
+  };
+
+  const vwClear = async () => {
+    const ch = vwChanRef.current;
+    if (!ch?.open) return;
+    setScanState('clearing');
+    await ch.request([0x14, 0xff, 0xff], { timeoutMs: 3000 });
+    setTimeout(() => { setScanState('cleared'); setScan(null); }, 1200);
+  };
+
+  // Drop the channel when the link goes away, the panel unmounts, or the user
+  // switches to a non-TP2.0 protocol.
+  useEffect(() => {
+    if ((!isConnected || protocol !== 'VWTP20') && vwChanRef.current) closeVwChannel();
+    return () => { vwChanRef.current?.close(); vwChanRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, protocol]);
+
   const finalizeScan = async () => {
     const rawLines = rawLinesRef.current;
     const payloads = payloadsRef.current;
     const rawResponse = [...respFramesRef.current];
 
-    // Negative response — 7F <sid> <nrc>, with nrc 0x78 ("pending") stepped over.
-    const neg = payloads.find(p => p.payload[0] === 0x7F && p.payload[2] !== 0x78);
+    // Negative response to *this scan's own request* — 7F <sid> <nrc>, sid must
+    // match what we asked for (not an unrelated 7F, e.g. the keep-alive's),
+    // nrc 0x78 ("pending") stepped over.
+    const neg = payloads.find(p =>
+      p.payload[0] === 0x7F && p.payload[1] === reqSidRef.current && p.payload[2] !== 0x78);
     if (neg) {
       setScan({
         timestamp: new Date().toISOString(),
@@ -722,8 +839,35 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     });
     setScanState('done');
 
-    // DB enrichment only for brands covered by the DDT4ALL database
-    if (codes.length > 0 && brandRef.current !== 'Other') {
+    // A real positive response *proves* which protocol tab is right for this
+    // reference — write it back so the next lookup auto-selects it instead of
+    // defaulting to a guess (non-OBD addresses default to KWP2000, which is
+    // wrong for a UDS-only ECU like the Ford/ATE unit that started this).
+    // save_abs_ref_ecu only touches the protocol column (COALESCE keeps the
+    // rest), so this can't clobber a saved address/ecu link.
+    if (gotPositive && protocolRef.current !== 'OBD2' && absReference?.trim()) {
+      const key = `${absReference}:${protocolRef.current}`;
+      if (learnedProtocolRef.current !== key) {
+        learnedProtocolRef.current = key;
+        invoke('save_abs_ref_ecu', {
+          absRef: absReference,
+          ecuFile: null, sendId: null, recvId: null,
+          protocol: protocolRef.current,
+          hardwareFamily: null,
+          source: 'confirmed',
+        }).catch(() => { learnedProtocolRef.current = null; }); // best effort — retry next scan
+      }
+    }
+
+    // Always try the DB, regardless of which Brand tab is selected. That tab
+    // is a vehicle-OEM filter for the ECU-model dropdown, not a hardware
+    // boundary — ATE/Bosch ABS platforms are resold across OEMs with the same
+    // internal fault-code table verbatim (confirmed 2026-09-04: a Ford/ATE
+    // unit's raw DTCs matched, byte-for-byte, entries stored under the
+    // Renault MK61 ECU — the codes are ATE-platform-specific, not brand-
+    // specific). Gating this on Brand !== 'Other' only found that match by
+    // accident of which tab happened to be left selected.
+    if (codes.length > 0) {
       setDbEnriching(true);
       const enriched = await enrichFromDb(codes);
       setScan(prev => prev ? { ...prev, codes: enriched } : prev);
@@ -733,6 +877,7 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
 
   const startScan = async () => {
     if (!isConnected || scanState === 'scanning') return;
+    if (protocol === 'VWTP20') { await vwScan(); return; }
 
     stopScan();
     setScanState('scanning');
@@ -840,6 +985,7 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
       reqId    = ecuIdHex.toUpperCase().padStart(3, '0');
       reqBytes = '03 18 00 FF 00 00 00 00';
     }
+    reqSidRef.current = parseInt(reqBytes.split(' ')[1], 16);
 
     const sent = await sendRef.current(`CANTx : ${reqId} ${reqBytes}\n`);
     if (sent === false) {
@@ -857,6 +1003,7 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
 
   const clearDTCs = async () => {
     if (!isConnected) return;
+    if (protocol === 'VWTP20') { await vwClear(); return; }
     setScanState('clearing');
 
     const gate = await prepareSession();
@@ -1023,15 +1170,43 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     lost:        { label: 'Session lost · reopen',         cls: 'text-danger bg-danger/10 border-danger/25' },
     idle:        { label: 'Open session',                  cls: 'text-text-tertiary bg-app border-border' },
   };
-  const sessionChip = SESSION_CHIP[session.status] ?? SESSION_CHIP.idle;
-  const sessionActive = session.status === 'open' || session.status === 'opening';
+  const sessionActive = protocol === 'VWTP20'
+    ? vwOpen
+    : (session.status === 'open' || session.status === 'opening');
+  const sessionChip = protocol === 'VWTP20'
+    ? (vwOpen
+        ? { label: 'TP2.0 channel open · click to close', cls: 'text-success bg-success/10 border-success/25' }
+        : { label: 'Open TP2.0 channel', cls: 'text-text-tertiary bg-app border-border' })
+    : (SESSION_CHIP[session.status] ?? SESSION_CHIP.idle);
 
   const toggleSession = async () => {
+    if (protocol === 'VWTP20') {
+      if (vwOpen) closeVwChannel(); else await openVwChannel();
+      return;
+    }
     if (sessionActive) { closeSession(); return; }
     await prepareSession();
   };
 
   // ── Feed the Test Report draft ─────────────────────────────
+  // Switching to a *different* unit starts a clean report. Without this,
+  // `patchIdent`'s "drop undefined keys" merge (deliberate, so a
+  // less-specific source can't blank a field a more-specific one filled)
+  // means a truthy field from the previous unit — e.g. hardwareFamily
+  // 'MK61' from testing an actual Renault MK61 — survives untouched even
+  // once this component starts reporting `undefined` for a completely
+  // different reference, and prints on that unit's report as if it were
+  // real. (Root cause of a Ford/ATE unit's report showing "Hardware
+  // family: MK61" — cosmetic only: lookup_dtc matches DTCs by raw value
+  // globally, with no family/brand filter, so it wasn't affected.)
+  const prevAbsRefRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (absReference && prevAbsRefRef.current !== absReference) {
+      resetSignalDraft();
+    }
+    prevAbsRefRef.current = absReference;
+  }, [absReference, resetSignalDraft]);
+
   // Addressing / protocol / model identity as configured here.
   useEffect(() => {
     const recv = resolvedRecvId();
@@ -1056,7 +1231,8 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
       protocol: scan.protocol,
       brand: scan.brand,
       codes: scan.codes.map(c => ({
-        code: c.code, description: c.description, udsStatus: c.udsStatus, rawValue: c.rawValue, ecuName: c.ecuName,
+        code: c.code, description: c.description, udsStatus: c.udsStatus, rawValue: c.rawValue,
+        ecuName: c.ecuName, dtcSource: c.dtcSource,
       })),
       nrc: scan.nrc,
       gotPositive: scan.gotPositive,
@@ -1083,14 +1259,27 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
           <BugAntIcon className="w-4 h-4 text-text-tertiary" />
           <h2 className="card-header !mb-0">Diagnostics</h2>
         </div>
-        <button
-          onClick={() => setNoteOpen(v => !v)}
-          className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-secondary transition-colors"
-        >
-          <InformationCircleIcon className="w-3.5 h-3.5" />
-          Firmware note
-          {noteOpen ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSetupOpen(v => !v)}
+            className={[
+              'flex items-center gap-1 text-[10px] transition-colors',
+              setupOpen ? 'text-text-secondary' : 'text-text-tertiary hover:text-text-secondary',
+            ].join(' ')}
+          >
+            <Cog6ToothIcon className="w-3.5 h-3.5" />
+            Setup
+            {setupOpen ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />}
+          </button>
+          <button
+            onClick={() => setNoteOpen(v => !v)}
+            className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-secondary transition-colors"
+          >
+            <InformationCircleIcon className="w-3.5 h-3.5" />
+            Firmware note
+            {noteOpen ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />}
+          </button>
+        </div>
       </div>
 
       {/* Firmware note */}
@@ -1115,18 +1304,58 @@ else if (line.startsWith("CANTx : "))
         )}
       </AnimatePresence>
 
-      {/* Selected ABS reference → automatic session configuration. The
-          brand/model dropdowns below stay as the override path. */}
-      <EcuAutoConfig
-        isConnected={isConnected}
-        send={sendMessage}
-        absRef={absReference}
-        onApply={applyAutoConfig}
-        session={session}
-        connect={ensureSession}
-        disconnect={closeSession}
-      />
+      {/* Compact status line — always visible; the operator's whole context. */}
+      <div className="flex items-center gap-2 flex-wrap mb-3 text-[11px]">
+        {absReference
+          ? <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent border border-accent/20">{absReference}</span>
+          : <span className="text-text-tertiary">No reference selected</span>}
+        <span className="text-text-secondary">
+          {selectedEcu?.ecuName
+            ?? (protocol === 'VWTP20' ? 'VAG ABS (MK60 / MK60EC1)'
+              : testFamily ? `${testFamily} ABS`
+              : brand !== 'Other' ? `${brand} ABS` : 'ABS')}
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-text-tertiary">
+          {protocol === 'OBD2' ? 'OBD-II' : protocol === 'VWTP20' ? 'VAG TP2.0' : protocol}
+        </span>
+        {absReference?.trim() && (
+          <button
+            onClick={saveRefSettings}
+            disabled={refSaveStatus === 'saving'}
+            className={[
+              'text-[10px] px-1.5 py-0.5 rounded border transition-colors',
+              refSaveStatus === 'saved' ? 'text-success border-success/30 bg-success/10'
+                : refSaveStatus === 'error' ? 'text-danger border-danger/30 bg-danger/10'
+                : 'text-text-tertiary border-border hover:text-text-secondary hover:bg-app',
+            ].join(' ')}
+            title="Remember this protocol / addressing for this ABS reference"
+          >
+            {refSaveStatus === 'saved' ? 'Saved ✓' : refSaveStatus === 'saving' ? 'Saving…' : refSaveStatus === 'error' ? 'Save failed' : 'Save for this reference'}
+          </button>
+        )}
+        {!setupOpen && (
+          <button onClick={() => setSetupOpen(true)} className="text-[10px] text-text-tertiary hover:text-text-secondary underline">
+            addressing / protocol…
+          </button>
+        )}
+      </div>
 
+      {/* ABS-reference → auto-config. Kept MOUNTED even when Setup is folded
+          away — this is what preloads protocol / addressing / family from the
+          stored reference; its own card UI is just hidden. */}
+      <div className={setupOpen ? undefined : 'hidden'}>
+        <EcuAutoConfig
+          isConnected={isConnected}
+          send={sendMessage}
+          absRef={absReference}
+          onApply={applyAutoConfig}
+          session={session}
+          connect={ensureSession}
+          disconnect={closeSession}
+        />
+      </div>
+
+      {setupOpen && (<>
       {/* Bus recorder — for ECUs not yet in the DB (e.g. MK61 / K-line units
           the board can't originate requests for). Passively logs whatever
           the Nano forwards while you drive the session manually. */}
@@ -1371,6 +1600,7 @@ else if (line.startsWith("CANTx : "))
           )}
         </div>
       )}
+      </>)}
 
       {/* Active Tests panel */}
       {shownActuators.length > 0 && (
@@ -1410,7 +1640,12 @@ else if (line.startsWith("CANTx : "))
                 <div className="px-3 pb-3 pt-2 space-y-3">
                   {usingBuiltinActuators && (
                     <p className="text-[10px] text-warning bg-warning/5 border border-warning/20 rounded-lg px-2 py-1.5">
-                      Built-in commands, decoded from a reference-tool capture — they physically drive the actuator (the pump motor runs). Keep the unit secured and hit STOP when done.
+                      {builtinActuators.length > 0 && (
+                        builtinActuators.length === shownActuators.length
+                          ? 'Built-in commands, decoded from a reference-tool capture. '
+                          : `${builtinActuators.length} built-in ${builtinActuators.length === 1 ? 'command' : 'commands'} mixed in below (marked ⚠). `)}
+                      {extraDdtProcs.length > 0 && `${extraDdtProcs.length} calibration/programming ${extraDdtProcs.length === 1 ? 'procedure' : 'procedures'} from DDT4ALL data. `}
+                      They physically drive the actuator / write the ECU. "UNVERIFIED" means inferred, not confirmed on this exact ECU — check the result before trusting it. Keep the unit secured and hit STOP when done.
                     </p>
                   )}
                   {!actuatorSendId && (
@@ -1422,15 +1657,16 @@ else if (line.startsWith("CANTx : "))
                     <p className="text-[10px] text-text-tertiary">Connect the interface to run tests.</p>
                   )}
 
-                  {(['pump', 'valve', 'relay', 'reset', 'other'] as const).map(cat => {
+                  {(['pump', 'valve', 'relay', 'calibration', 'reset', 'other'] as const).map(cat => {
                     const group = shownActuators.filter(a => a.category === cat);
                     if (!group.length) return null;
                     const catLabel: Record<string, string> = {
-                      pump: 'Pump', valve: 'Valves', relay: 'Relays', reset: 'Reset / Stop', other: 'Other'
+                      pump: 'Pump', valve: 'Valves', relay: 'Relays',
+                      calibration: 'Calibration / Programming', reset: 'Reset / Stop', other: 'Other'
                     };
                     const catColor: Record<string, string> = {
-                      pump: 'text-blue-400', valve: 'text-amber-400',
-                      relay: 'text-purple-400', reset: 'text-red-400', other: 'text-text-tertiary'
+                      pump: 'text-blue-400', valve: 'text-amber-400', relay: 'text-purple-400',
+                      calibration: 'text-emerald-400', reset: 'text-red-400', other: 'text-text-tertiary'
                     };
                     return (
                       <div key={cat}>
@@ -1482,7 +1718,7 @@ else if (line.startsWith("CANTx : "))
         </div>
       )}
 
-      {/* Live data — measured values (wheel speeds, voltages, …) */}
+      {/* Live data — measured values (wheel speeds, voltages, measuring blocks) */}
       <LiveData
         isConnected={isConnected}
         send={sendMessage}
@@ -1490,31 +1726,54 @@ else if (line.startsWith("CANTx : "))
         recvId={resolvedRecvId()}
         protocol={protocol}
         absRef={absReference}
-        family={testFamily}
+        family={familyForBuiltins}
         prepareSession={prepareSession}
+        vwRequest={protocol === 'VWTP20'
+          ? (data: number[]) => (vwChanRef.current?.open ? vwChanRef.current.request(data, { timeoutMs: 800 }) : openVwChannel().then(c => c?.request(data, { timeoutMs: 800 }) ?? null))
+          : null}
       />
 
-      {/* Protocol tabs */}
-      <div className="flex gap-0.5 p-0.5 bg-app rounded-lg mb-3">
-        {(['OBD2', 'UDS', 'KWP2000'] as Protocol[]).map(p => (
-          <button
-            key={p}
-            onClick={() => { setProtocol(p); if (scanState !== 'scanning') setScanState('idle'); }}
-            className={[
-              'flex-1 py-1 text-[11px] font-medium rounded-md transition-colors',
-              protocol === p
-                ? 'bg-elevated text-text-primary shadow-sm'
-                : 'text-text-tertiary hover:text-text-secondary',
-            ].join(' ')}
-          >
-            {p === 'OBD2' ? 'OBD-II' : p}
-          </button>
-        ))}
-      </div>
+      {/* Protocol tabs — technician override; the reference normally sets this */}
+      {setupOpen && (
+        <div className="flex gap-0.5 p-0.5 bg-app rounded-lg mb-3">
+          {(['OBD2', 'UDS', 'KWP2000', 'VWTP20'] as Protocol[]).map(p => (
+            <button
+              key={p}
+              onClick={() => { setProtocol(p); if (scanState !== 'scanning') setScanState('idle'); }}
+              className={[
+                'flex-1 py-1 text-[11px] font-medium rounded-md transition-colors',
+                protocol === p
+                  ? 'bg-elevated text-text-primary shadow-sm'
+                  : 'text-text-tertiary hover:text-text-secondary',
+              ].join(' ')}
+            >
+              {p === 'OBD2' ? 'OBD-II' : p === 'VWTP20' ? 'VAG TP2.0' : p}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Address row + action buttons */}
+      {protocol === 'VWTP20' && setupOpen && (
+        <p className="text-[10px] text-text-tertiary mb-2 leading-snug">
+          Pre-UDS VW/Audi/Seat/Skoda ABS (MK25 / MK60 / MK60EC1). The session chip opens a TP2.0
+          channel to address 0x03; Scan DTCs reads <span className="font-mono">18 02 FF 00</span>.
+        </p>
+      )}
+      {protocol === 'VWTP20' && setupOpen && vwTrace.length > 0 && (
+        <pre className="text-[9.5px] leading-tight text-text-tertiary font-mono bg-app rounded-md p-1.5 mb-2 overflow-x-auto whitespace-pre">
+          {vwTrace.join('\n')}
+        </pre>
+      )}
+      {protocol === 'VWTP20' && !setupOpen && !vwOpen && vwTrace.length > 0 && (
+        <p className="text-[10px] text-danger mb-2">
+          TP2.0 channel didn't open — open Setup to see the handshake trace.
+        </p>
+      )}
+
+      {/* Action row — session chip + scan buttons always visible; the raw
+          addressing inputs only when Setup is expanded. */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {protocol === 'OBD2' && (
+        {setupOpen && protocol === 'OBD2' && (
           <label className="flex items-center gap-1.5 text-[11px] text-text-secondary cursor-pointer select-none">
             <input
               type="checkbox"
@@ -1525,7 +1784,7 @@ else if (line.startsWith("CANTx : "))
             Broadcast 0x7DF
           </label>
         )}
-        {(!useBroadcast || protocol !== 'OBD2') && (
+        {setupOpen && protocol !== 'VWTP20' && (!useBroadcast || protocol !== 'OBD2') && (
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-text-tertiary">ECU</span>
             <input
@@ -1549,12 +1808,29 @@ else if (line.startsWith("CANTx : "))
             />
           </div>
         )}
-        <span className="text-[10px] text-text-tertiary">→ resp {respRangeLabel()}</span>
+        {setupOpen && protocol !== 'VWTP20' && (
+          <span className="text-[10px] text-text-tertiary">→ resp {respRangeLabel()}</span>
+        )}
 
-        {/* Session state — click to open / close the held diagnostic session.
-            This is the session's connect/disconnect control; the transport
-            (board / Kvaser) is connected from the sidebar. */}
-        {needsSession && (
+        {/* Connect / disconnect the diagnostic channel (session for UDS/KWP,
+            TP2.0 channel for VAG). The transport (board / Kvaser) itself is
+            connected from the sidebar. */}
+        {protocol === 'VWTP20' ? (
+          <button
+            onClick={toggleSession}
+            disabled={!isConnected}
+            className={[
+              'flex items-center gap-1.5 text-[11px] font-medium px-3 py-1 rounded-lg border transition-colors disabled:opacity-40',
+              vwOpen
+                ? 'text-danger border-danger/30 bg-danger/10 hover:bg-danger/20'
+                : 'text-success border-success/30 bg-success/10 hover:bg-success/20',
+            ].join(' ')}
+          >
+            {vwOpen
+              ? <><StopIcon className="w-3 h-3" />Disconnect</>
+              : <><span className="w-1.5 h-1.5 rounded-full bg-current" />Connect</>}
+          </button>
+        ) : needsSession && (
           <button
             onClick={toggleSession}
             disabled={!isConnected}
@@ -1718,7 +1994,7 @@ else if (line.startsWith("CANTx : "))
                 {' · '}
                 {scan.brand}
                 {' · '}
-                {scan.protocol === 'OBD2' ? 'OBD-II' : scan.protocol}
+                {scan.protocol === 'OBD2' ? 'OBD-II' : scan.protocol === 'VWTP20' ? 'VAG TP2.0' : scan.protocol}
               </span>
               <div className="flex items-center gap-2">
                 {dbEnriching && (
@@ -1766,8 +2042,18 @@ else if (line.startsWith("CANTx : "))
                       <p className="text-[12px] text-text-primary font-medium leading-tight">{dtc.description}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         {dtc.ecuName && (
-                          <span className="text-[10px] text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded font-medium">
-                            {dtc.ecuName}
+                          <span
+                            title={dtc.dtcSource === 'cross-unit'
+                              ? `Text borrowed from ${dtc.ecuName} — same raw code, different unit (ATE/Bosch platforms share fault tables)`
+                              : `Matched to this unit's own fault table`}
+                            className={[
+                              'text-[10px] px-1.5 py-0.5 rounded font-medium border',
+                              dtc.dtcSource === 'cross-unit'
+                                ? 'text-amber-400 bg-amber-400/10 border-amber-400/20'
+                                : 'text-accent bg-accent/10 border-accent/20',
+                            ].join(' ')}
+                          >
+                            {dtc.dtcSource === 'cross-unit' ? `≈ ${dtc.ecuName}` : dtc.ecuName}
                           </span>
                         )}
                         {dtc.udsStatus !== undefined && (

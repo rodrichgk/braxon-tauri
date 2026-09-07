@@ -8,6 +8,7 @@ import { LogoSymbol, LogoName } from "./components/Logo";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AppSettingsProvider } from "./contexts/AppSettingsContext";
 import { SessionProvider } from "./contexts/SessionContext";
+import { DevGateProvider, useDevGate } from "./contexts/DevGateContext";
 import { TestSessionProvider } from "./contexts/TestSessionContext";
 import { ReportsProvider } from "./contexts/ReportsContext";
 import LoginModal from "./components/LoginModal";
@@ -74,6 +75,17 @@ function SplashScreen({ onDone, rounded }: { onDone: () => void; rounded: boolea
   );
 }
 
+/* ── Dev page guard ───────────────────────────────────────────
+   Bounces a non-dev off a page the developer has hidden — covers a page
+   persisted before it was hidden, or a scan/notification that routes there. */
+function DevPageGuard({ currentPage, setCurrentPage }: { currentPage: Page; setCurrentPage: (p: Page) => void }) {
+  const { isDev, isHidden, loading } = useDevGate();
+  useEffect(() => {
+    if (!loading && !isDev && isHidden(currentPage)) setCurrentPage("home");
+  }, [loading, isDev, isHidden, currentPage, setCurrentPage]);
+  return null;
+}
+
 /* ── App ───────────────────────────────────────────────────── */
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>("home");
@@ -96,6 +108,7 @@ function App() {
     <ThemeProvider>
     <SessionProvider>
     <AppSettingsProvider>
+    <DevGateProvider>
     <TestSessionProvider navigateTo={setCurrentPage}>
     <ReportsProvider>
         <div className={[
@@ -123,6 +136,7 @@ function App() {
             <TitleBar />
             <UpdateChecker />
             <ScanListener />
+            <DevPageGuard currentPage={currentPage} setCurrentPage={setCurrentPage} />
 
             <div className="flex flex-1 min-h-0">
               <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
@@ -176,6 +190,7 @@ function App() {
         />
     </ReportsProvider>
     </TestSessionProvider>
+    </DevGateProvider>
     </AppSettingsProvider>
     </SessionProvider>
     </ThemeProvider>

@@ -35,6 +35,7 @@ import {
   toHex3,
 } from '@/lib/ecu';
 import { type SendFn } from '@/lib/isotp';
+import EcuDeepProfile from '@/components/EcuDeepProfile';
 import { type EnsureResult, type SessionState } from '@/hooks/useUdsSession';
 import {
   type DiscoveryHit,
@@ -94,6 +95,10 @@ export default function EcuAutoConfig({
   const [sweepTier, setSweepTier]   = useState<DiscoveryTier | null>(null);
   const [progress, setProgress]     = useState({ done: 0, total: 0 });
   const [hit, setHit]               = useState<DiscoveryHit | null>(null);
+  // Protocol inferred from the hit's own session-control response — saved
+  // alongside the address so the *next* lookup of this reference picks the
+  // right protocol tab on its own instead of defaulting to KWP2000.
+  const [hitProtocol, setHitProtocol] = useState<Protocol | null>(null);
   const [fullSweepArmed, setFullSweepArmed] = useState(false);
 
   const [saveState, setSaveState]   = useState<SaveState>('idle');
@@ -127,12 +132,17 @@ export default function EcuAutoConfig({
       setLookup(res);
 
       const hasAddressing = !!res?.sendId;
-      setLookupState(hasAddressing ? 'found' : 'unknown');
+      const dbProtocol = protocolFromDb(res?.protocol ?? res?.ecu?.protocol);
+      // Worth applying if the reference resolved to *anything* usable — CAN
+      // addressing, a stored protocol (e.g. VW TP2.0, which needs no CAN id),
+      // or a linked ECU record.
+      const worthApplying = hasAddressing || dbProtocol !== null || !!res?.ecu;
+      setLookupState(worthApplying ? 'found' : 'unknown');
 
-      if (res && hasAddressing && autoApply) {
+      if (res && worthApplying && autoApply) {
         const sendId = parseCanId(res.sendId);
         const recvId = parseCanId(res.recvId) ?? (sendId !== null ? sendId + 0x20 : null);
-        const protocol = protocolFromDb(res.protocol ?? res.ecu?.protocol) ?? defaultProtocolFor(sendId);
+        const protocol = dbProtocol ?? defaultProtocolFor(sendId);
         onApplyRef.current({
           absRef:    res.absRef,
           ecu:       res.ecu,
@@ -143,8 +153,8 @@ export default function EcuAutoConfig({
         });
         // Configuring the bench ECU is the connect step: open the session now
         // and hold it, so Scan / Clear / Active Tests work straight away.
-        // Standard OBD-II is sessionless and needs none.
-        if (isConnectedRef.current && protocol !== 'OBD2' && sendId !== null && recvId !== null) {
+        // OBD-II is sessionless; VW TP2.0 opens its channel from Diagnostics.
+        if (isConnectedRef.current && protocol !== 'OBD2' && protocol !== 'VWTP20' && sendId !== null && recvId !== null) {
           void connectRef.current(sendId, recvId);
         }
       }
@@ -167,6 +177,7 @@ export default function EcuAutoConfig({
     setSweepState('idle');
     setSweepTier(null);
     setHit(null);
+    setHitProtocol(null);
     setProgress({ done: 0, total: 0 });
     setSaveState('idle');
     setFullSweepArmed(false);
@@ -209,6 +220,7 @@ export default function EcuAutoConfig({
     setSweepTier(tier);
     setSweepState('running');
     setHit(null);
+    setHitProtocol(null);
     setSaveState('idle');
     setFullSweepArmed(false); // each full sweep needs its own confirmation
     setProgress({ done: 0, total: probes.length });
@@ -226,6 +238,8 @@ export default function EcuAutoConfig({
     if (found) {
       setHit(found);
       setSweepState('hit');
+      const detectedProtocol = protocolFromProbe(found.payload);
+      setHitProtocol(detectedProtocol);
       // Configure the bench straight away — saving to the DB stays a separate,
       // explicit step so a one-off probe result never pollutes the database.
       onApplyRef.current({
@@ -233,7 +247,7 @@ export default function EcuAutoConfig({
         ecu:       null,
         sendIdHex: toHex3(found.sendId),
         recvIdHex: toHex3(found.recvId),
-        protocol:  protocolFromProbe(found.payload),
+        protocol:  detectedProtocol,
         brand:     null,
       });
       // Discovery is the connect action: the ECU just accepted a session, so
@@ -258,7 +272,11 @@ export default function EcuAutoConfig({
         ecuFile:        lookup?.ecu?.ecuFile ?? null,
         sendId:         toHex3(hit.sendId),
         recvId:         toHex3(hit.recvId),
-        protocol:       null,
+        // Was hardcoded null — the next lookup of this reference then had no
+        // stored protocol to go on and always fell back to guessing KWP2000,
+        // forcing a manual tab switch every time. Save what the hit itself
+        // proved (from the session-control response shape).
+        protocol:       hitProtocol,
         hardwareFamily: lookup?.hardwareFamily ?? guessHardwareFamily(ref),
         source:         'discovery',
       });
@@ -535,6 +553,15 @@ export default function EcuAutoConfig({
                   : `Save to DB for ${ref}`}
               </button>
             </div>
+          )}
+
+          {sweepState === 'hit' && hit && (
+            <EcuDeepProfile
+              isConnected={isConnected}
+              send={send}
+              sendId={hit.sendId}
+              recvId={hit.recvId}
+            />
           )}
 
           {sweepState === 'miss' && (

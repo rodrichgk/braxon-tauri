@@ -2,7 +2,7 @@
    Types mirror the camelCase structs returned by the Tauri commands in
    src-tauri/src/commands.rs. ─────────────────────────────────────────── */
 
-export type Protocol = 'OBD2' | 'UDS' | 'KWP2000';
+export type Protocol = 'OBD2' | 'UDS' | 'KWP2000' | 'VWTP20';
 export type VehicleBrand = 'Renault' | 'Nissan' | 'Mitsubishi' | 'Other';
 
 export interface EcuInfo {
@@ -19,7 +19,7 @@ export interface ActuatorEntry {
   name: string;
   label: string;
   sentBytes: string;
-  category: 'pump' | 'valve' | 'relay' | 'reset' | 'other';
+  category: 'pump' | 'valve' | 'relay' | 'calibration' | 'reset' | 'other';
 }
 
 /** Result of `get_ecu_by_abs_ref` — everything the reference implies. */
@@ -85,6 +85,7 @@ export function toHex3(n: number): string {
 export function protocolFromDb(protocol: string | null | undefined): Protocol | null {
   const p = protocol?.toUpperCase() ?? '';
   if (!p) return null;
+  if (p.includes('VWTP') || p.includes('TP2.0') || p.includes('TP20')) return 'VWTP20';
   if (p.includes('KWP')) return 'KWP2000';
   if (p.includes('UDS') || p.includes('ISO15765')) return 'UDS';
   return null;

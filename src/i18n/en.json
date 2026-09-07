@@ -13,7 +13,10 @@
     "reman":         "REMAN",
     "reman_sub":     "Interventions, clients, stock",
     "f2evo":         "F2-EVO Bench",
-    "f2evo_sub":     "Legacy GRMtronics protocol"
+    "f2evo_sub":     "Legacy GRMtronics protocol",
+    "dev_hide":         "Hide from other users",
+    "dev_unhide":       "Show to everyone",
+    "dev_toggle_error": "Update failed — check the DB connection"
   },
   "auth": {
     "sign_in_tab":    "Sign In",
@@ -187,7 +190,25 @@
     "report_status_dtc":        "faults",
     "report_status_curve":      "curve pts",
     "report_status_yes":        "yes",
-    "report_status_no":         "no"
+    "report_status_no":         "no",
+
+    "report_mode_history":      "History",
+    "history_title":            "Units Tested",
+    "history_subtitle":         "Every Signal HIL report generated on this bench — job-linked or not.",
+    "history_search_placeholder": "Search ABS ref, ECU, job…",
+    "history_refresh":          "Refresh",
+    "history_empty":            "No units tested yet.",
+    "history_empty_search":     "No units match that search.",
+    "history_loading":          "Loading history…",
+    "history_error_load":       "Couldn't load history",
+    "history_error_save":       "Couldn't save this test to history",
+    "history_no_job":           "No job",
+    "history_operator":         "Operator",
+    "history_faults":           "Faults",
+    "history_download":         "Download PDF",
+    "history_delete":           "Delete",
+    "history_delete_confirm":   "Delete this record from history? This can't be undone.",
+    "history_unidentified":     "Unidentified unit"
   },
   "home": {
     "title":          "Dashboard",

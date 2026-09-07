@@ -1,7 +1,8 @@
 /* ── Diagnostic session management ─────────────────────────────
-   These ECUs ignore diagnostic requests sent outside an open session — no
-   negative response, just silence — which is why a correct address could
-   still look dead. Captured from a working commercial-tool session:
+   Some of these ECUs ignore diagnostic requests sent outside an open session
+   — no negative response, just silence — which is why a correct address could
+   still look dead. Captured from a working commercial-tool session on a
+   Renault/Bosch MK61:
 
      10 C0            DiagnosticSessionControl, manufacturer session
      50 C0            ECU accepts
@@ -9,16 +10,24 @@
      7E               ECU acks each one
      …                only now does 19 02 / 14 FF FF FF / 30 01 … get answered
 
-   So: open the session, hold it open with the 2 s cadence the capture proves,
-   and only then talk. ─────────────────────────────────────────────────── */
+   A Ford/ATE unit captured 2026-09-04 (10.0915-0108.3, 0x760→0x768) needed
+   none of that — 22 D1 00 / 19 02 / 14 xx all answered before any session
+   control frame appeared, and the one `10 xx` the Autel did send used
+   subfunction 0x01 (default session), not 0xC0. So: open the session, hold
+   it open with the 2 s cadence the Renault capture proved, and try more than
+   one subfunction — which one an ECU accepts is manufacturer-specific. ───── */
 
 import clientSerial, { type SerialEvent } from '@/lib/clientSerial';
 import { buildSingleFrame, isoTpRequest, type SendFn } from '@/lib/isotp';
 
-/** Manufacturer-specific session — confirmed working on this ECU family. */
+/** Manufacturer-specific session — confirmed working on Renault/Bosch MK61. */
 export const SESSION_MANUFACTURER = 0xc0;
 /** Standard extended session, for units that want ISO 14229 subfunctions. */
 export const SESSION_EXTENDED = 0x03;
+/** Standard default session — every UDS ECU must support this one (ISO
+ *  14229 mandates it), so it's the safety net when the others are refused.
+ *  Confirmed on a Ford/ATE unit that rejects/doesn't need 0xC0. */
+export const SESSION_DEFAULT = 0x01;
 
 /** Keep-alive cadence. 2 s is what the working capture used — not a guess. */
 export const KEEP_ALIVE_MS = 2000;
@@ -49,7 +58,7 @@ export type SessionFailure =
 export interface UdsSessionHandle {
   sendId: number;
   recvId: number;
-  /** Subfunction that was accepted (0xC0 or 0x03). */
+  /** Subfunction that was accepted (0xC0, 0x03, or 0x01). */
   subFunction: number;
   readonly closed: boolean;
   /** Stops the keep-alive and lets the session lapse. Idempotent. */
@@ -64,7 +73,10 @@ export interface OpenSessionOptions {
   send: SendFn;
   sendId: number;
   recvId: number;
-  /** Tried in order until one is accepted. Defaults to the confirmed 0xC0. */
+  /** Tried in order until one is accepted. Defaults to manufacturer → extended
+   *  → default, so a Renault-style ECU still opens on its first probe (0xC0)
+   *  and a Ford/ATE-style one that only accepts the standard default session
+   *  still gets in, on the third. */
   subFunctions?: number[];
   timeoutMs?: number;
   keepAliveMs?: number;
@@ -80,7 +92,7 @@ export interface OpenSessionOptions {
 export async function openUdsSession(opts: OpenSessionOptions): Promise<OpenSessionResult> {
   const {
     send, sendId, recvId,
-    subFunctions = [SESSION_MANUFACTURER],
+    subFunctions = [SESSION_MANUFACTURER, SESSION_EXTENDED, SESSION_DEFAULT],
     timeoutMs = 1200,
     keepAliveMs = KEEP_ALIVE_MS,
     onLost,

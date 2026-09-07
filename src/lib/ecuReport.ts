@@ -19,6 +19,8 @@ export interface EcuDtcEntry {
   udsStatus?: number;
   rawValue: number;
   ecuName?: string;
+  /** `cross-unit` = text borrowed from another unit's fault table. */
+  dtcSource?: 'ecu-exact' | 'ddt-exact' | 'cross-unit';
 }
 
 /** Snapshot of a DTC scan — a structural subset of Diagnostics.tsx's DTCScan. */

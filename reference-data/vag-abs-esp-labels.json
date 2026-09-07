@@ -1,0 +1,3035 @@
+{
+ "1C0-907-37x-ABS.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ABS",
+  "pn": "1C0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed (Basic Setting: Brake Pump Bleeding)",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Specification: not oper./operated",
+    "2": "Brake System | Warning Light | Specification: on/off",
+    "3": "ABS | Warning Light | Specification: on/off"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine",
+    "4": "Transmission"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK60 ABS) Coding",
+   "0001025 = Drive-By-Wire Engines",
+   "0004097 = Cable-Throttle Engines"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "1C0-907-37x-ASR.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ASR",
+  "pn": "1C0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Activated",
+    "2": "Brake System | Warning Light | Range: ON/OFF",
+    "3": "ABS | Warning Light | Range: ON/OFF",
+    "4": "ASR/ESP | Warning Light | Range: ON/OFF"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine",
+    "4": "Transmission"
+   },
+   "225": {
+    "0": "CAN-Databus Timeout (Powertrain)",
+    "1": "Engine",
+    "4": "Transmission"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK60 ASR) Coding",
+   "Please contact Support@Ross-Tech.com for Details."
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "1C0-907-37x-ESP-A.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ESP AWD",
+  "pn": "1C0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Specification: not oper./operated",
+    "2": "Brake System | Warning Light | Specification: on/off",
+    "3": "ABS | Warning Light | Specification: on/off",
+    "4": "ASR/ESP | Warning Light | Specification: on/off"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Specification: ± 4.5 °",
+    "2": "Lateral | Acceleration | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor | Specification: ±7 bar"
+   },
+   "6": {
+    "0": "Longitudinal Acceleration",
+    "1": "Longitudinal | Acc. Sensor | Specification: ±1.5 m/s²"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine",
+    "2": "Steering Angle",
+    "3": "All Wheel Drive",
+    "4": "Transmission"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "40": {
+    "0": "Deactivation of Longitudinal Acceleration Sensor (G251)"
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "69": {
+    "0": "Adjustment of Longitudinal Acceleration Sensor (G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Long. Accel. | Sensor (G251) | Specification: +/- 1.5 m/s²"
+   },
+   "93": {
+    "0": "Initiation of ESP Driving Test"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK60 ESP AWD) Coding",
+   "Frontbrakes:",
+   "+0000006 = FS3 54 14\"/15\" (PR-1LQ/1LR/1LS/1ZF/1ZM/1ZP)",
+   "+0000518 = FN3 54 15\"/16\" (PR-1LE/1LJ/1LN/1LQ/1LT/1ZD/1ZE/1ZH)",
+   "+0000521 = 2FN 42 17\" (PR-1ZT)",
+   "Suspension:",
+   "+0000000 = Standard/Sport Suspension (PR-2UA)",
+   "+0000128 = Rough Road Suspension (PR-2UB)",
+   "Engine:",
+   "+0010240 = Gasoline Engine (through 92 kW / 125 HP)",
+   "+0018432 = Gasoline Engine (from 92 kW / 125 HP) & All Diesel Engines",
+   "",
+   "Note: See Production Codes / Data Plate/Sticker. Coding is the Sum of the individual Options."
+  ],
+  "login": [
+   "Brake Electronics (J104/MK60 ESP AWD) Coding-II",
+   "40168 = General Basic Setting \"Enabling\""
+  ],
+  "uds": {}
+ },
+ "1C0-907-37x-ESP-F.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ESP FWD",
+  "pn": "1C0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Activated",
+    "2": "Brake System | Warning Light | Range: ON/OFF",
+    "3": "ABS | Warning Light | Range: ON/OFF",
+    "4": "ASR/ESP | Warning Light | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Specification: ± 4.5 °",
+    "2": "Lateral | Acceleration | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor | Specification: ±7 bar"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I",
+    "1": "Advanced | Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine",
+    "2": "Steering Angle",
+    "4": "Transmission"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "93": {
+    "0": "Initiation of ESP Driving Test"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK60 ESP FWD) Coding",
+   "Frontbrakes:",
+   "+0000002 = FS3 54 14\"/15\" (PR-1LQ/1LR/1LS/1ZF/1ZM/1ZP)",
+   "+0000514 = FN3 54 15\"/16\" (PR-1LE/1LJ/1LN/1LQ/1LT/1ZD/1ZE/1ZH)",
+   "Suspension:",
+   "+0000000 = Standard/Sport Suspension (PR-2UA)",
+   "+0000128 = Rough Road Suspension (PR-2UB)",
+   "Engine I:",
+   "+0010240 = Gasoline Engine (through 92 kW / 125 HP)",
+   "+0018432 = Gasoline Engine (from 92 kW / 125 HP) & All Diesel Engines",
+   "+0018440 = New Beetle (1C/1Y/9C) with 2.5l & 1.8l (ONLY 1C0-907-379-Q)",
+   "Engine II",
+   "+0001024 = Drive-By-Wire Engines",
+   "+0004096 = Cable-Throttle Engines",
+   "",
+   "Note: See Production Codes / Data Plate/Sticker. Coding is the Sum of the individual Options.",
+   "",
+   "The Seat Leon Cupra R has a special coding of 0019469!"
+  ],
+  "login": [
+   "Brake Electronics (J104/MK60 ESP FWD) Coding-II",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "3A0-907-379.lbl": {
+  "component": "J104 - Brake Electronics (#03) Teves MK20",
+  "pn": "3A0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches",
+    "1": "Brake Light | Switch (F) | Range: 0 = Not Oper. / 1 = Operated"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding",
+   "03604 = VW Golf/Vento (1H - from 02/1995)",
+   "03704 = VW Golf/Vento (1H - from 07/1996)",
+   "04505 = VW Passat (3A)",
+   "06406 = Seat Ibiza (6K) / VW Caddy (9K) / VW Polo/Polo Classic (6K)",
+   "Brake Electronics (J104) Coding",
+   "03604 = VW Golf/Vento (1H - from 02/1995)",
+   "03704 = VW Golf/Vento (1H - from 07/1996)",
+   "04505 = VW Passat (3A)",
+   "06406 = Seat Ibiza (6K) / VW Caddy (9K) / VW Polo/Polo Classic (6K)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "3D0-614-517.lbl": {
+  "component": "J104 - Brake Electronics (#03)",
+  "pn": "3D0-614-517-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h (1.0 km/h while Standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h (1.0 km/h while Standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h (1.0 km/h while Standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h (1.0 km/h while Standing)"
+   },
+   "2": {
+    "0": "Switches && Buttons",
+    "1": "Brake Test Switch | (F47) | Range: 0/operated",
+    "2": "Brake Light Switch | (F) | Range: 0/operated",
+    "3": "Parking Brake | Switch (F9) | Range: 0/operated",
+    "4": "ASR/ESP Button | (E256) | Range0/operated"
+   },
+   "3": {
+    "0": "Engine Data",
+    "1": "Engine Speed",
+    "2": "Engine Torque",
+    "3": "Engine Torque | (loss)",
+    "4": "Throttle Valve Angle"
+   },
+   "4": {
+    "1": "Standing Time",
+    "2": "EDL-T Flag | Range: ON/OFF\\nSpecification: OFF"
+   },
+   "5": {
+    "1": "Steering Angle | Sensor (G85) | Display Range: -720.0...+720.0 °\\nTolerance (when straight): ±5.0 °",
+    "2": "Rotation Rate | Display Range: -69.0...+69.0 °/s",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus",
+    "4": "Transverse | Acceleration | Display Range: -25.0...+25.0 m/s²"
+   },
+   "6": {
+    "1": "Supply Voltage | (Terminal 30) | Specification: 9.8...17.4 V",
+    "2": "Valve Relay | (J106) | Display Range: ON = OK / OFF = not OK",
+    "3": "Return Flow Pump | (V39) | Display Range: ON/OFF",
+    "4": "Work Shop Code"
+   },
+   "7": {
+    "0": "Installation Position",
+    "1": "Speed Sensor | Front Left (G47) | Range: invalid/OK/not OK",
+    "2": "Speed Sensor | Front Right (G45) | Range: invalid/OK/not OK",
+    "3": "Speed Sensor | Rear Left (G46) | Range: invalid/OK/not OK",
+    "4": "Speed Sensor | Rear Right (G44) | Range: invalid/OK/not OK"
+   },
+   "8": {
+    "0": "Direction of Rotation",
+    "1": "Speed Sensor | Front Left (G47) | Range: invalid/forward/reverse (invalid when not moving)",
+    "2": "Speed Sensor | Front Right (G45) | Range: invalid/forward/reverse (invalid when not moving)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: invalid/forward/reverse (invalid when not moving)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: invalid/forward/reverse (invalid when not moving)"
+   },
+   "9": {
+    "1": "Brake Test Switch | (F47) | 'Activated' shows when brake pedal is pressed",
+    "2": "Brake Light Switch | (F) | 'Activated' shows when brake pedal is pressed",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Transmission | Display Range: Transm. 1/Transm. 0",
+    "3": "Engine | Specification: Engine 1\\nRange: Engine 0/Engine 1",
+    "4": "Instrument Cluster | (J285) | Specification: Instruments 1\\nRange: Instruments 0/Instruments 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Steering Angel Sensor (G85) Alignment",
+    "1": "Steering Angel | Sensor (G85)",
+    "2": "Alignment",
+    "3": "Alignment | Status | Specification: OK",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7) Coding",
+   "000?xxx: Chassis",
+   "8 = VW Phaeton (3D)",
+   "000x?xx: Brakes",
+   "3 = 2FNR 42 AL 17\" (PR-1ZL/1ZK)",
+   "5 = HP2 16\" (PR-1LX)",
+   "6 = Brembo 18\" (PR-1LC)",
+   "000xx?x: Engine",
+   "4 = 10 Cyl. Diesel Engine (PR-T2M)",
+   "5 = 6 Cyl. Diesel Engine (PR-T41)",
+   "6 = 6 Cyl. Gasoline Engine (PR-T31) with All-Wheel-Drive (AWD)",
+   "7 = 8 Cyl. Gasoline Engine (PR-T81)",
+   "9 = 6 Cyl. Gasoline Engine (PR-T31) with Front-Wheel-Drive (FWD)",
+   "9 = 12 Cyl. Gasoline Engine (PR-T08/T1H)",
+   "000xxx?: Transmission",
+   "5 = Manual Transmission (01E - PR-G0K)",
+   "7 = Automatic Transmission (01L/01V - PR-G0F/G0Q)",
+   "6 = Automatic Transmission (09L - PR-G0R)",
+   "",
+   "Note #1: Coding is accepted after a specific Login has been carried out.",
+   "Note #2: After successful Coding the Steering Angle Sensor Alignment needs to be carried out."
+  ],
+  "login": [
+   "Brake Electronics (J104/Bosch 5.7) Login",
+   "0?xxx: Chassis",
+   "5 = VW Phaeton (3D)",
+   "0x?xx: Brakes",
+   "1 = Brembo 18\" (PR-1LC)",
+   "2 = HP2 16\" (PR-1LX)",
+   "4 = 2FNR 42 AL 17\" (PR-1ZL/1ZK)",
+   "0xx?x: Engine",
+   "4 = 10 Cyl. Diesel Engine (PR-T2M)",
+   "5 = 6 Cyl. Diesel Engine (PR-T41)",
+   "6 = 6 Cyl. Gasoline Engine (PR-T31) with All-Wheel-Drive (AWD)",
+   "7 = 8 Cyl. Gasoline Engine (PR-T81)",
+   "9 = 6 Cyl. Gasoline Engine (PR-T31) with Front-Wheel-Drive (FWD)",
+   "9 = 12 Cyl. Gasoline Engine (PR-T08/T1H)",
+   "0xxx?: Transmission",
+   "5 = Manual Transmission (01E - PR-G0K)",
+   "7 = Automatic Transmission (01L/01V - PR-G0F/G0Q)",
+   "6 = Automatic Transmission (09L - PR-G0R)",
+   "",
+   "Note: After Login/Coding-II has been carried out you need to recode the Control Module.",
+   "",
+   "40168 = Basic Settings Enabling (i.e. mandatory prior to Steering Angle Sensor Alignment)"
+  ],
+  "uds": {}
+ },
+ "3U0-614-517.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.7",
+  "pn": "3U0-614-517-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Switches && Buttons",
+    "1": "Brake Test Switch | Display Range: 0/operated",
+    "2": "Brake Light Switch | Display Range: 0/operated",
+    "3": "Parking Brake | Button | Display Range: 0/operated",
+    "4": "ESP-Passive | Button | Display Range: 0/operated"
+   },
+   "3": {
+    "0": "Engine Data",
+    "1": "Engine Speed",
+    "2": "Engine Torque",
+    "3": "Engine Torque | (loss)",
+    "4": "Throttle Valve Angle"
+   },
+   "4": {
+    "1": "Standing Time",
+    "2": "EDL-T Flag | Display Range: ON/OFF\\nSpecification: OFF"
+   },
+   "5": {
+    "1": "Steering Angle | Sensor (G85) | Display Range: -720.0...+720.0 °\\nTolerance (when straight): ±5.0 °",
+    "2": "Rotation Rate | Display Range: -69.0...+69.0 °/s",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus",
+    "4": "Transverse | Acceleration | Display Range: -25.0...+25.0 m/s²"
+   },
+   "6": {
+    "1": "Supply Voltage | (Terminal 30) | Specification: 9.8...17.4 V",
+    "2": "Valve Relay | Display Range: ON = OK / OFF = not OK",
+    "3": "Return Flow Pump | Display Range: ON/OFF",
+    "4": "Work Shop Code"
+   },
+   "8": {
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Transmission | Display Range: Transm. 0/Transm. 1",
+    "3": "Engine | Specification: Engine 1\\nDisplay Range: Engine 0/Engine 1",
+    "4": "Instrument Cluster | Specification: Instruments 1\\nDisplay Range: Instruments 0/Instruments 1"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Transmission | Display Range: Transm. 0/Transm. 1",
+    "3": "Engine | Specification: Engine 1\\nDisplay Range: Engine 0/Engine 1",
+    "4": "Instrument Cluster | Specification: Instruments 1\\nDisplay Range: Instruments 0/Instruments 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Steering Angel Sensor (G85) Alignment",
+    "1": "Steering Angel | Sensor (G85)",
+    "2": "Alignment",
+    "3": "Alignment | Status | Specification: OK",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7) Coding",
+   "04275 = AZM/AWT (Manal Transmission)",
+   "04497 = AMX/BBG (Automatic Transmission)",
+   "04495 = AMX (Manual Transmission)",
+   "04457 = AYM/BDG (Automatic Transmission)",
+   "04455 = AYM/BDG/BSS (Manual Transmission)",
+   "04255 = AWX/AVB/BSV (Manual Transmission)",
+   "04257 = AVF (Automatic Transmission)",
+   "04277 = AWT (Automatic Transmission)",
+   "",
+   "Note #1: Coding is accepted after a specific Login has been carried out.",
+   "Note #2: After successful Coding the Steering Angle Sensor Alignment needs to be carried out."
+  ],
+  "login": [
+   "Brake Electronics (J104/Bosch 5.7) Login/Coding-II",
+   "09575 = AZM/AWT (Manal Transmission)",
+   "09397 = AMX/BBG (Automatic Transmission)",
+   "09395 = AMX (Manual Transmission)",
+   "09357 = AYM/BDG (Automatic Transmission)",
+   "09355 = AYM/BDG/BSS (Manual Transmission)",
+   "09555 = AWX/AVB/BSV (Manual Transmission)",
+   "09557 = AVF (Automatic Transmission)",
+   "09577 = AWT (Automatic Transmission)",
+   "",
+   "Note: After Login/Coding-II has been carried out you need to recode the Control Module.",
+   "",
+   "40168 = Basic Settings Enabling (i.e. mandatory prior to Steering Angle Sensor Alignment)"
+  ],
+  "uds": {}
+ },
+ "4B0-614-517.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.7",
+  "pn": "4B0-614-517-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left (G47) | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right (G45) | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left (G46) | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right (G44) | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Switches && Buttons",
+    "1": "Brake Test Switch | (F) | Display Range: 0/operated",
+    "2": "Brake Light Switch | (F47) | Display Range: 0/operated",
+    "3": "Parking Brake | Switch (F9) | Display Range: 0/operated",
+    "4": "ASR/ESP-Button | (E256) | Display Range: 0/operated"
+   },
+   "3": {
+    "0": "Engine Data",
+    "1": "Engine Speed",
+    "2": "Engine Torque",
+    "3": "Engine Torque | (loss)",
+    "4": "Throttle Valve Angle"
+   },
+   "4": {
+    "1": "Standing Time",
+    "2": "EDL-T Flag | Display Range: ON/OFF\\nSpecification: OFF"
+   },
+   "5": {
+    "1": "Steering Angle | Sensor (G85) | Display Range: -720.0...+720.0 °\\nTolerance (when straight): ±5.0 °",
+    "2": "Rotation Rate | Display Range: -69.0...+69.0 °/s",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus",
+    "4": "Transverse | Acceleration | Display Range: -25.0...+25.0 m/s²"
+   },
+   "6": {
+    "1": "Supply Voltage | (Terminal 30) | Specification: 9.8...17.4 V",
+    "2": "Valve Relay | Display Range: ON = OK / OFF = not OK",
+    "3": "Return Flow Pump | Display Range: ON/OFF",
+    "4": "Work Shop Code"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Engine | Specification: Engine 1\\nDisplay Range: Engine 0/Engine 1",
+    "3": "Transmission | Display Range: Transm. 1",
+    "4": "Instrument Cluster | Specification: Instruments 1\\nDisplay Range: Instruments 0/Instruments 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Steering Angel Sensor (G85) Alignment",
+    "1": "Steering Angel | Sensor (G85)",
+    "2": "Alignment",
+    "3": "Alignment | Status | Specification: OK",
+    "4": ""
+   },
+   "2": {
+    "0": "Brake System Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "3": {
+    "0": "Activate ESP System/Function Test",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7) Coding",
+   "See http://WIKI.Ross-Tech.COM for Details.",
+   "",
+   "Note #1: Coding is accepted after a specific Login has been carried out.",
+   "Note #2: After successful Coding the Steering Angle Sensor Basic Setting needs to be carried out."
+  ],
+  "login": [
+   "Brake Electronics (J104/Bosch 5.7) Login",
+   "See http://WIKI.Ross-Tech.COM for Details.",
+   "",
+   "40168 = Basic Settings Enabling (i.e. mandatory prior to Steering Angle Sensor Alignment)"
+  ],
+  "uds": {}
+ },
+ "4D0-907-379-ABS.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.0 ABS & ABS/EDS",
+  "pn": "4D0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Weel Speed Sensors",
+    "1": "Front Left",
+    "2": "Front Right",
+    "3": "Rear Left",
+    "4": "Rear Right"
+   },
+   "2": {
+    "0": "Miscellaneous",
+    "1": "Brake lightsw. | (0=OFF) (1=ON)",
+    "2": "Voltage to ABS | Return Pump(0=OK)",
+    "3": "ABS solenoid | Relay J106(1=OK)",
+    "4": "Not in use"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "4D0-907-379-ASR.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.0 ABS/EDS/ASR",
+  "pn": "4D0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   },
+   "3": {
+    "0": "Traction Control (ASR)",
+    "1": "Engine Speed",
+    "2": "Engine Torque | 0.0 % = Schubphase\\n20.0...30.0 % = Idle\\n100.0 % = Maximum Torque",
+    "3": "ASR-Button | 0 = Not Oper.\\n1 = Operated"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.0) Coding",
+   "00000 = 2.8l 6-Cylinder with Manual Transmission (012)",
+   "00001 = 2.8l 6-Cylinder with Automatic Transmission (01K)",
+   "00002 = 3.7l 8-Cylinder with Automatic Transmission (01V)",
+   "00003 = 2.8l 6-Cylinder with Automatic Transmission (01V)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "4E0-910-383.lbl": {
+  "component": "J345 - Trailer (#69)",
+  "pn": "4F0-910-383-",
+  "meas_blocks": {
+   "1": {
+    "0": "Inputs",
+    "1": "Voltage | (Terminal 30)",
+    "2": "Status Term. 30 | (switched) | Display Range: ON/OFF",
+    "3": "Status Term. 15 | (Emergency Run) | Display Range: ON/OFF"
+   },
+   "2": {
+    "0": "Inputs",
+    "1": "ECD/ACC | (ESP/ACC Braking) | Display Range: ON/OFF",
+    "2": "Brake Light Switch | Display Range: ON/OFF",
+    "3": "Brake Pressure | Switch | Display Range: ON/OFF"
+   },
+   "3": {
+    "0": "Outputs",
+    "1": "Turn Signal | Rear Left | Display Range: ON/OFF",
+    "2": "Turn Signal | Rear Right | Display Range: ON/OFF",
+    "3": "Tail Light | Left | Display Range: ON/OFF",
+    "4": "Tail Light | Right | Display Range: ON/OFF"
+   },
+   "4": {
+    "0": "Outputs",
+    "1": "Brake Lights | Display Range: ON/OFF",
+    "2": "Back-Up Lights | Display Range: ON/OFF",
+    "3": "Rear Fog Lights | Display Range: ON/OFF",
+    "4": "Status Term. 30 | (switched) | Display Range: ON/OFF"
+   },
+   "8": {
+    "0": "Input Signals",
+    "1": "Status | Terminal 15 | Display Range: ON/OFF",
+    "2": "Status | Terminal X | Display Range: ON/OFF",
+    "3": "Battery Managem. | Shut-Off Stage | Display Range: 0...6",
+    "4": "Trailer | attached | Display Range: ON/OFF"
+   },
+   "9": {
+    "0": "Input Signals",
+    "1": "Turn Signal | Left | Display Range: ON/OFF",
+    "2": "Turn Signal | Right | Display Range: ON/OFF",
+    "3": "Emergency Flasher | Warning Lights | Display Range: ON/OFF"
+   },
+   "10": {
+    "0": "Input Signals",
+    "1": "Brake Light Switch | Display Range: ON/OFF",
+    "2": "Brake Test Switch | Display Range: ON/OFF",
+    "3": "Brake Pressure | Switch | Display Range: ON/OFF"
+   },
+   "11": {
+    "0": "Input Signals",
+    "1": "Side Marking | Lights | Display Range: ON/OFF",
+    "2": "Parking Light | Left | Display Range: ON/OFF",
+    "3": "Parking Light | Right | Display Range: ON/OFF"
+   },
+   "12": {
+    "0": "Input Signals",
+    "1": "Rear Fog Light | Display Range: ON/OFF",
+    "2": "Back-Up Light | Display Range: ON/OFF"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I",
+    "1": "Identification",
+    "2": "Revision",
+    "3": "Production | Date",
+    "4": "Manufacturer & | Test Stand Number"
+   },
+   "81": {
+    "0": "Advanced Control Module Identification II"
+   },
+   "82": {
+    "0": "Advanced Control Module Identification III"
+   },
+   "130": {
+    "0": "CAN-Databus Communication (Comfort)",
+    "1": "Central Electronics | (J519) | Display Range: E.Load.Crtl 1/E.Load.Crtl 0\\nSpecification: E.Load.Crtl 1",
+    "2": "Electrical | Ignition Lock | Display Range: El.Ign.Lock 1/El.Ign.Lock 0\\nSpecification: El.Ign.Lock 1",
+    "3": "CAN-Gateway | (J533) | Display Range: Gateway 1/Gateway 0\\nSpecification: Gateway 1"
+   },
+   "131": {
+    "0": "CAN-Databus Communication (Comfort)",
+    "1": "Battery | Management | Display Range: Batt.Mgmt 1/Batt.Mgmt 0\\nSpecification: Batt.Mgmt 1"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Trailer (J345) Coding",
+   "000?0xx: Multimedia Display (Terminal 30 ON/OFF)",
+   "0 = Multimedia Display inactive (PR-9WC)",
+   "1 = Multimedia Display active (PR-9WK/9WN/9WP)",
+   "000x0?x: Trailer Hitch",
+   "0 = Trailer Hitch without Swivel Function",
+   "1 = Trailer Hitch with automatic Swivel Function",
+   "2 = Trailer Hitch with mechanical Swivel Function",
+   "000x0x?: Country",
+   "1 = Rest of World (RoW)",
+   "2 = North America (USA/Canada)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "4F0-910-383.lbl": {
+  "component": "J345 - Trailer (#69)",
+  "pn": "4F0-910-383-",
+  "meas_blocks": {
+   "1": {
+    "0": "Inputs",
+    "1": "Voltage | (Terminal 30)",
+    "2": "Status Term. 30 | (switched) | Display Range: ON/OFF",
+    "3": "Status Term. 15 | (Emergency Run) | Display Range: ON/OFF"
+   },
+   "2": {
+    "0": "Inputs",
+    "1": "ECD/ACC | (ESP/ACC Braking) | Display Range: ON/OFF",
+    "2": "Brake Light Switch | Display Range: ON/OFF",
+    "3": "Brake Pressure | Switch | Display Range: ON/OFF"
+   },
+   "3": {
+    "0": "Outputs",
+    "1": "Turn Signal | Rear Left | Display Range: ON/OFF",
+    "2": "Turn Signal | Rear Right | Display Range: ON/OFF",
+    "3": "Tail Light | Left | Display Range: ON/OFF",
+    "4": "Tail Light | Right | Display Range: ON/OFF"
+   },
+   "4": {
+    "0": "Outputs",
+    "1": "Brake Lights | Display Range: ON/OFF",
+    "2": "Back-Up Lights | Display Range: ON/OFF",
+    "3": "Rear Fog Lights | Display Range: ON/OFF",
+    "4": "Status Term. 30 | (switched) | Display Range: ON/OFF"
+   },
+   "7": {
+    "0": "Trailer Hitch",
+    "1": "Hand Wheel | Contact Switch | Display Range: ON/OFF",
+    "2": "Locking Pin | Contact Switch | Display Range: ON/OFF",
+    "3": "Trailer Hitch | Status | Display Range: Locked/Unlocked"
+   },
+   "8": {
+    "0": "Input Signals",
+    "1": "Status | Terminal 15 | Display Range: ON/OFF",
+    "2": "Status | Terminal X | Display Range: ON/OFF",
+    "3": "Battery Managem. | Shut-Off Stage | Display Range: 0...6",
+    "4": "Trailer | attached | Display Range: ON/OFF"
+   },
+   "9": {
+    "0": "Input Signals",
+    "1": "Turn Signal | Left | Display Range: ON/OFF",
+    "2": "Turn Signal | Right | Display Range: ON/OFF",
+    "3": "Emergency Flasher | Warning Lights | Display Range: ON/OFF"
+   },
+   "10": {
+    "0": "Input Signals",
+    "1": "Brake Light Switch | Display Range: ON/OFF",
+    "2": "Brake Test Switch | Display Range: ON/OFF",
+    "3": "Brake Pressure | Switch | Display Range: ON/OFF"
+   },
+   "11": {
+    "0": "Input Signals",
+    "1": "Side Marking | Lights | Display Range: ON/OFF",
+    "2": "Parking Light | Left | Display Range: ON/OFF",
+    "3": "Parking Light | Right | Display Range: ON/OFF"
+   },
+   "12": {
+    "0": "Input Signals",
+    "1": "Rear Fog Light | Display Range: ON/OFF",
+    "2": "Back-Up Light | Display Range: ON/OFF"
+   },
+   "18": {
+    "0": "LED Status",
+    "1": "LED Status | (green)",
+    "2": "LED Status | (red)"
+   },
+   "19": {
+    "0": "LED Afterrun Time",
+    "1": "LED Run-Time | (green)",
+    "2": "LED Run-Time | (red)"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "81": {
+    "0": "Advanced Control Module Identification II"
+   },
+   "82": {
+    "0": "Advanced Control Module Identification III"
+   },
+   "130": {
+    "0": "CAN-Databus Communication (Comfort)",
+    "1": "Central Electronics | (J519) | Display Range: E.Load.Crtl 1/E.Load.Crtl 0\\nSpecification: E.Load.Crtl 1",
+    "2": "Electrical | Ignition Lock | Display Range: El.Ign.Lock 1/El.Ign.Lock 0\\nSpecification: El.Ign.Lock 1",
+    "3": "CAN-Gateway | (J533) | Display Range: Gateway 1/Gateway 0\\nSpecification: Gateway 1"
+   },
+   "131": {
+    "0": "CAN-Databus Communication (Comfort)",
+    "1": "Battery | Management | Display Range: Batt.Mgmt 1/Batt.Mgmt 0\\nSpecification: Batt.Mgmt 1"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Trailer (J345) Coding",
+   "0000??x: Trailer Hitch",
+   "00 = Trailer Hitch w/o Swivel Function and w/o Operating Button",
+   "33 = Trailer Hitch with mechanical Swivel Function and with Hand Wheel",
+   "",
+   "0000xx?: Country",
+   "1 = Rest of World (RoW)",
+   "2 = North America (USA/Canada)",
+   "3 = Australia (AUS)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "5N0-614-517.lbl": {
+  "component": "J104 - Brake Electronics (#03) - TRW 450",
+  "pn": "5N0-614-517-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "2": "All-Wheel-Drive | Status"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Clutch (F36) | & Interlock (N110) | 1x = Clutch Pedal Switch operated\\nx1 = Interlock Switch active (P/N)",
+    "2": "Brake System | Warning L. (K118)",
+    "3": "ABS | Warning L. (K47)",
+    "4": "ASR/ESP | Warning L. (K155)"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.5 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification (Standing): ± 1.5 m/s²",
+    "3": "Rotation Rate | Sensor (G202) | Range: -69.0...+69.0 °/s\\nSpecification: ± 1.5 °/s",
+    "4": "Longitudinal | Acc. Sensor (G251) | Specification: ± 1.5 m/s²"
+   },
+   "5": {
+    "0": "Brake Pressure && Steering Angle Sensor Status",
+    "1": "Brake Pressure | Sensor (G201) | Specification: ± 3.0 bar",
+    "2": "Steering Angle | Sensor (G85) Status | Range: Initialised/N. Initialised/Implausible",
+    "3": "ASR/ESP-Button | (E256) | Range: ON/OFF",
+    "4": "Brake Light | Switch (F)"
+   },
+   "6": {
+    "0": "Voltage Supply",
+    "1": "Voltage | Terminal 15",
+    "2": "Voltage | Term.30 (Valves) | Range: 0.0...20.5 V",
+    "3": "Voltage | Term.30 (Logic) | Range: 0.0...20.5 V",
+    "4": "Voltage | Pump Motor | Range: 0.0...20.5 V"
+   },
+   "7": {
+    "1": "EDS Shut-Off | (Overtemp.) | 1xxx = Front Left\\nx1xx = Front Right\\nxx1x = Rear Left\\nxxx1 = Rear Right"
+   },
+   "8": {
+    "0": "Adaptation Status",
+    "1": "Adaptation | Überlastbetrieb",
+    "3": "Adaptation | Vacuum Level"
+   },
+   "9": {
+    "1": "Vacuum Reserv. | Pressure",
+    "2": "Brake Pressure | Sensor (G201) | Specification: ± 3.0 bar",
+    "3": "Vacuum Level | Control"
+   },
+   "10": {
+    "1": "Trailer | Stabilization",
+    "2": "Input | Signals | 1xx = Wipers ON\\nx1x = Drivers Door OPEN\\nxx1 = Reverse Gear ENGAGED"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Errors | (G47) Minimum",
+    "2": "Encoder Errors | (G47) Maximum",
+    "3": "Encoder Errors | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Errors | (G45) Minimum",
+    "2": "Encoder Errors | (G45) Maximum",
+    "3": "Encoder Errors | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Errors | (G46) Minimum",
+    "2": "Encoder Errors | (G46) Maximum",
+    "3": "Encoder Errors | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Errors | (G44) Minimum",
+    "2": "Encoder Errors | (G44) Maximum",
+    "3": "Encoder Errors | (G44) Average"
+   },
+   "15": {
+    "1": "Hill Descend | Assist Status | 0 = inactive\\n1 = active (> 15% Downhill Grade)",
+    "2": "Hill Descend | Assist Lamp | Range: ON/OFF"
+   },
+   "16": {
+    "0": "Tire Pressure Monitoring (TPMS) I",
+    "1": "Mileage at | last Warning | Mileage (KM) = Field 1 x 65535 + Field 2",
+    "2": "Mileage at | last Warning | Mileage (KM) = Field 1 x 65535 + Field 2"
+   },
+   "17": {
+    "0": "Tire Pressure Monitoring (TPMS) II",
+    "1": "Mileage at | last Warning | Mileage (KM) = Field 1 x 65535 + Field 2",
+    "2": "Mileage at | last Warning | Mileage (KM) = Field 1 x 65535 + Field 2"
+   },
+   "18": {
+    "0": "Tire Pressure Monitoring (TPMS) III",
+    "1": "TPMS-Button | (E492) | Range: Operated/Not Oper."
+   },
+   "70": {
+    "1": "ESP-Status | Range: Activated/Not Activated",
+    "2": "ASR-Status | Range: Activated/Not Activated",
+    "3": "EDS-Status | Range: Activated/Not Activated",
+    "4": "Auto-Hold | Status | Range: Activated/Not Activated"
+   },
+   "71": {
+    "1": "Parking Brake | Status | Range: Activated/Not Activated"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "3": "Instrument Cluster | (J285) | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "4": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "CAN-Gateway | (J533) | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0",
+    "2": "Airbag | (J234) | Range: Airbag 1/Airbag 0\\nSpecification: Airbag 1",
+    "3": "All-Wheel | Drive (J492)",
+    "4": "Parking Brake | (J540)"
+   },
+   "127": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "2": "Immobilizer | Specification: Immobilizer 1\\nRange: Immobilizer 1/Immobilizer 0"
+   },
+   "231": {
+    "0": "Tire Pressure Monitoring (TPMS)",
+    "1": "Speed Range I",
+    "2": "Speed Range II",
+    "3": "Curve/Wheel | Recognition"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake System Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "40": {
+    "0": "Deactivation of Longitudinal Acceleration Sensor (G251)"
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status | Specification: OK",
+    "3": "Steering Angle | Sensor (G85)"
+   },
+   "61": {
+    "0": "Adjustment of Rotation Rate & Lateral/Longit. Acc. Sensor (G200/G202/G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status | Specification: OK"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status | Specification: OK",
+    "3": "Brake Pressure | Sensor (G201)"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding",
+   "To request a proper Coding Value for this Control Module please",
+   "Email Ross-Tech or your local Distrubutor. Make sure to include",
+   "a complete Auto-Scan (full VIN as well) of the Vehicle as well",
+   "as a short Description of what happened to the Car.",
+   "",
+   "http://www.Ross-Tech.com/contact.html"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "6N0-907-379.lbl": {
+  "component": "J104 - Brake Electronics (#03) Teves 04",
+  "pn": "6N0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches",
+    "1": "Brake Light | Switch (F) | Range: 0/Operated"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding",
+   "01901 = VW Polo (6N)",
+   "Brake Electronics (J104) Coding",
+   "01901 = VW Polo (6N)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "6Q0-907-37x-ABS.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.7 ABS/EDS",
+  "pn": "6Q0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   }
+  },
+  "basic_settings": {
+   "10": {
+    "0": "Brake System Bleeding",
+    "1": "System Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7 ABS) Coding",
+   "00044 with Manual Transmission",
+   "00045 with Automatic Transmission"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "6Q0-907-37x-ABS2.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ABS",
+  "pn": "6Q0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Control | Module (ECM) | Range: Engine 1/Engine 0\\nSpecification: Engine 1",
+    "4": "Transmission | Control Module | Range: Transm. 1/Transm. 0\\nSpecification: Transm. 1"
+   },
+   "225": {
+    "0": "CAN-Databus Powertrain (Timeout)",
+    "1": "Engine Control | Module (ECM)",
+    "4": "Transmission | Control Module"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "6Q0-907-37x-ASR.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.7 ABS/ASR/EDS",
+  "pn": "6Q0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   },
+   "3": {
+    "0": "Traction Control (ASR)",
+    "1": "Engine Speed",
+    "2": "Engine Torque | 0.0 % = Schubphase\\n20.0...30.0 % = Idle\\n100.0 % = Maximum Torque",
+    "3": "ASR-Button | 0 = Not Oper.\\n1 = Operated"
+   },
+   "4": {
+    "0": "Electronic Differential Lock (EDL)",
+    "1": "Standing | Time",
+    "2": "EDL-Shut Off | Over Temp. | 0 = EDL during the last 20 start cycles not deactivated\\n1 = EDL during the last 20 start cycles deactivated"
+   }
+  },
+  "basic_settings": {
+   "10": {
+    "0": "Brake System Bleeding",
+    "1": "System Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7 ABS/ASR) Coding",
+   "00060 = AME/AQW/ATZ with Manual Transmission",
+   "00124 = AMF/AUA/BKY/BBY/BBZ with Manual Transmission",
+   "00125 = AMF/AUA/BKY/BBY with Automatic Transmission",
+   "00188 = ATD/ASZ/AMF/AZL/BBX/BJX/BKV/BLT/AXR with Manual Transmission"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "703-907-379.lbl": {
+  "component": "J104 - Brake Electronics (#03) Bosch 5.0 ABS/EDS",
+  "pn": "703-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "General",
+    "1": "Brake Light Switch | Range: 0/1",
+    "2": "Return Flow Pump | Status | 0 = OK\\n1 = ERROR",
+    "3": "Valve Relay | 0 = Relay inactive (ERROR)\\n1 = Relay active (OK)"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "7H0-907-37x-ASR-F.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK25 ABS/EDS/ASR FWD",
+  "pn": "7H0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "4": "Transmission | Range: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding (MK25 ABS/EDS/ASR FWD)",
+   "Model/Wheelbase:",
+   "+0000037 = Van with Short Wheelbase (PR-0E1)",
+   "+0000038 = Van with Long Wheelbase (PR-0E2)",
+   "+0000039 = Pickup/Cab with Short Wheelbase (PR-0E1)",
+   "+0000040 = Pickup/Cab with Long Wheelbase (PR-0E2)",
+   "",
+   "Suspension I:",
+   "+0007168 = 16\" Suspension (PR-2E3)",
+   "+0015360 = 17\" Suspension (PR-2E4)",
+   "",
+   "Suspension II:",
+   "+0000000 = Normal/Bad Road Suspension (PR-1BA/1BB/1BH/1BJ/2MF/2MG/2MK/2ML/2MQ/2MR)",
+   "+0000128 = Sport Suspension (PR-1BV/2MD)"
+  ],
+  "login": [
+   "Brake Electronics (J104) Login (MK25 ABS/EDS/ASR FWD)",
+   "40168 = General Basic Setting \"Enabling\""
+  ],
+  "uds": {}
+ },
+ "7H0-907-37x-ESP-A.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK25 ABS/EDS/ASR/ESP AWD",
+  "pn": "7H0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.0 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "6": {
+    "0": "Longitudinal Acceleration (G251)",
+    "1": "Longitudinal Acc. | Sensor (G251) | Specification: ± 1.5 m/s²"
+   },
+   "7": {
+    "0": "Brake Pedal Path",
+    "1": "Pedal Path | (Not Corrected)",
+    "2": "Pedal Path | (Corrected)",
+    "3": "Pedal Path | (Offset)"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "4": "Transmission | Range: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0"
+   }
+  },
+  "basic_settings": {
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.0 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "69": {
+    "0": "Adjustment of Longitudinal Acceleration Sensor (G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Long. Accel. | Sensor (G251) | Specification: +/- 1.5 m/s²"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding (MK25 ABS/EDS/ASR/ESP AWD)",
+   "Model/Wheelbase:",
+   "+0000031 = Short Wheelbase (PR-0E1)",
+   "+0000032 = Long Wheelbase (PR-0E2)",
+   "",
+   "Differential Lock:",
+   "+0000512 = without Differential Lock for Rear Axle Transmission",
+   "+0000000 = with Differential Lock for Rear Axle Transmission (PR-1Y4)",
+   "",
+   "Suspension I:",
+   "+0006144 = 16\" Suspension (PR-2E3)",
+   "+0014336 = 17\" Suspension (PR-2E4)",
+   "",
+   "Suspension II:",
+   "+0000000 = Normal/Bad Road Suspension (PR-1BA/1BB/1BH/1BJ/2MF/2MG/2MK/2ML/2MQ/2MR)",
+   "+0000128 = Sport Suspension (PR-1BV/2MD)",
+   "",
+   "Check adaptation channel 056 (trailer stabilisation) for additional settings."
+  ],
+  "login": [
+   "Brake Electronics (J104) Login (MK25 ABS/EDS/ASR/ESP FWD)",
+   "40168 = General Basic Setting Enabling",
+   "27861 = General Adaptation Enabling"
+  ],
+  "uds": {}
+ },
+ "7H0-907-37x-ESP-F.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK25 ABS/EDS/ASR/ESP FWD",
+  "pn": "7H0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.0 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "7": {
+    "0": "Brake Pedal Path",
+    "1": "Pedal Path | (Not Corrected)",
+    "2": "Pedal Path | (Corrected)",
+    "3": "Pedal Path | (Offset)"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "4": "Transmission | Range: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0"
+   }
+  },
+  "basic_settings": {
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.0 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding (MK25 ABS/EDS/ASR/ESP FWD)",
+   "Model/Wheelbase:",
+   "+0000043 = Short Wheelbase (PR-0E1)",
+   "+0000044 = Long Wheelbase (PR-0E2)",
+   "",
+   "Suspension I:",
+   "+0006144 = 16\" Suspension (PR-2E3)",
+   "+0014336 = 17\" Suspension (PR-2E4)",
+   "",
+   "Suspension II:",
+   "+0000000 = Normal/Bad Road Suspension (PR-1BA/1BB/1BH/1BJ/2MF/2MG/2MK/2ML/2MQ/2MR)",
+   "+0000128 = Sport Suspension (PR-1BV/2MD)",
+   "",
+   "Check adaptation channel 056 (trailer stabilisation) for additional settings."
+  ],
+  "login": [
+   "Brake Electronics (J104) Login (MK25 ABS/EDS/ASR/ESP FWD)",
+   "40168 = General Basic Setting \"Enabling\"",
+   "27861 = General Adaptation \"Enabling\""
+  ],
+  "uds": {}
+ },
+ "7H0-907-37x-ESP.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK25E1 ABS/EDS/ASR/ESP",
+  "pn": "7H0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °",
+    "2": "Lateral Acc. | Sensor (G200)",
+    "3": "Rotation Rate"
+   },
+   "5": {
+    "0": "Brake Pressure && Steering Angle Sensor Status",
+    "1": "Brake Pressure | Sensor (G201)",
+    "2": "Steering Angle | Sensor (G85)"
+   },
+   "7": {
+    "0": "ASR/ESP Button (E256)",
+    "1": "ASR/ESP Button | (E256) | Range: Not Oper./Operated"
+   },
+   "10": {
+    "0": "Additional Functions",
+    "1": "Trailer | Status | Range: Trailer: Yes/Trailer: No",
+    "2": "Brake Wiping | (Front) | Range: ON/OFF"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Errors | (G47) Min-Value",
+    "2": "Encoder Errors | (G47) Max-Value",
+    "3": "Encoder Errors | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Errors | (G45) Min-Value",
+    "2": "Encoder Errors | (G45) Max-Value",
+    "3": "Encoder Errors | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Errors | (G46) Min-Value",
+    "2": "Encoder Errors | (G46) Max-Value",
+    "3": "Encoder Errors | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Errors | (G44) Min-Value",
+    "2": "Encoder Errors | (G44) Max-Value",
+    "3": "Encoder Errors | (G44) Average"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "3": "All-Wheel-Drive | Specification: AWD 1\\nRange: AWD 1/AWD 0",
+    "4": "Transmission | Specification: Transm. 1\\nRange: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | (J285) | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | (J533) | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0"
+   },
+   "225": {
+    "0": "CAN-Databus Powertrain (Time-Out)",
+    "1": "Engine Electronics",
+    "2": "Steering Angle | Sensor (G85)",
+    "3": "All-Wheel-Drive",
+    "4": "Transmission"
+   },
+   "226": {
+    "0": "CAN-Databus Powertrain (Time-Out)",
+    "1": "Instrument Cluster | (J285)",
+    "2": "CAN-Gateway | (J533)"
+   }
+  },
+  "basic_settings": {
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85)"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200)"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201)"
+   },
+   "69": {
+    "0": "Adjustment of Longitudinal Acceleration Sensor (G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Long. Accel. | Sensor (G251)"
+   }
+  },
+  "adaptation": {
+   "56": {
+    "0": "Trailer Stabilization",
+    "3": "Status",
+    "5": "Trailer Stabilization",
+    "6": "0 = Trailer Stabilization inactive",
+    "7": "1 = Trailer Stabilization active",
+    "8": "",
+    "9": "Note: Security Access necessary to alter this Setting."
+   }
+  },
+  "coding": [
+   "Brake Electronics (J104) Coding",
+   "If the old Control Module is still accessible read/copy it's Coding",
+   "to the new Module. In case this is not possible please contact us",
+   "directly and we will assist you with the Coding Process.",
+   "",
+   "http://www.ross-tech.com/contact.html"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "7L0-907-379-MK25.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK25",
+  "pn": "7L0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±2.0 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   },
+   "6": {
+    "0": "Longitudinal Acceleration (G251)",
+    "1": "Longitudinal Acc. | Sensor (G251) | Specification: ± 1.5 m/s²"
+   },
+   "7": {
+    "0": "Brake Pedal Path",
+    "1": "Pedal Path | (Not Corrected)",
+    "2": "Pedal Path | (Corrected)",
+    "3": "Pedal Path | (Offset)"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Errors | (G47) Minimum",
+    "2": "Encoder Errors | (G47) Maximum",
+    "3": "Encoder Errors | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Errors | (G45) Minimum",
+    "2": "Encoder Errors | (G45) Maximum",
+    "3": "Encoder Errors | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Errors | (G46) Minimum",
+    "2": "Encoder Errors | (G46) Maximum",
+    "3": "Encoder Errors | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Errors | (G44) Minimum",
+    "2": "Encoder Errors | (G44) Maximum",
+    "3": "Encoder Errors | (G44) Average"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "3": "All-Wheel-Drive | Specification: AWD 1\\nRange: AWD 1/AWD 0",
+    "4": "Transmission | Specification: Transm. 1\\nRange: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0",
+    "3": "Level Control | Specification: Level 1\\nRange: Level 1/Level 0"
+   },
+   "127": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Damper Control | Specification: Damper Ctrl 1\\nRange: Damper Ctrl 1/Damper Ctrl 0",
+    "2": "Lock Electronics | Specification: Lock-El. 1\\nRange: Lock-El. 1/Lock-El. 0"
+   },
+   "225": {
+    "0": "CAN-Databus Powertrain (Time-Out)",
+    "1": "Engine Electronics | Range: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Range: Steer. ang. 1/Steer. ang. 0",
+    "3": "All-Wheel-Drive | Range: AWD 1/AWD 0",
+    "4": "Transmission | Range: Transm. 1/Transm. 0"
+   },
+   "226": {
+    "0": "CAN-Databus Powertrain (Time-Out)",
+    "1": "Instrument Cluster | Range: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | Range: Gateway 1/Gateway 0",
+    "3": "Level Control | Range: Level 1/Level 0"
+   },
+   "227": {
+    "0": "CAN-Databus Powertrain (Time-Out)",
+    "1": "Damper Control | Range: Damper Ctrl 1/Damper Ctrl 0",
+    "2": "Lock Electronics | Range: Lock-El. 1/Lock-El. 0"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake System Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85)"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200)"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201)"
+   },
+   "69": {
+    "0": "Adjustment of Longitudinal Acceleration Sensor (G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Long. Accel. | Sensor (G251)"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104) Coding",
+   "Model:",
+   "+0000001 = Touareg (Through Part Number Index D)",
+   "+0000002 = Touareg (From Part Number Index E)",
+   "Brakes:",
+   "+0000000 = 16\" Front Disc Brake (PR-1LB)",
+   "+0008192 = 17\" Front Disc Brake (PR-1LC/1LD/1LE)",
+   "+0016384 = 18\" Front Disc Brake (PR-1LF)",
+   "Suspension:",
+   "+0000000 = Standard Springs/Shocks (PR-1BA/1BE)",
+   "+0000128 = 4-Corner Air Suspension (PR-1BS/2BK)",
+   "+0000256 = 4-Corner Air Suspension with electr. regluated Shocks (PR-1BK)",
+   "Transmission:",
+   "+0006144 = Automatic & Manual Transmission (Through Part Number Index C)",
+   "+0004096 = Manual Transmission (From Part Number Index D)",
+   "+0006144 = Automatic Transmission (From Part Number Index D)"
+  ],
+  "login": [
+   "Brake Electronics (J104) Coding-II",
+   "40168 = General Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "7M0-907-379.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Teves 04/ITT Mark 04",
+  "pn": "7M0-907-379-",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Brake Light Switch",
+    "1": "Brake Light | Switch (F) | Specification: not oper./operated"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "8E0-614-111-ABS.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.3 ABS",
+  "pn": "8E0-614-111-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "8E0-614-517.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.7",
+  "pn": "8E0-614-517-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Switches && Buttons",
+    "1": "Brake Test Switch | Display Range: 0/operated",
+    "2": "Brake Light Switch | Display Range: 0/operated",
+    "3": "Parking Brake | Button | Display Range: 0/operated",
+    "4": "ESP-Passive | Button | Display Range: 0/operated"
+   },
+   "3": {
+    "0": "Engine Data",
+    "1": "Engine Speed",
+    "2": "Engine Torque",
+    "3": "Engine Torque | (loss)",
+    "4": "Throttle Valve Angle"
+   },
+   "4": {
+    "1": "Standing Time",
+    "2": "EDL-T Flag | Display Range: ON/OFF\\nSpecification: OFF"
+   },
+   "5": {
+    "1": "Steering Angle | Sensor (G85) | Display Range: -720.0...+720.0 °\\nTolerance (when straight): ±5.0 °",
+    "2": "Rotation Rate | Display Range: -69.0...+69.0 °/s",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus",
+    "4": "Transverse | Acceleration | Display Range: -25.0...+25.0 m/s²"
+   },
+   "6": {
+    "1": "Supply Voltage | (Terminal 30) | Specification: 9.8...17.4 V",
+    "2": "Valve Relay | (J106) | Display Range: ON = OK / OFF = not OK",
+    "3": "Return Flow Pump | (V39) | Display Range: ON/OFF",
+    "4": "Work Shop Code"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Transmission | Display Range: Transm. 1/Transm. 0",
+    "3": "Engine | Specification: Engine 1\\nDisplay Range: Engine 0/Engine 1",
+    "4": "Instrument Cluster | Specification: Instruments 1\\nDisplay Range: Instruments 0/Instruments 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Steering Angel Sensor (G85) Alignment",
+    "1": "Steering Angel | Sensor (G85)",
+    "2": "Alignment",
+    "3": "Alignment | Status | Specification: OK",
+    "4": ""
+   },
+   "2": {
+    "0": "Brake System Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "3": {
+    "0": "Activate ESP System/Function Test",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/Bosch 5.7) Coding",
+   "0?xxx: Chassis",
+   "4 = Audi A4",
+   "0x?xx: Brakes",
+   "1 = C54 (PR-1LZ)",
+   "2 = FN3 15\" (PR-1LB/1LE)",
+   "3 = HP2 16\" (PR-1LX)",
+   "3 = FNR 16\" (PR-1LG)",
+   "4 = FN3 16\" (PR-1LT/1LF)",
+   "5 = Brembo 17\" (PR-1LJ)",
+   "0xx?x: Engine",
+   "5 = 4/6 Cyl. Diesel",
+   "7 = 4/5 Cyl. Gasoline",
+   "9 = 6/8 Cyl. Gasoline",
+   "0xxx?: Transmission",
+   "5 = Manual",
+   "7 = Automatic (09L)",
+   "9 = Multitronic (01J)",
+   "Note #1: Coding is accepted after a specific Login has been carried out.",
+   "Note #2: Special Coding 04499 is used for BFB Engine with 1LT Brakes and Multitronic.",
+   "Note #3: After successful Coding the Steering Angle Sensor Alignment needs to be carried out."
+  ],
+  "login": [
+   "Brake Electronics (J104/Bosch 5.7) Login",
+   "0?xxx: Chassis",
+   "9 = Audi A4",
+   "0x?xx: Brakes",
+   "2 = Brembo 17\" (PR-1LJ)",
+   "3 = FN3 16\" (PR-1LT/1LF)",
+   "4 = HP2 16\" (PR-1LX)",
+   "4 = FNR 16\" (PR-1LA/1LG)",
+   "5 = FN3 15\" (PR-1LB/1LE)",
+   "6 = C54 (PR-1LZ)",
+   "0xx?x: Engine",
+   "5 = 4/6 Cyl. Diesel",
+   "7 = 4/5 Cyl. Gasoline",
+   "9 = 6/8 Cyl. Gasoline",
+   "0xxx?: Transmission",
+   "5 = Manual",
+   "7 = Automatic (09L)",
+   "9 = Multitronic (01J)",
+   "",
+   "Note #1: After Login/Coding-II has been carried out you need to recode the Control Module.",
+   "Note #2: Special Login/Coding-II 09399 is used for BFB Engine with 1LT Brakes and Multitronic.",
+   "",
+   "40168 = Basic Settings Enabling (i.e. mandatory prior to Steering Angle Sensor Alignment)"
+  ],
+  "uds": {}
+ },
+ "8N0-907-379-MK20.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK20 ABS/ASR",
+  "pn": "",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h"
+   },
+   "3": {
+    "0": "Brake Light Switch",
+    "1": "Brake Light | Switch (F) | Range: 0 = Not Operated / 1 = Operated"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine | Electronics | Range: Engine 0/Engine 1\\nSpecification: Engine 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronic (MK20 ABS/ASR) Coding",
+   "13204 = Audi TT (8N) with Front-Wheel-Drive (FWD)",
+   "13504 = Audi TT (8N) with All-Wheel-Drive (AWD)"
+  ],
+  "login": [
+   "Brake Electronic (MK20 ABS/ASR) Login",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "8N0-907-379-MK60-A.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ESP/AWD",
+  "pn": "",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | (G202) Yaw Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor 1 (G201) | Specification: ± 7.0 bar",
+    "2": "Brake Pressure | Sensor 2 (G214) | Specification: ± 7.0 bar"
+   },
+   "6": {
+    "0": "Longitudinal Acceleration",
+    "1": "Long. Accel. | Sensor (G251) | Specification: ± 1.5 m/s²"
+   },
+   "7": {
+    "0": "ASR/ESP Button",
+    "1": "ASR/ESP Button | (E256) | Display Range: Operated/Not Oper."
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Error | (G47) Minimum",
+    "2": "Encoder Error | (G47) Maximum",
+    "3": "Encoder Error | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Error | (G45) Minimum",
+    "2": "Encoder Error | (G45) Maximum",
+    "3": "Encoder Error | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Error | (G46) Minimum",
+    "2": "Encoder Error | (G46) Maximum",
+    "3": "Encoder Error | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Error | (G44) Minimum",
+    "2": "Encoder Error | (G44) Maximum",
+    "3": "Encoder Error | (G44) Average"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I",
+    "1": "Advanced | Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine | Electronics | Range: Engine 0/Engine 1\\nSpecification: Engine 1",
+    "2": "Steering Angle | Sensor (G85) | Range: Steer. ang. 1/Steer. ang. 0\\nSpecification: Steer. ang. 1",
+    "3": "All-Wheel-Drive | Electronics (J492) | Range: AWD 1/AWD 0\\nSpecification: AWD 1",
+    "4": "Transmission | Electronics (J217) | Range: Transm. 1/Transm. 0\\nSpecification: Transm. 1"
+   },
+   "225": {
+    "0": "CAN-Databus Timout (Powertrain)",
+    "1": "Engine | Electronics",
+    "2": "Steering Angle | Sensor (G85)",
+    "3": "All-Wheel-Drive | Electronics (J492)",
+    "4": "Transmission | Electronics (J217)"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "40": {
+    "0": "Deactivation of Longitudinal Acceleration Sensor (G251)",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor 1 (G201) | Specification: ± 7.0 bar"
+   },
+   "69": {
+    "0": "Adjustment of Longitudinal Acceleration Sensor (G251)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Long. Accel. | Sensor (G251) | Specification: ± 1.5 m/s²"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronic (MK60 ESP/AWD) Coding",
+   "0022544 = 4-Cylinder (165 kW) / All-Wheel Drive (AWD)",
+   "0022548 = 6-Cylinder (184 kW) / All-Wheel Drive (AWD) / Automatic Transmission (EXCLUDING 8N0-907-379-L)",
+   "0055316 = 6-Cylinder (184 kW) / All-Wheel Drive (AWD) / Automatic Transmission (ONLY 8N0-907-379-L)",
+   "0055316 = 6-Cylinder (184 kW) / All-Wheel Drive (AWD) / Manual Transmission",
+   "0022549 = 4-Cylinder (132 kW) / All-Wheel Drive (AWD)"
+  ],
+  "login": [
+   "Brake Electronic (MK60 ESP/AWD) Login",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "8N0-907-379-MK60-F.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60 ESP/FWD",
+  "pn": "",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h\\nSpecification (Standing): 255.0 km/h"
+   },
+   "3": {
+    "0": "Switches and Warning Lights",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²",
+    "3": "Rotation Rate | (G202) Yaw Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor 1 (G201) | Specification: ± 7.0 bar",
+    "2": "Brake Pressure | Sensor 2 (G214) | Specification: ± 7.0 bar"
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Error | (G47) Minimum",
+    "2": "Encoder Error | (G47) Maximum",
+    "3": "Encoder Error | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Error | (G45) Minimum",
+    "2": "Encoder Error | (G45) Maximum",
+    "3": "Encoder Error | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Error | (G46) Minimum",
+    "2": "Encoder Error | (G46) Maximum",
+    "3": "Encoder Error | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Error | (G44) Minimum",
+    "2": "Encoder Error | (G44) Maximum",
+    "3": "Encoder Error | (G44) Average"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I",
+    "1": "Advanced | Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Engine | Electronics | Range: Engine 0/Engine 1\\nSpecification: Engine 1",
+    "2": "Steering Angle | Sensor (G85) | Range: Steer. ang. 1/Steer. ang. 0\\nSpecification: Steer. ang. 1",
+    "3": "Transmission | Electronics (J217) | Range: Transm. 1/Transm. 0\\nSpecification: Transm. 1"
+   },
+   "225": {
+    "0": "CAN-Databus Timout (Powertrain)",
+    "1": "Engine | Electronics",
+    "2": "Steering Angle | Sensor (G85)",
+    "3": "Transmission | Electronics (J217)"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 1.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor 1 (G201) | Specification: ± 7.0 bar"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronic (MK60 ESP/FWD) Coding",
+   "0019469 = 4-Cylinder (110/132 kW) / Front-Wheel-Drive (FWD) / Manual Transmission",
+   "0019473 = 4-Cylinder (110/132 kW) / Front-Wheel-Drive (FWD) / Automatic Transmission"
+  ],
+  "login": [
+   "Brake Electronic (MK60 ESP/FWD) Login",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "8P0-907-376.lbl": {
+  "component": "J250 - Electronic Damping Control (#14)",
+  "pn": "420-910-376-",
+  "meas_blocks": {
+   "1": {
+    "0": "General",
+    "1": "Status | Terminal 15 | Range: Term. 15 ON/Term. 15 OFF",
+    "2": "Voltage Supply | (Terminal 30) | Range: 9.0...16.0 V",
+    "3": "Status | Warning Light | Range: ON/OFF",
+    "4": "Voltage Supply | (Level Sensors) | Specification: 3.75...5.62 V"
+   },
+   "2": {
+    "0": "Height Deviation from Standard Level",
+    "1": "Height Deviation | Front Left | Range: -127.0...+128.0 mm",
+    "2": "Height Deviation | Front Right | Range: -127.0...+128.0 mm",
+    "3": "Height Deviation | Rear Left | Range: -127.0...+128.0 mm",
+    "4": "Height Deviation | Rear Right | Range: -127.0...+128.0 mm"
+   },
+   "3": {
+    "0": "Absolute Vehicle Height (Wheel Center to Fender Edge)",
+    "1": "Vehicle Height | Front Left | Range: 0.0...535.5 mm\\nTolerance to actual Measurement: ±5 mm",
+    "2": "Vehicle Height | Front Right | Range: 0.0...535.5 mm\\nTolerance to actual Measurement: ±5 mm",
+    "3": "Vehicle Height | Rear Left | Range: 0.0...535.5 mm\\nTolerance to actual Measurement: ±5 mm",
+    "4": "Vehicle Height | Rear Right | Range: 0.0...535.5 mm\\nTolerance to actual Measurement: ±5 mm"
+   },
+   "4": {
+    "0": "Damper Status",
+    "1": "Damper Status | Specification: 00000000",
+    "2": "Current | Calibration | Range: Normal/Sport",
+    "3": "Control | Algorithm",
+    "4": "Current | Switch Position | Range: Normal/Sport"
+   },
+   "5": {
+    "0": "Damper Valve Current",
+    "1": "Valve Current | Front Left | Range: 0.000...8.000 A",
+    "2": "Valve Current | Front Right | Range: 0.000...8.000 A",
+    "3": "Valve Current | Rear Left | Range: 0.000...8.000 A",
+    "4": "Valve Current | Rear Right | Range: 0.000...8.000 A"
+   },
+   "6": {
+    "0": "Damper Valve Current / Pulse Width I",
+    "1": "Valve Current | Front Left | Range: 0.000...8.000 A",
+    "2": "Pulse Width | Front Left | Range: 0.0...100.0 %",
+    "3": "Valve Current | Front Right | Range: 0.000...8.000 A",
+    "4": "Pulse Width | Front Right | Range: 0.0...100.0 %"
+   },
+   "7": {
+    "0": "Damper Valve Current / Pulse Width II",
+    "1": "Valve Current | Rear Left | Range: 0.000...8.000 A",
+    "2": "Pulse Width | Rear Left | Range: 0.0...100.0 %",
+    "3": "Valve Current | Rear Right | Range: 0.000...8.000 A",
+    "4": "Pulse Width | Rear Right | Range: 0.0...100.0 %"
+   },
+   "8": {
+    "0": "Vehicle Data",
+    "1": "Turn Rate",
+    "2": "Vehicle Speed",
+    "3": "Steering Angle",
+    "4": "Lateral | Acceleration"
+   },
+   "27": {
+    "0": "Deviation from Height Adjustment (Output Signal)",
+    "1": "Deviation | Front Left | Range: -128.0...+128.0 mm",
+    "2": "Deviation | Front Right | Range: -128.0...+128.0 mm",
+    "3": "Deviation | Rear Left | Range: -128.0...+128.0 mm",
+    "4": "Deviation | Rear Right | Range: -128.0...+128.0 mm"
+   },
+   "28": {
+    "0": "Operating Temperatures",
+    "1": "Temp. (Service) | Front Axle",
+    "2": "Temp. (Service) | Rear Axle",
+    "3": "Temp. (Model) | Front Axle",
+    "4": "Temp. (Model) | Rear Axle"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine Electronics | Range: Engine 1/Engine 0\\nSpecification: Engine 1",
+    "2": "Brake Electronics | (J104) | Range: ABS 1/ABS 0\\nSpecification: ABS 1",
+    "3": "Steering Angle | Sensor (G85) | Range: Steer. ang. 1/Steer. ang. 0\\nSpecification: Steer. ang. 1",
+    "4": "Instrument Cluster | (J285) | Range: Instruments 1/Instruments 0\\nSpecification: Instruments 1"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Gateway | (J533) | Range: Gateway 1/Gateway 0\\nSpecification: Gateway 1"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {
+   "1": {
+    "0": "Height Adjustment Front Left",
+    "5": "Height Adjustment Front Left",
+    "6": "Determine the Height for the Front Left Wheel by measuring",
+    "7": "the Distance between Wheel Center and Fender Lower Edge.",
+    "8": "Alternatively the Height can also be calculated as follows:",
+    "9": "x = a/2+b",
+    "10": "x = Height",
+    "11": "a = Wheel Rim Diameter",
+    "12": "b = Rim Top Edge to Fender Lower Edge",
+    "13": "",
+    "14": "Front Axle (Standard): XXX mm (Tolerance: ±50 mm)"
+   },
+   "2": {
+    "0": "Height Adjustment Front Right",
+    "5": "Height Adjustment Front Right",
+    "6": "Determine the Height for the Front Right Wheel by measuring",
+    "7": "the Distance between Wheel Center and Fender Lower Edge.",
+    "8": "Alternatively the Height can also be calculated as follows:",
+    "9": "x = a/2+b",
+    "10": "x = Height",
+    "11": "a = Wheel Rim Diameter",
+    "12": "b = Rim Top Edge to Fender Lower Edge",
+    "13": "",
+    "14": "Front Axle (Standard): XXX mm (Tolerance: ±50 mm)"
+   },
+   "3": {
+    "0": "Height Adjustment Rear Left",
+    "5": "Height Adjustment Rear Left",
+    "6": "Determine the Height for the Rear Left Wheel by measuring",
+    "7": "the Distance between Wheel Center and Fender Lower Edge.",
+    "8": "Alternatively the Height can also be calculated as follows:",
+    "9": "x = a/2+b",
+    "10": "x = Height",
+    "11": "a = Wheel Rim Diameter",
+    "12": "b = Rim Top Edge to Fender Lower Edge",
+    "13": "",
+    "14": "Rear Axle (Standard): XXX mm (Tolerance: ±50 mm)"
+   },
+   "4": {
+    "0": "Height Adjustment Rear Right",
+    "5": "Height Adjustment Rear Right",
+    "6": "Determine the Height for the Rear Right Wheel by measuring",
+    "7": "the Distance between Wheel Center and Fender Lower Edge.",
+    "8": "Alternatively the Height can also be calculated as follows:",
+    "9": "x = a/2+b",
+    "10": "x = Height",
+    "11": "a = Wheel Rim Diameter",
+    "12": "b = Rim Top Edge to Fender Lower Edge",
+    "13": "",
+    "14": "Rear Axle (Standard): XXX mm (Tolerance: ±50 mm)"
+   },
+   "5": {
+    "0": "Height Adjustment Saving",
+    "5": "Height Adjustment Saving",
+    "6": "Height Adjustment and Confirm the new Settings by entering and",
+    "7": "testing/saving '1' as New Value."
+   },
+   "110": {
+    "0": "Cold Start/Reset",
+    "5": "Cold Start/Reset",
+    "6": "With increasing Temperature the Dampers are become softer and to",
+    "7": "compensate this the Control Module has to increase the Current.",
+    "8": "the Control Module needs to check the Resistance of the Dampers",
+    "9": "to calculate the Damper Temperature.",
+    "10": "",
+    "11": "Under normal Circumstances the Cold Start/Reset is being automatically",
+    "12": "performed after a Standing Time higher than 3 Hours once the Ignition",
+    "13": "(Terminal 15) is switched ON. If the Cold Start/Reset hasn't be performed",
+    "14": "there may be slight differences in the Damper Behavior. The Safety and",
+    "15": "Drivability is guarenteed even when the Cold Start/Reset hasn't been performed.",
+    "16": "",
+    "17": "To manually Initiate the Cold Start/Reset save '170' as New Value.",
+    "18": "",
+    "19": "Note: All 4 Dampers have to be sitting at Ambient Temperature for",
+    "20": "about 3 Hours while the acceptable Temperature Tolerance is ±5 °C."
+   }
+  },
+  "coding": [
+   "Electronic Damping Control (J250) Coding",
+   "0000?xx: Model",
+   "0 = Audi TT (8J) without Sport Button [PR-2H0/2H2]",
+   "0 = Audi TTRS (8J) with Sport Button [PR-2H3+FN1]",
+   "0 = Audi R8 (42)",
+   "1 = Audi A3 (8P)",
+   "2 = Audi TT with Sport Button (excl. TTRS) [PR-2H3+FM0/FN0]",
+   "0000x?x: Engine",
+   "1 = 3.2l V6 [PR-T36]",
+   "2 = 2.0l R4 TFSI [PR-T59/TA2/TD6/TE6/TH6/TQ2+FM0]",
+   "3 = 2.0l R4 TFSI [PR-T59/TA2/TD6/TE6/TH6/TQ2+FN0]",
+   "4 = 2.0l R4 TDI [PR-TG3/TL4+FM0]",
+   "5 = 5.0l V10 [PR-TU7]",
+   "6 = 4.2l V8 FSI [PR-TK7]",
+   "7 = 2.5l R5 TFSI [PR-TB9+FN1]",
+   "0000xx?: Model",
+   "1 = Coupé with Front-Wheel-Drive (FWD)",
+   "2 = Coupé with All-Wheel-Drive (AWD)",
+   "3 = Roadster with Front-Wheel-Drive (FWD)",
+   "4 = Roadster with All-Wheel-Drive (AWD)",
+   "",
+   "Note: Prior to Coding the Module the Function has to be",
+   "enabled by entering a Security Access Code. Once the",
+   "Coding has been performed cycle the Ignition (5 Seconds)."
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "8Z0-907-379-MK20.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK20",
+  "pn": "8Z0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Specification: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches",
+    "1": "Brake Light | Switch (F) | Specification: not oper./operated",
+    "2": "Brake Recognition | Switch (F83) | Specification: not oper./operated"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Specification: ± 4.5 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 0.5 m/s²",
+    "3": "Rotation Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure",
+    "1": "Brake Pressure | Sensor | Specification: ±7 bar",
+    "2": "Brake Pressure | Sensor | Specification: ±7 bar"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine | Range: Engine 1/Engine 0\\nSpecification: Engine 1",
+    "2": "Steering Angle | Sensor(G85) | Range: Steer. ang. 1/Steer. ang. 0\\nSpecification: Steer. ang. 1"
+   },
+   "225": {
+    "0": "CAN-Databus Powertrain (Timeout)",
+    "1": "Engine | Range: Engine 1/Engine 0\\nSpecification: Engine 1",
+    "2": "Steering Angle | Sensor(G85) | Range: Steer. ang. 1/Steer. ang. 0\\nSpecification: Steer. ang. 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake Pump Bleeding",
+    "1": "Status & | Instructions",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 2.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK20) Coding",
+   "10758 = 1.4l/55kW MPI (electro-hydraulic Steering)",
+   "10758 = 1.4l/55kW TDI (electro-hydraulic Steering)",
+   "10764 = 1.2l/45kW TDI (mechanical Steering)",
+   "10765 = 1.2l/45kW TDI (electro-hydraulic Steering)"
+  ],
+  "login": [
+   "Brake Electronics (J104/MK20) Login",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "8Z0-907-379-MK60.lbl": {
+  "component": "J104 - Brake Electronics (#03) - MK60",
+  "pn": "8Z0-907-37",
+  "meas_blocks": {
+   "1": {
+    "0": "Current Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...255.0 km/h",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...255.0 km/h",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...255.0 km/h",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Starting Wheel Speed",
+    "1": "Speed Sensor | Front Left (G47) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "2": "Speed Sensor | Front Right (G45) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "3": "Speed Sensor | Rear Left (G46) | Range: 0.0...254.0 km/h (255.0 km/h = standing)",
+    "4": "Speed Sensor | Rear Right (G44) | Range: 0.0...254.0 km/h (255.0 km/h = standing)"
+   },
+   "3": {
+    "0": "Switches and Warning Lights II",
+    "1": "Brake Light | Switch (F) | Range: Not Oper./Operated",
+    "2": "Brake System | Warning L. (K118) | Range: ON/OFF",
+    "3": "ABS | Warning L. (K47) | Range: ON/OFF",
+    "4": "ASR/ESP | Warning L. (K155) | Range: ON/OFF"
+   },
+   "4": {
+    "0": "Steering Angle / Lateral Acceleration / Rotation Rate",
+    "1": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °",
+    "2": "Lateral Acc. | Sensor (G200) | Specification: ± 0.5 m/s²",
+    "3": "Rotation Rate | (G202) Yaw Rate | Specification: ± 2.5 °/s"
+   },
+   "5": {
+    "0": "Brake Pressure && Steering Angle Sensor Status",
+    "1": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar",
+    "2": "Steering Angle | Sensor (G85) Status | Range: Initialised/N. Initialised/Implausible"
+   },
+   "7": {
+    "0": "ASR/ESP Button",
+    "1": "ASR/ESP Button | (E256) | Display Range: Operated/Not Oper."
+   },
+   "11": {
+    "0": "Speed Encoder Errors (Front Left)",
+    "1": "Encoder Error | (G47) Minimum",
+    "2": "Encoder Error | (G47) Maximum",
+    "3": "Encoder Error | (G47) Average"
+   },
+   "12": {
+    "0": "Speed Encoder Errors (Front Right)",
+    "1": "Encoder Error | (G45) Minimum",
+    "2": "Encoder Error | (G45) Maximum",
+    "3": "Encoder Error | (G45) Average"
+   },
+   "13": {
+    "0": "Speed Encoder Errors (Rear Left)",
+    "1": "Encoder Error | (G46) Minimum",
+    "2": "Encoder Error | (G46) Maximum",
+    "3": "Encoder Error | (G46) Average"
+   },
+   "14": {
+    "0": "Speed Encoder Errors (Rear Right)",
+    "1": "Encoder Error | (G44) Minimum",
+    "2": "Encoder Error | (G44) Maximum",
+    "3": "Encoder Error | (G44) Average"
+   },
+   "80": {
+    "0": "Advanced Control Module Identification I",
+    "1": "Advanced | Identification I"
+   },
+   "125": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Engine | Specification: Engine 1\\nRange: Engine 1/Engine 0",
+    "2": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nRange: Steer. ang. 1/Steer. ang. 0",
+    "4": "Transmission | Range: Transm. 1/Transm. 0"
+   },
+   "126": {
+    "0": "CAN-Databus Powertrain (Communication)",
+    "1": "Instrument Cluster | (J285) | Specification: Instruments 1\\nRange: Instruments 1/Instruments 0",
+    "2": "CAN-Gateway | (J533) | Specification: Gateway 1\\nRange: Gateway 1/Gateway 0",
+    "3": "Immobilizer | Specification: Immobilizer 1\\nRange: Immobilizer 1/Immobilizer 0"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Brake System Bleeding",
+    "1": "System Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "60": {
+    "0": "Adjustment of Steering Angle Sensor (G85)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Steering Angle | Sensor (G85) | Range: -720.0...+720.0 °\\nTolerance (when straight): ±4.5 °"
+   },
+   "63": {
+    "0": "Adjustment of Lateral Acceleration Sensor (G200)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Lateral Acc. | Sensor (G200) | Specification: ± 2.5 m/s²"
+   },
+   "66": {
+    "0": "Adjustment of Brake Pressure Sensor (G201)",
+    "1": "Adjustment",
+    "2": "Adjustment | Status",
+    "3": "Brake Pressure | Sensor (G201) | Specification: ± 7.0 bar"
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics (J104/MK60) Coding",
+   "Control Module \"8Z0-907-37x-C\":",
+   "0019470 = 1.2l/45kW TDI (mechanical Steering)",
+   "0019474 = 1.2l/45kW TDI (electro-hydraulic Steering)",
+   "0019463 = 1.4l/55kW MPI",
+   "0019591 = 1.4l/55kW TDI",
+   "0019599 = 1.4l/66kW TDI",
+   "0019471 = 1.6l/81kW FSI",
+   "",
+   "Control Module \"8Z0-907-37x-D\":",
+   "0007182 = 1.2l/45kW TDI (mechanical Steering)",
+   "0007186 = 1.2l/45kW TDI (electro-hydraulic Steering)",
+   "0007175 = 1.4l/55kW MPI",
+   "0007303 = 1.4l/55kW TDI",
+   "0007311 = 1.4l/66kW TDI",
+   "0007183 = 1.6l/81kW FSI"
+  ],
+  "login": [
+   "Brake Electronics (J104/MK60) Login",
+   "40168 = Basic Setting Enabling"
+  ],
+  "uds": {}
+ },
+ "8E0-614-111-ASR.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.3 ABS/EDS/ASR",
+  "pn": "8E0-614-111-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   },
+   "3": {
+    "0": "Traction Control (ASR)",
+    "1": "Engine Speed",
+    "2": "Engine Torque | 0.0 % = Schubphase\\n20.0...30.0 % = Idle\\n100.0 % = Maximum Torque",
+    "3": "ASR-Button | 0 = Not Oper.\\n1 = Operated"
+   },
+   "4": {
+    "0": "Electronic Differential Lock (EDL)",
+    "1": "Standing | Time",
+    "2": "EDL-Shut Off | Over Temp. | 0 = EDL during the last 20 start cycles not deactivated\\n1 = EDL during the last 20 start cycles deactivated",
+    "3": "EDL/ASR-Shut Off"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics - Bosch 5.3 (J104) Coding",
+   "000?x: Engine",
+   "0 = Gasoline Engine 2.4l-2.8l (without CAN-Databus)",
+   "1 = Diesel Engine",
+   "2 = Gasoline Engine 1.8T",
+   "3 = Gasoline Engine 2.4l-2.8l (with CAN-Databus)",
+   "000x?: Transmission",
+   "0 = Manual Transmission (012) (without CAN-Databus)",
+   "1 = Automatic Transmission (01V) (with CAN-Databus)",
+   "2 = Manual Transmission (01E) (with CAN-Databus)",
+   "3 = Multitronic (01J) (with CAN-Databus)",
+   "3 = Automatic Transmission (01V) (without CAN-Databus)"
+  ],
+  "login": [],
+  "uds": {}
+ },
+ "8E0-614-111-EDS.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.3 ABS/EDS",
+  "pn": "3B0-614-111-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Status Bits",
+    "1": "Brake Light Switch | Display Range: 0/1",
+    "2": "Return Flow Pump | Display Range: 0/1",
+    "3": "Solenoid Valve | Relay | Display Range: 0/1"
+   },
+   "4": {
+    "0": "Electronic Differential Lock (EDL)",
+    "1": "Standing | Time",
+    "2": "EDL-Shut Off | Over Temp. | 0 = EDL during the last 20 start cycles not deactivated\\n1 = EDL during the last 20 start cycles deactivated",
+    "3": "EDL-Shut Off"
+   }
+  },
+  "basic_settings": {},
+  "adaptation": {},
+  "coding": [],
+  "login": [],
+  "uds": {}
+ },
+ "8D0-907-389.lbl": {
+  "component": "J104 - Brake Electronics (#03) - Bosch 5.3 ABS/EDS/ASR/ESP",
+  "pn": "8D0-907-389-",
+  "meas_blocks": {
+   "1": {
+    "0": "Wheel Speed",
+    "1": "Wheel Speed | Front Left | Display Range: 0.0...255.0 km/h",
+    "2": "Wheel Speed | Front Right | Display Range: 0.0...255.0 km/h",
+    "3": "Wheel Speed | Rear Left | Display Range: 0.0...255.0 km/h",
+    "4": "Wheel Speed | Rear Right | Display Range: 0.0...255.0 km/h"
+   },
+   "2": {
+    "0": "Switches && Buttons",
+    "1": "Brake Test Switch | Display Range: 0/operated",
+    "2": "Brake Light Switch | Display Range: 0/operated",
+    "3": "Parking Brake | Button | Display Range: 0/operated",
+    "4": "ESP-Passive | Button | Display Range: 0/operated"
+   },
+   "3": {
+    "0": "Engine Data",
+    "1": "Engine Speed",
+    "2": "Engine Torque",
+    "3": "Engine Torque | (loss)",
+    "4": "Throttle Valve Angle"
+   },
+   "4": {
+    "1": "Standing Time",
+    "2": "EDL-T Flag | Display Range: ON/OFF\\nSpecification: OFF"
+   },
+   "5": {
+    "1": "Steering Angle | Sensor (G85) | Display Range: -720.0...+720.0 °\\nTolerance (when straight): ±5.0 °",
+    "2": "Rotation Rate | Display Range: -69.0...+69.0 °/s",
+    "3": "Brake Pressure | Display Range: -41.0...+292.0 bar\\n40.0 bar = Short to Ground\\n290.0 bar = Short to Plus",
+    "4": "Transverse | Acceleration | Display Range: -25.0...+25.0 m/s²"
+   },
+   "6": {
+    "1": "Supply Voltage | (Terminal 30) | Specification: 9.8...17.4 V",
+    "2": "Valve Relay | Display Range: ON = OK / OFF = not OK",
+    "3": "Return Flow Pump | Display Range: ON/OFF",
+    "4": "Work Shop Code"
+   },
+   "125": {
+    "0": "CAN-Databus Communication (Powertrain)",
+    "1": "Steering Angle | Sensor (G85) | Specification: Steer. ang. 1\\nDisplay Range: Steer. ang. 0/Steer. ang. 1",
+    "2": "Transmission | Display Range: Transm. 1/Transm. 0",
+    "3": "Engine | Specification: Engine 1\\nDisplay Range: Engine 0/Engine 1"
+   }
+  },
+  "basic_settings": {
+   "1": {
+    "0": "Steering Angle Sensor (G85) Alignment",
+    "1": "Steering Angle | Sensor (G85)",
+    "2": "Alignment",
+    "3": "Alignment | Status | Specification: OK",
+    "4": ""
+   },
+   "2": {
+    "0": "Brake System Bleeding",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   },
+   "3": {
+    "0": "Activate ESP System/Function Test",
+    "1": "Status",
+    "2": "",
+    "3": "",
+    "4": ""
+   }
+  },
+  "adaptation": {},
+  "coding": [
+   "Brake Electronics - Bosch 5.3 (J104) Coding",
+   "0?xxx: Chassis",
+   "4 = Audi A4 (8D) / VW Passat (3B)",
+   "6 = Audi A6 (4B)",
+   "8 = Audi A8 (4D)",
+   "0x?xx: Brakes",
+   "1 = C54 (Lucas) [PR-1LZ]",
+   "2 = FN3 (Teves/ATE/Geomet) [PR-1LB/1LE/1LF/1LT/1ZC]",
+   "3 = FN2/HP2 (Dual-Piston) [PR-1LX] & Brembo [PR-1ZL/1LJ]",
+   "4 = FNRG-60 (Teves/ATE) [PR-1LA/1LG]",
+   "0xx?x: Engine",
+   "5 = 4/6/8 Cyl. Diesel",
+   "7 = 4/5 Cyl. Gasoline",
+   "9 = 6/8/12 Cyl. Gasoline",
+   "0xxx?: Transmission",
+   "3 = Manual with Low Range (only Audi A6 Allroad)",
+   "5 = Manual",
+   "7 = Automatic (01N/01V)",
+   "9 = Multitronic (01J)",
+   "",
+   "Note #1: Coding is accepted after a specific Login has been carried out.",
+   "Note #2: After successful Coding the Steering Angle Sensor Alignment needs to be carried out.",
+   "Note #3: For Audi A8 (4D) always use 3 as Selection for Brakes."
+  ],
+  "login": [
+   "Brake Electronics - Bosch 5.3 (J104) Login",
+   "0?xxx: Chassis",
+   "5 = Audi A8 (4D)",
+   "7 = Audi A6 (4B)",
+   "9 = Audi A4 (8D) / VW Passat (3B)",
+   "0x?xx: Brakes",
+   "3 = FNRG-60 (Teves/ATE) [PR-1LA/1LG]",
+   "4 = FN2/HP2 (Dual-Piston) [PR-1LX] & Brembo [PR-1ZL/1LJ]",
+   "5 = FN3 (Teves/ATE/Geomet) [PR-1LB/1LE/1LF/1LT/1ZC]",
+   "6 = C54 (Lucas) [PR-1LZ]",
+   "0xx?x: Engine",
+   "5 = 4/6/8 Cyl. Diesel",
+   "7 = 4/5 Cyl. Gasoline",
+   "9 = 6/8/12 Cyl. Gasoline",
+   "0xxx?: Transmission",
+   "3 = Manual with Low Range (only Audi A6 Allroad)",
+   "5 = Manual",
+   "7 = Automatic (01N/01V)",
+   "9 = Multitronic (01J)",
+   "",
+   "Note #1: After Login/Coding-II has been carried out you need to recode the Control Module.",
+   "Note #2: For Audi A8 (4D) always use 4 as Selection for Brakes.",
+   "",
+   "40168 = Basic Settings Enabling (i.e. mandatory prior to Steering Angle Sensor Alignment)"
+  ],
+  "uds": {}
+ }
+}

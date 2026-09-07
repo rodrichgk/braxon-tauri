@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 import i18n from '@/i18n';
 import { motion } from 'framer-motion';
 import {
@@ -15,6 +16,7 @@ import {
   CpuChipIcon,
   CogIcon,
   EyeIcon,
+  EyeSlashIcon,
   SparklesIcon,
   QrCodeIcon,
 } from '@heroicons/react/24/outline';
@@ -35,6 +37,7 @@ import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useSignalBoard } from '@/hooks/useSignalBoard';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { useSession } from '@/contexts/SessionContext';
+import { useDevGate } from '@/contexts/DevGateContext';
 import { useScanRouter } from '@/hooks/useScanRouter';
 import NotificationBell from './NotificationBell';
 import QrScannerPanel from './QrScannerPanel';
@@ -82,6 +85,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
 
   const { legacyMode, setLegacyMode } = useAppSettings();
   const { currentUser, currentJob, isGuest, logout } = useSession();
+  const { isDev, isHidden, setHidden } = useDevGate();
   const routeScan = useScanRouter();
   const [scannerOpen, setScannerOpen] = useState(false);
 
@@ -124,38 +128,66 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
         {TAB_DEFS.map(({ id, labelKey, subKey, defaultLabel, defaultSub, Outline, Solid }) => {
           const active = currentPage === id;
+          const hidden = isHidden(id);
+          // Non-dev users don't see a page the developer has hidden.
+          if (!isDev && hidden) return null;
+          const canToggle = isDev && id !== 'home';
           return (
-            <button
-              key={id}
-              onClick={() => onPageChange(id)}
-              className={[
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left relative overflow-hidden',
-                'transition-colors duration-150 group',
-                active
-                  ? 'bg-accent/10 text-accent'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-text-tertiary/10',
-              ].join(' ')}
-            >
-              {active && (
-                <motion.div
-                  layoutId="nav-pill"
-                  className="absolute left-0 inset-y-0 my-auto w-[3px] h-5 bg-accent rounded-r-full"
-                  transition={{ type: 'spring', stiffness: 500, damping: 35 }}
-                />
-              )}
-              <span className="shrink-0">
-                {active ? <Solid className="w-4 h-4" /> : <Outline className="w-4 h-4" />}
-              </span>
-              <span className="flex flex-col min-w-0">
-                <span className="text-[13px] font-medium leading-tight truncate">{t(labelKey, { defaultValue: defaultLabel })}</span>
-                <span className={[
-                  'text-[10px] leading-tight truncate mt-0.5',
-                  active ? 'text-accent/60' : 'text-text-tertiary',
-                ].join(' ')}>
-                  {t(subKey, { defaultValue: defaultSub })}
+            <div key={id} className="relative group">
+              <button
+                onClick={() => onPageChange(id)}
+                className={[
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left relative overflow-hidden',
+                  'transition-colors duration-150',
+                  canToggle ? 'pr-9' : '',
+                  hidden && isDev ? 'opacity-40' : '',
+                  active
+                    ? 'bg-accent/10 text-accent'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-text-tertiary/10',
+                ].join(' ')}
+              >
+                {active && (
+                  <motion.div
+                    layoutId="nav-pill"
+                    className="absolute left-0 inset-y-0 my-auto w-[3px] h-5 bg-accent rounded-r-full"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <span className="shrink-0">
+                  {active ? <Solid className="w-4 h-4" /> : <Outline className="w-4 h-4" />}
                 </span>
-              </span>
-            </button>
+                <span className="flex flex-col min-w-0">
+                  <span className="text-[13px] font-medium leading-tight truncate">{t(labelKey, { defaultValue: defaultLabel })}</span>
+                  <span className={[
+                    'text-[10px] leading-tight truncate mt-0.5',
+                    active ? 'text-accent/60' : 'text-text-tertiary',
+                  ].join(' ')}>
+                    {t(subKey, { defaultValue: defaultSub })}
+                  </span>
+                </span>
+              </button>
+
+              {canToggle && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHidden(id, !hidden).catch(() =>
+                      toast.error(t('nav.dev_toggle_error', { defaultValue: 'Update failed — check the DB connection' })));
+                  }}
+                  title={hidden
+                    ? t('nav.dev_unhide', { defaultValue: 'Show to everyone' })
+                    : t('nav.dev_hide', { defaultValue: 'Hide from other users' })}
+                  className={[
+                    'absolute right-1.5 top-1/2 -translate-y-1/2 z-10 p-1 rounded-md',
+                    'text-text-tertiary hover:text-text-primary hover:bg-text-tertiary/20 transition',
+                    hidden ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                  ].join(' ')}
+                >
+                  {hidden ? <EyeIcon className="w-3.5 h-3.5" /> : <EyeSlashIcon className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
           );
         })}
       </nav>

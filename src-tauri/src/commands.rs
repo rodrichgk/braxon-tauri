@@ -577,13 +577,25 @@ pub async fn save_motor_test(test: MotorTest, state: State<'_, AppState>) -> Res
 
 // ── ECU DTC database ─────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct EcuDtcEntry {
     pub dtc_raw:     i32,
     pub dtc_code:    String,
     pub description: String,
     pub ecu_name:    String,
+    /// Where the text came from, so the UI can show how far to trust it:
+    ///  - `ecu-exact`  : curated `EcuDtc` row for *this* ECU file
+    ///  - `ddt-exact`  : DDT4ALL `DdtDevice` row for *this* ECU file
+    ///  - `cross-unit` : same raw value from a *different* unit — ATE/Bosch
+    ///                   platforms are resold across OEMs with the fault table
+    ///                   verbatim, so this is usually still right, but flag it.
+    #[serde(default)]
+    pub source:     String,
+    /// The `ecu_file` the text was taken from (differs from the bench unit when
+    /// `source == "cross-unit"`).
+    #[serde(default)]
+    pub ecu_file:   Option<String>,
 }
 
 #[derive(Serialize)]
@@ -693,21 +705,165 @@ pub async fn import_ecu_dtcs(folder_path: String, state: State<'_, AppState>) ->
     Ok(total)
 }
 
+/// Resolve raw DTC integers to text, best source first. Fills `out` keyed by
+/// raw value; a raw with no hit anywhere is simply absent (the caller keeps its
+/// generic SAE fallback). Priority:
+///   1. `EcuDtc`     WHERE ecu_file = <bench unit>   (curated, this exact ECU)
+///   2. `DdtDevice`  WHERE ecu_file = <bench unit>   (full DDT4ALL, this ECU —
+///                   covers the ESP_* / non-ABS files the old import skipped)
+///   3. `EcuDtc`     WHERE dtc_raw matches, any unit  (cross-unit — ATE/Bosch
+///                   platforms share fault tables across OEMs)
+///   4. `DdtDevice`  WHERE dtc_raw matches, any unit  (broadest, 785k rows)
+/// `DdtDevice` rows with `dtc_raw = 0` are DDT4ALL screen/category names, not
+/// DTCs — always excluded.
+async fn resolve_dtcs(
+    client: &tokio_postgres::Client,
+    raws: Vec<i32>,
+    ecu_file: Option<&str>,
+) -> std::collections::HashMap<i32, EcuDtcEntry> {
+    let mut out: std::collections::HashMap<i32, EcuDtcEntry> = std::collections::HashMap::new();
+    if raws.is_empty() {
+        return out;
+    }
+    let missing = |out: &std::collections::HashMap<i32, EcuDtcEntry>| -> Vec<i32> {
+        raws.iter().copied().filter(|r| !out.contains_key(r)).collect()
+    };
+
+    if let Some(ef) = ecu_file {
+        // 1 — curated, this ECU
+        if let Ok(rows) = client
+            .query(
+                r#"SELECT dtc_raw, dtc_code, description, ecu_name, ecu_file
+                   FROM "EcuDtc" WHERE ecu_file = $1 AND dtc_raw = ANY($2)"#,
+                &[&ef, &raws],
+            )
+            .await
+        {
+            for r in rows {
+                let raw: i32 = r.get(0);
+                out.entry(raw).or_insert_with(|| EcuDtcEntry {
+                    dtc_raw: raw,
+                    dtc_code: r.get(1),
+                    description: r.get(2),
+                    ecu_name: r.get(3),
+                    source: "ecu-exact".into(),
+                    ecu_file: r.get(4),
+                });
+            }
+        }
+        // 2 — DDT4ALL, this ECU
+        let m = missing(&out);
+        if !m.is_empty() {
+            if let Ok(rows) = client
+                .query(
+                    r#"SELECT DISTINCT ON (dtc_raw) dtc_raw, dtc_code, name, ecu_file
+                       FROM "DdtDevice"
+                       WHERE ecu_file = $1 AND dtc_raw = ANY($2) AND dtc_raw <> 0
+                       ORDER BY dtc_raw, name"#,
+                    &[&ef, &m],
+                )
+                .await
+            {
+                for r in rows {
+                    let raw: i32 = r.get(0);
+                    out.entry(raw).or_insert_with(|| EcuDtcEntry {
+                        dtc_raw: raw,
+                        dtc_code: r.get(1),
+                        description: r.get(2),
+                        ecu_name: ef.to_string(),
+                        source: "ddt-exact".into(),
+                        ecu_file: r.get(3),
+                    });
+                }
+            }
+        }
+    }
+
+    // 3 — curated, any unit. Rank the bulk web-scrape tables (`VAG_WIKI%` — the
+    // whole Ross-Tech Wiki fault-code category) *below* the hand-curated /
+    // DDT4ALL-derived sets, so e.g. an enriched `VAG_ABS` row still wins over
+    // the generic wiki row for the same raw value.
+    let m = missing(&out);
+    if !m.is_empty() {
+        if let Ok(rows) = client
+            .query(
+                r#"SELECT DISTINCT ON (dtc_raw) dtc_raw, dtc_code, description, ecu_name, ecu_file
+                   FROM "EcuDtc" WHERE dtc_raw = ANY($1)
+                   ORDER BY dtc_raw,
+                            (ecu_file LIKE 'VAG\_WIKI%'),
+                            ecu_name"#,
+                &[&m],
+            )
+            .await
+        {
+            for r in rows {
+                let raw: i32 = r.get(0);
+                out.entry(raw).or_insert_with(|| EcuDtcEntry {
+                    dtc_raw: raw,
+                    dtc_code: r.get(1),
+                    description: r.get(2),
+                    ecu_name: r.get(3),
+                    source: "cross-unit".into(),
+                    ecu_file: r.get(4),
+                });
+            }
+        }
+    }
+
+    // 4 — DDT4ALL, any unit
+    let m = missing(&out);
+    if !m.is_empty() {
+        if let Ok(rows) = client
+            .query(
+                r#"SELECT DISTINCT ON (dtc_raw) dtc_raw, dtc_code, name, ecu_file
+                   FROM "DdtDevice" WHERE dtc_raw = ANY($1) AND dtc_raw <> 0
+                   ORDER BY dtc_raw, ecu_file"#,
+                &[&m],
+            )
+            .await
+        {
+            for r in rows {
+                let raw: i32 = r.get(0);
+                let file: Option<String> = r.get(3);
+                out.entry(raw).or_insert_with(|| EcuDtcEntry {
+                    dtc_raw: raw,
+                    dtc_code: r.get(1),
+                    description: r.get(2),
+                    ecu_name: file.clone().unwrap_or_default(),
+                    source: "cross-unit".into(),
+                    ecu_file: file,
+                });
+            }
+        }
+    }
+
+    out
+}
+
 #[tauri::command]
-pub async fn lookup_dtc(dtc_raw: i32, state: State<'_, AppState>) -> Result<Option<EcuDtcEntry>, String> {
+pub async fn lookup_dtc(
+    dtc_raw: i32,
+    ecu_file: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<EcuDtcEntry>, String> {
     let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
     let client = database::connect(&config).await.map_err(|e| e.to_string())?;
-    let row = client.query_opt(
-        r#"SELECT dtc_raw, dtc_code, description, ecu_name
-           FROM "EcuDtc" WHERE dtc_raw = $1 ORDER BY ecu_name LIMIT 1"#,
-        &[&dtc_raw],
-    ).await.ok().flatten();
-    Ok(row.map(|r| EcuDtcEntry {
-        dtc_raw:     r.get(0),
-        dtc_code:    r.get(1),
-        description: r.get(2),
-        ecu_name:    r.get(3),
-    }))
+    let mut map = resolve_dtcs(&client, vec![dtc_raw], ecu_file.as_deref()).await;
+    Ok(map.remove(&dtc_raw))
+}
+
+/// Batch form of [`lookup_dtc`] — one DB round-trip for a whole scan's worth of
+/// codes. Returns a Vec parallel to `dtc_raws` (`None` where nothing matched).
+#[tauri::command]
+pub async fn lookup_dtcs(
+    dtc_raws: Vec<i32>,
+    ecu_file: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Option<EcuDtcEntry>>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await.map_err(|e| e.to_string())?;
+    let map = resolve_dtcs(&client, dtc_raws.clone(), ecu_file.as_deref()).await;
+    Ok(dtc_raws.iter().map(|r| map.get(r).cloned()).collect())
 }
 
 #[tauri::command]
@@ -789,6 +945,170 @@ pub async fn get_ecu_actuators(ecu_file: String, state: State<'_, AppState>) -> 
         sent_bytes: r.get(3),
         category:   r.get(4),
     }).collect())
+}
+
+// ── DDT4ALL full-import tables (Ddt*, populated by scripts/import-ddt4all.mjs) ──
+// Covers every Renault-group ECU (not just ABS): addressing, all request screens
+// classified by kind, the measured-value scaling dictionary, and DTCs. All read
+// commands degrade to an empty result if the tables aren't imported yet.
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DdtEcuInfo {
+    pub ecu_file:      String,
+    pub ecu_name:      String,
+    pub protocol:      Option<String>,
+    pub send_id:       Option<String>,
+    pub recv_id:       Option<String>,
+    pub baudrate:      Option<i32>,
+    pub func_addr:     Option<String>,
+    pub func_name:     Option<String>,
+    pub endian:        Option<String>,
+    pub request_count: Option<i32>,
+    pub data_count:    Option<i32>,
+    pub device_count:  Option<i32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DdtRequestRow {
+    pub kind:       String,
+    pub sent_bytes: String,
+    pub min_bytes:  Option<i32>,
+    pub name:       String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DdtDataRow {
+    pub name:     String,
+    pub bits:     Option<i32>,
+    pub bytes:    Option<i32>,
+    pub scaled:   Option<bool>,
+    pub signed:   Option<bool>,
+    pub divideby: Option<f64>,
+    pub step:     Option<f64>,
+    pub offset:   Option<f64>,
+    pub format:   Option<String>,
+    pub unit:     Option<String>,
+    /// enum map as a JSON string (raw -> label), or null. Parse client-side.
+    pub lists:    Option<String>,
+}
+
+fn map_ddt_ecu(r: &tokio_postgres::Row) -> DdtEcuInfo {
+    DdtEcuInfo {
+        ecu_file: r.get(0), ecu_name: r.get(1), protocol: r.get(2), send_id: r.get(3),
+        recv_id: r.get(4), baudrate: r.get(5), func_addr: r.get(6), func_name: r.get(7),
+        endian: r.get(8), request_count: r.get(9), data_count: r.get(10), device_count: r.get(11),
+    }
+}
+
+const DDT_ECU_COLS: &str =
+    "ecu_file, ecu_name, protocol, send_id, recv_id, baudrate, func_addr, func_name, endian, request_count, data_count, device_count";
+
+#[tauri::command]
+pub async fn search_ddt_ecus(query: String, limit: Option<i64>, state: State<'_, AppState>) -> Result<Vec<DdtEcuInfo>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let like = format!("%{}%", query.trim());
+    let lim = limit.unwrap_or(60).clamp(1, 500);
+    let rows = match client.query(
+        &format!(r#"SELECT {DDT_ECU_COLS} FROM "DdtEcu"
+                    WHERE ecu_file ILIKE $1 OR ecu_name ILIKE $1 OR func_name ILIKE $1
+                    ORDER BY ecu_name LIMIT $2"#),
+        &[&like, &lim],
+    ).await { Ok(r) => r, Err(_) => return Ok(vec![]) };
+    Ok(rows.iter().map(map_ddt_ecu).collect())
+}
+
+#[tauri::command]
+pub async fn get_ddt_ecu(ecu_file: String, state: State<'_, AppState>) -> Result<Option<DdtEcuInfo>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let row = client.query_opt(
+        &format!(r#"SELECT {DDT_ECU_COLS} FROM "DdtEcu" WHERE ecu_file = $1"#),
+        &[&ecu_file],
+    ).await.ok().flatten();
+    Ok(row.as_ref().map(map_ddt_ecu))
+}
+
+#[tauri::command]
+pub async fn get_ddt_requests(ecu_file: String, kind: Option<String>, state: State<'_, AppState>) -> Result<Vec<DdtRequestRow>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let rows = match &kind {
+        Some(k) => client.query(
+            r#"SELECT kind, sent_bytes, min_bytes, name FROM "DdtRequest"
+               WHERE ecu_file = $1 AND kind = $2 ORDER BY sent_bytes"#,
+            &[&ecu_file, k]).await,
+        None => client.query(
+            r#"SELECT kind, sent_bytes, min_bytes, name FROM "DdtRequest"
+               WHERE ecu_file = $1 ORDER BY kind, sent_bytes"#,
+            &[&ecu_file]).await,
+    };
+    let rows = match rows { Ok(r) => r, Err(_) => return Ok(vec![]) };
+    Ok(rows.iter().map(|r| DdtRequestRow {
+        kind: r.get(0), sent_bytes: r.get(1), min_bytes: r.get(2), name: r.get(3),
+    }).collect())
+}
+
+/// Routines / IO / writes whose name looks like a calibration, offset-reset,
+/// programming or coding procedure — pressure sensor, steering-angle, accel, VIN…
+#[tauri::command]
+pub async fn ddt_calibration_procedures(ecu_file: String, state: State<'_, AppState>) -> Result<Vec<DdtRequestRow>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let rows = match client.query(
+        r#"SELECT kind, sent_bytes, min_bytes, name FROM "DdtRequest"
+           WHERE ecu_file = $1
+             AND kind IN ('routine','io','write')
+             AND (name ~* 'calib|program|apprent|offset|angle|pression|pressure|swas|adaptation|learn|initialis|\braz\b|\bzero\b|codage|coding|\bvin\b|configuration')
+           ORDER BY kind, sent_bytes"#,
+        &[&ecu_file],
+    ).await { Ok(r) => r, Err(_) => return Ok(vec![]) };
+    Ok(rows.iter().map(|r| DdtRequestRow {
+        kind: r.get(0), sent_bytes: r.get(1), min_bytes: r.get(2), name: r.get(3),
+    }).collect())
+}
+
+#[tauri::command]
+pub async fn get_ddt_data(ecu_file: String, filter: Option<String>, state: State<'_, AppState>) -> Result<Vec<DdtDataRow>, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let like = format!("%{}%", filter.unwrap_or_default());
+    let rows = match client.query(
+        r#"SELECT name, bits, bytes, scaled, is_signed, divideby, step, val_offset, fmt, unit, lists::text
+           FROM "DdtData" WHERE ecu_file = $1 AND ($2 = '%%' OR name ILIKE $2)
+           ORDER BY name LIMIT 2000"#,
+        &[&ecu_file, &like],
+    ).await { Ok(r) => r, Err(_) => return Ok(vec![]) };
+    Ok(rows.iter().map(|r| DdtDataRow {
+        name: r.get(0), bits: r.get(1), bytes: r.get(2), scaled: r.get(3), signed: r.get(4),
+        divideby: r.get(5), step: r.get(6), offset: r.get(7), format: r.get(8), unit: r.get(9),
+        lists: r.get(10),
+    }).collect())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DdtStats { pub ecus: i64, pub requests: i64, pub data: i64, pub devices: i64 }
+
+#[tauri::command]
+pub async fn ddt_stats(state: State<'_, AppState>) -> Result<DdtStats, String> {
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    let row = client.query_opt(
+        r#"SELECT
+             (SELECT COUNT(*) FROM "DdtEcu"),
+             (SELECT COUNT(*) FROM "DdtRequest"),
+             (SELECT COUNT(*) FROM "DdtData"),
+             (SELECT COUNT(*) FROM "DdtDevice")"#,
+        &[],
+    ).await.ok().flatten();
+    Ok(match row {
+        Some(r) => DdtStats { ecus: r.get(0), requests: r.get(1), data: r.get(2), devices: r.get(3) },
+        None    => DdtStats { ecus: 0, requests: 0, data: 0, devices: 0 },
+    })
 }
 
 #[derive(Serialize)]

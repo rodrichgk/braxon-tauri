@@ -10,6 +10,8 @@ mod f2evo;
 mod hydraulic_import;
 mod client_registry;
 mod scan_inbox;
+mod signal_history;
+mod app_settings;
 
 use std::sync::{Arc, Mutex};
 
@@ -19,7 +21,53 @@ pub struct AppState {
     pub kvaser_connection: kvaser::SharedKvaserConnection,
 }
 
+/// Append every panic (thread name, message, location, backtrace) to
+/// `%APPDATA%\braxon\panic.log` and stderr. A release build has no console
+/// (`windows_subsystem = "windows"`), so a panic in a background thread —
+/// Kvaser FFI, the 4D ODBC proxy, an ETL/scheduler task — otherwise just
+/// kills that thread (or the process) with nothing to show for it. This does
+/// NOT catch a stack overflow: on Windows that is an SEH fault the runtime
+/// handles by printing "has overflowed its stack" and aborting (see the
+/// `/STACK` reserve in `.cargo/config.toml`).
+fn install_panic_logger() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("<unnamed>");
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown location>".into());
+        let payload = info.payload();
+        let msg = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".into());
+        let bt = std::backtrace::Backtrace::force_capture();
+        let entry = format!(
+            "\n[{}] panic on thread '{}' at {}\n  {}\n{}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+            name,
+            loc,
+            msg,
+            bt
+        );
+        eprint!("{entry}");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(database::config_dir().join("panic.log"))
+        {
+            use std::io::Write;
+            let _ = f.write_all(entry.as_bytes());
+        }
+        default_hook(info);
+    }));
+}
+
 fn main() {
+    install_panic_logger();
     database::migrate_legacy_config_dir();
 
     let db_config = std::fs::read_to_string(database::config_path())
@@ -100,9 +148,16 @@ fn main() {
             commands::reveal_path,
             commands::import_ecu_dtcs,
             commands::lookup_dtc,
+            commands::lookup_dtcs,
             commands::get_ecu_db_stats,
             commands::get_ecu_list,
             commands::get_ecu_actuators,
+            commands::search_ddt_ecus,
+            commands::get_ddt_ecu,
+            commands::get_ddt_requests,
+            commands::get_ddt_data,
+            commands::ddt_calibration_procedures,
+            commands::ddt_stats,
             commands::match_ecu_ident,
             commands::get_ecu_by_abs_ref,
             commands::save_abs_ref_ecu,
@@ -180,6 +235,11 @@ fn main() {
             hydraulic_import::hydraulic_load_abs_program,
             hydraulic_import::hydraulic_build_abs_upload,
             hydraulic_import::hydraulic_list_test_channels,
+            signal_history::save_signal_hil_test,
+            signal_history::list_signal_hil_tests,
+            signal_history::delete_signal_hil_test,
+            app_settings::get_app_setting,
+            app_settings::set_app_setting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

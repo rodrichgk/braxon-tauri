@@ -1,0 +1,10 @@
+# Windows reserves only 1 MiB for the main thread's stack. `tauri::generate_handler!`
+# expands the whole command list into one function; with ~140 commands an
+# unoptimized (debug) build blows a single stack frame past that limit and the
+# process dies at startup with:
+#     thread 'main' has overflowed its stack
+# It is intermittent because the exact frame layout shifts between builds.
+# Reserve 32 MiB instead. This is address-space reserve, not committed memory,
+# so it costs nothing at runtime. Applies to debug and release.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:33554432"]

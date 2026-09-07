@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import toast from 'react-hot-toast';
 import {
   DocumentArrowDownIcon, CheckCircleIcon, ExclamationTriangleIcon, XCircleIcon,
   SignalIcon, BugAntIcon, BoltIcon, PlusIcon, TrashIcon, CpuChipIcon,
@@ -9,11 +10,37 @@ import {
   computeEcuVerdict, ecuReasonSummary, ecuReportHasData, activeDtcCount, curveIssues, peakCurrent,
 } from '@/lib/ecuReport';
 import { useReports } from '@/contexts/ReportsContext';
+import { useSession } from '@/contexts/SessionContext';
+import { saveSignalHilTest, type SignalHilJobInfo } from '@/lib/signalHilHistory';
 import {
   createReportDoc, drawHeader, drawTitleBlock, drawJobRow, drawFooter,
   sectionHeading, drawStatTiles, drawTable, drawLineChart, drawParagraph,
   COLOR, X0, CONTENT_W, type ReportDoc, type Pill,
 } from '@/lib/pdfReport';
+
+type TFn = (key: string, opts?: Record<string, unknown>) => string;
+
+/** Builds and downloads the ECU report PDF for a given draft — shared by
+ *  the live editor below and SignalHilHistory's "re-download" action, so a
+ *  past report renders identically to how it looked when first generated. */
+export function generateEcuReportPdf(
+  draft: EcuReportDraft,
+  opts: { title: string; verdict: Verdict | null; verdictLabel?: string; reason: string; jobLabel?: string; jobNumber?: string },
+  t: TFn,
+) {
+  const rd = createReportDoc();
+  drawHeader(rd, 'ABS ECU Diagnostics');
+  let y = drawTitleBlock(rd, {
+    title: opts.title, verdict: opts.verdict, verdictLabel: opts.verdictLabel, reason: opts.reason,
+  });
+  y = drawJobRow(rd, y, opts.jobLabel, opts.jobNumber);
+  y = drawEcuBody(rd, y, draft, t);
+  drawFooter(rd, 'BRAXON — ECU Test Report');
+
+  const word = opts.verdict ? opts.verdict.toUpperCase() : 'REPORT';
+  const base = opts.jobNumber ? `${opts.jobNumber}-ECU-${word}` : `ecu-report-${new Date().toISOString().slice(0, 10)}-${word}`;
+  rd.doc.save(`${base}.pdf`);
+}
 
 const STANDARD_SPEEDS = [0, 5, 20, 50, 80, 120];
 const WHEELS = ['fl', 'fr', 'rl', 'rr'] as const;
@@ -38,6 +65,9 @@ const DTC_TYPE_STYLE: Record<string, string> = {
 interface Props {
   jobLabel?: string;
   jobNumber?: string;
+  /** LigCde id of the linked REMAN job, if any — carried into the history
+   *  record so it can be cross-referenced later; absent for a job-less unit. */
+  ligcdeId?: string;
   onClose?: () => void;
   /** Present only when a REMAN job is linked — Save Before/After/Passed. */
   onSave?: (reportType: string) => void;
@@ -49,9 +79,10 @@ const SAVE_TYPES = [
   { type: 'passed', key: 'reman.ecu_report_passed', accent: true },
 ];
 
-export default function EcuTestReport({ jobLabel, jobNumber, onClose, onSave }: Props) {
+export default function EcuTestReport({ jobLabel, jobNumber, ligcdeId, onClose, onSave }: Props) {
   const { t } = useTranslation();
   const { signalDraft: draft, patchManual, setCurve, resetCanActivity, resetSignalDraft } = useReports();
+  const { currentUser } = useSession();
 
   const verdict = useMemo(() => computeEcuVerdict(draft), [draft]);
   const reason = useMemo(() => ecuReasonSummary(draft), [draft]);
@@ -82,23 +113,22 @@ export default function EcuTestReport({ jobLabel, jobNumber, onClose, onSave }: 
   };
 
   // ── PDF ────────────────────────────────────────────────────
+  // Every generated report also lands in the Signal HIL history (History
+  // tab of TestReportCard) — job-linked or not, so a job-less unit still
+  // gets a permanent record. The DB write is best-effort: a slow/unreachable
+  // DB shouldn't block the PDF the technician actually asked for.
   const generatePdf = () => {
     if (!hasData) return;
-    const rd = createReportDoc();
-    drawHeader(rd, 'ABS ECU Diagnostics');
-    let y = drawTitleBlock(rd, {
+    generateEcuReportPdf(draft, {
       title: t('signal.report_title'),
       verdict,
       verdictLabel: verdict ? verdictMeta[verdict].label : undefined,
       reason,
-    });
-    y = drawJobRow(rd, y, jobLabel, jobNumber);
-    y = drawEcuBody(rd, y, draft, t);
-    drawFooter(rd, 'BRAXON — ECU Test Report');
-
-    const word = verdict ? verdict.toUpperCase() : 'REPORT';
-    const base = jobNumber ? `${jobNumber}-ECU-${word}` : `ecu-report-${new Date().toISOString().slice(0, 10)}-${word}`;
-    rd.doc.save(`${base}.pdf`);
+      jobLabel,
+      jobNumber,
+    }, t);
+    void saveSignalHilTest(draft, verdict, reason, { jobLabel, jobNumber, ligcdeId } satisfies SignalHilJobInfo, currentUser?.name)
+      .catch(() => toast.error(t('signal.history_error_save')));
   };
 
   // ── render ─────────────────────────────────────────────────
@@ -487,8 +517,6 @@ function CurvePreview({ curve }: { curve: WheelCurvePoint[] }) {
 }
 
 /* ── PDF body (shared with the combined report) ──────────────── */
-
-type TFn = (key: string, opts?: Record<string, unknown>) => string;
 
 export function drawEcuBody(rd: ReportDoc, yIn: number, draft: EcuReportDraft, t: TFn): number {
   let y = yIn;
