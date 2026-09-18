@@ -107,6 +107,55 @@ export function defaultProtocolFor(canId: number | null): Protocol | null {
   return isObdAddress(canId) ? 'OBD2' : 'KWP2000';
 }
 
+/**
+ * Which protocol to persist when saving a discovery hit to `EcuAbsRef`.
+ *
+ * The discovery sweep's own guess (`protocolFromProbe`, from the session-open
+ * response shape) is a coarse heuristic — it can call a genuinely UDS-capable
+ * ECU "KWP2000" if the probe response happened to be short. If the technician
+ * has since switched the Diagnostics protocol tab by hand and confirmed it
+ * actually works (e.g. scanned real DTCs over UDS), that live selection is
+ * ground truth the probe never had and must win. Falls back to the probed
+ * value only when the caller has no live selection to offer.
+ */
+export function resolveSaveProtocol(
+  current: Protocol | null | undefined,
+  probed: Protocol | null,
+): Protocol | null {
+  return current ?? probed;
+}
+
+/**
+ * Which `EcuDtc.ecu_file` a DTC description — curated import or a
+ * technician's own manual entry — should be read from and saved under for
+ * the unit currently on the bench.
+ *
+ * A DDT4ALL-linked unit uses its real `ecu_file` (`selectedEcu.ecuFile`),
+ * same as every curated import this session. A unit with no such link —
+ * e.g. no DDT4ALL file at all, like the Koleos/X45 ABS reference
+ * `476601KD2A` — has nothing to key on *except* its own ABS reference, so
+ * this falls back to `normalizeAbsRef(absRef)`, the same per-reference key
+ * `BUILTIN_WSS_READ`/`BUILTIN_ACTUATORS_BY_REF` already use.
+ *
+ * Falling back to `null` here (as an earlier version of the lookup did)
+ * is wrong for a manual entry: `resolve_dtcs` only matches a raw DTC
+ * against `ecu_file` at its highest-confidence tier when `ecu_file` is
+ * non-null — a `null` ecu_file skips straight to the "any unit, same raw
+ * value" tier, so a note a technician typed for *this* fault on *this* unit
+ * would surface on every unrelated ECU that happens to share the same raw
+ * DTC number instead of just this one.
+ */
+export function resolveManualDtcEcuFile(
+  protocol: Protocol | null | undefined,
+  linkedEcuFile: string | null | undefined,
+  absRef: string | null | undefined,
+): string | null {
+  if (protocol === 'VWTP20') return 'VAG_WIKI';
+  if (linkedEcuFile) return linkedEcuFile;
+  const normalized = absRef ? normalizeAbsRef(absRef) : '';
+  return normalized || null;
+}
+
 /** Vehicle brand from an ABSData manufacturer string. Returns null rather than
     guessing 'Other' — 'Other' switches the ECU DB off entirely. */
 export function brandFromManufacturer(manufacturer: string | null | undefined): VehicleBrand | null {

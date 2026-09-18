@@ -7572,4 +7572,133 @@ mod tests {
         assert!(!fault_type_matches(None, None, "hydraulic"));
         assert!(!fault_type_matches(None, None, "both"));
     }
+
+    #[test]
+    fn escape_sql_literal_doubles_single_quotes() {
+        assert_eq!(escape_sql_literal("O'Brien"), "O''Brien");
+        assert_eq!(escape_sql_literal("no quotes"), "no quotes");
+        assert_eq!(escape_sql_literal("'; DROP TABLE x;--"), "''; DROP TABLE x;--");
+    }
+
+    #[test]
+    fn parse_id_trims_and_reports_the_label_on_failure() {
+        assert_eq!(parse_id("  42 ", "job"), Ok(42));
+        assert_eq!(parse_id("-7", "job"), Ok(-7));
+        assert_eq!(parse_id("abc", "client"), Err("Invalid client id".to_string()));
+        assert_eq!(parse_id("", "job"), Err("Invalid job id".to_string()));
+    }
+
+    #[test]
+    fn split_vehicle_splits_on_the_first_space() {
+        assert_eq!(
+            split_vehicle(Some("FF593XY AUDI A6 V AVANT (F2) PHASE 1".to_string())),
+            (Some("FF593XY".to_string()), Some("AUDI A6 V AVANT (F2) PHASE 1".to_string())),
+        );
+        assert_eq!(split_vehicle(Some("PLATEONLY".to_string())), (Some("PLATEONLY".to_string()), None));
+        assert_eq!(split_vehicle(Some("PLATE   ".to_string())), (Some("PLATE".to_string()), None));
+        assert_eq!(split_vehicle(None), (None, None));
+    }
+
+    #[test]
+    fn delivery_sort_key_and_to_ymd_reorder_french_dates() {
+        let d = Some("07/03/2026 14:30".to_string());
+        assert_eq!(delivery_sort_key(&d).as_deref(), Some("2026-03-07 14:30"));
+        assert_eq!(to_ymd(&d).as_deref(), Some("2026-03-07"));
+        // no time part
+        assert_eq!(to_ymd(&Some("31/12/2025".to_string())).as_deref(), Some("2025-12-31"));
+        assert_eq!(to_ymd(&None), None);
+        assert_eq!(delivery_sort_key(&Some("garbage".to_string())), None);
+    }
+
+    #[test]
+    fn is_more_than_a_month_past_only_flags_old_scheduled_dates() {
+        assert!(!is_more_than_a_month_past(&None)); // unscheduled is never stale
+        assert!(!is_more_than_a_month_past(&Some("not a date".to_string())));
+        assert!(is_more_than_a_month_past(&Some("01/01/2000".to_string())));
+        assert!(!is_more_than_a_month_past(&Some("01/01/2999 08:00".to_string())));
+    }
+
+    #[test]
+    fn normalize_for_match_strips_french_accents_and_uppercases() {
+        assert_eq!(normalize_for_match("déséquilibre"), "DESEQUILIBRE");
+        assert_eq!(normalize_for_match("Roue arrière gauche"), "ROUE ARRIERE GAUCHE");
+        assert_eq!(normalize_for_match("çà et là"), "CA ET LA");
+    }
+
+    #[test]
+    fn hms_round_trips_through_seconds() {
+        assert_eq!(parse_hms_to_seconds("01:02:03"), Some(3723));
+        assert_eq!(parse_hms_to_seconds("00:00:00"), Some(0));
+        assert_eq!(parse_hms_to_seconds("bad"), None);
+        assert_eq!(parse_hms_to_seconds("1:2"), None);
+        assert_eq!(format_seconds_to_hms(3723), "01:02:03");
+        assert_eq!(format_seconds_to_hms(0), "00:00:00");
+        assert_eq!(format_seconds_to_hms(37_000), "10:16:40");
+    }
+
+    #[test]
+    fn accessoire_label_maps_known_ids_and_falls_back_for_the_rest() {
+        assert_eq!(accessoire_label("2200"), "Support de fixation");
+        assert_eq!(accessoire_label("9999"), "Accessoire #9999");
+    }
+
+    #[test]
+    fn representant_name_resolves_only_confirmed_codes() {
+        assert_eq!(representant_name("NP"), Some("Nicolas Paoli"));
+        assert_eq!(representant_name("HC"), Some("Hugues Barreau Cerveau"));
+        assert_eq!(representant_name("ZZ"), None);
+    }
+
+    #[test]
+    fn classify_outcome_maps_type_codes_and_gates_on_closed() {
+        assert_eq!(classify_outcome(false, Some("R")), Outcome::InProgress);
+        assert_eq!(classify_outcome(true, Some("R")), Outcome::Repaired);
+        assert_eq!(classify_outcome(true, Some("NDL")), Outcome::NonRepairable);
+        assert_eq!(classify_outcome(true, Some("RAS")), Outcome::NoFaultFound);
+        assert_eq!(classify_outcome(true, Some("ES")), Outcome::StandardExchange);
+        assert_eq!(classify_outcome(true, Some("V")), Outcome::Sold);
+        assert_eq!(classify_outcome(true, Some("RST")), Outcome::SentToSubcontractor);
+        assert_eq!(classify_outcome(true, Some("???")), Outcome::Other);
+        assert_eq!(classify_outcome(true, None), Outcome::Other);
+    }
+
+    #[test]
+    fn outcome_as_str_and_add_outcome_count_are_inverse() {
+        let mut b = OutcomeBreakdown::default();
+        for oc in [
+            Outcome::Repaired,
+            Outcome::NonRepairable,
+            Outcome::NoFaultFound,
+            Outcome::StandardExchange,
+            Outcome::Sold,
+            Outcome::SentToSubcontractor,
+            Outcome::Other,
+        ] {
+            add_outcome_count(&mut b, oc.as_str(), 1);
+        }
+        assert_eq!(
+            (b.repaired, b.non_repairable, b.no_fault_found, b.standard_exchange, b.sold, b.sent_to_subcontractor, b.other),
+            (1, 1, 1, 1, 1, 1, 1),
+        );
+        // an unexpected label folds into `other` rather than panicking
+        add_outcome_count(&mut b, "in_progress", 3);
+        assert_eq!(b.other, 4);
+    }
+
+    #[test]
+    fn validate_iso_date_accepts_ymd_and_rejects_the_rest() {
+        assert_eq!(validate_iso_date(" 2026-03-07 ", "from"), Ok("2026-03-07".to_string()));
+        assert!(validate_iso_date("07/03/2026", "from").is_err());
+        assert!(validate_iso_date("2026-13-01", "to").is_err());
+        assert_eq!(validate_iso_date("bad", "to"), Err("Invalid to (expected YYYY-MM-DD)".to_string()));
+    }
+
+    #[test]
+    fn clean_tags_trims_drops_blanks_and_dedupes_case_insensitively() {
+        assert_eq!(
+            clean_tags(vec!["  C1391 ".into(), "".into(), "c1391".into(), "Pump".into(), "PUMP".into()]),
+            vec!["C1391".to_string(), "Pump".to_string()],
+        );
+        assert_eq!(clean_tags(vec![]), Vec::<String>::new());
+    }
 }

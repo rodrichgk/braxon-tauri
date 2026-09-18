@@ -5563,6 +5563,214 @@ and small, and batching the check would have made isolating exactly
 which edit introduced a problem harder), plus a final `cargo check
 --bin braxon` and `npm run build`, all clean.
 
+## Design-mode confirmation: how 4D itself creates/deletes an Intervention step (2026-09-11)
+
+Recovered Designer access to the live structure (separate story) and read the
+4D-side methods behind the two riskiest things BRAXON does — adding a step and
+(hypothetically) removing one. This section documents *behavior*, not source —
+the method text itself is REMAN 4D's own proprietary code and stays out of
+this repo (see `docs/4dreadings.txt`, gitignored, for working notes while
+reading it).
+
+**`NoInt_interv` allocation, confirmed rather than inferred.** The button
+handler behind "add a step" allocates the new `Intervention` row's primary key
+from 4D's own per-table `Sequence number()` — a counter kept inside the data
+file, invisible to SQL, plus a fixed per-table offset from a global lookup
+array — then does the same thing again for a second, conditionally-created row
+(a "Devis - Réponse Client" record) later in the same handler. Both call sites
+use the identical pattern. This is the mechanism `BRAXON_ID_RANGE_START`
+(`src-tauri/src/reman.rs`, see "Real incident" below) works around from
+outside: there is no SQL statement that can read or advance this counter, so
+every BRAXON write to `Intervention` has to go through a 4D method to get a
+correct id, full stop — confirmed, not a guess.
+
+**`EtapeEncours` — a lock table BRAXON doesn't participate in.** Before a
+technician can start a step on the bench-worklist path, the handler checks a
+separate table (`EtapeEncours`) for an existing in-progress row on that job;
+if one exists (another tech, or the supervisor-review flow), it refuses with
+an alert naming who's mid-step, rather than allowing a second concurrent
+entry. A row is created there when the step starts (capturing a start
+timestamp) and deleted when the step is saved or cancelled. `TempsPasse` on
+the resulting `Intervention` row is computed from that start timestamp, not
+entered by hand. BRAXON's write paths don't create/consult this table and
+never set `TempsPasse` — reasonable given BRAXON's one-shot submit doesn't
+have a natural "form open time" to measure, but it means BRAXON-originated
+steps are invisible to the native "who's working what right now" screen and
+undercounted in any `TempsPasse`-based reporting. Worth a product decision
+before the REST migration, not just a technical one.
+
+**Never delete an `Intervention` row outside a 4D method.** The undo/delete
+handler is a large state machine keyed on the row's own `TypeCode`, not a
+plain delete — closing codes (`ND`, `RAS`, `GRE`, `TND`, …) revert `Soldée`,
+warranty and several per-code flags on `LigCde`; subcontractor-return codes
+(`RST`/`RSTND`/`RSTNF`) reach into a parallel subcontractor-order pair of
+tables and recompute their advancement percentage; a constructor-test code
+(`TOK` with `NumIntervSGConstr` set) reaches into another parallel
+constructor-test pair of tables; and a defective-exchange-stock case jumps
+context to a *different* `LigCde` row entirely and adjusts an article's
+weighted-average cost quantity. None of this fires on a raw SQL `DELETE`.
+Concretely: **confirm no sentinel-range (`NoInt_interv >= 900000000`) row has
+ever been deleted outside BRAXON's own code** — that's a sharper integrity
+risk than the ordering bug already fixed below, and unlike that one it can
+silently corrupt `LigCde` state rather than just misorder a display.
+
+**Pricing (`ZZ_Tarif`) is not portable, confirmed.** It reads several global
+arrays/flags (special-tariff quantities, per-family/brand/segment discount
+tables, group-tariff flags) that get populated by other code before it runs —
+it isn't a self-contained function of the row's own fields. Leave pricing on
+the 4D client for the foreseeable future; don't attempt to replicate the
+discount logic in BRAXON.
+
+**Still needed**, next time Design mode is open: the `S_Interv` input form's
+object method (see the 2026-09-12 entry below — table triggers are ruled out
+now, this is the only place left). Also useful: `ZZ_ValidLigneInterv`,
+`ZZ_CtrlPost_tec`, `ZZ_SelectServiceLigInterv`, and the field properties on
+`Intervention.NoInt_interv` (to see the unique-index enforcement explicitly,
+already confirmed live by the id-collision tests below) plus wherever
+`<>tabNumIntTable` gets initialized (a startup/database method) to read the
+real per-table offsets in use today.
+
+## Table triggers confirmed: neither explains the `LigCde` mirroring (2026-09-12)
+
+`[LigCde]`'s table trigger, in full:
+
+```
+If (Trigger event=1) | (Trigger event=2)
+	[LigCde]DateModif:=Current date
+	[LigCde]heureModif:=Current time(*)
+End if
+```
+
+That's the entire thing — a generic last-modified stamp on create-or-update
+(`Trigger event` 1/2), nothing about `DernièreInterv`, `TechDernInterv`, or
+`Nettoyage`. **`[Intervention]` has no trigger method at all.**
+
+Two consequences:
+1. Saving an `Intervention` row never automatically touches `LigCde` — there's
+   no cascade to rely on or to accidentally break. Whatever sets
+   `LigCde.DernièreInterv`/`TechDernInterv` has to be in **`S_Interv`'s form
+   method or its OK/Enregistrer button's object method** — that's now the only
+   place left it can be, since both table triggers are ruled out.
+2. For the real-time change-feed design (outbox pattern: a trigger appends a
+   row to a small `API_EVENTS` table so an external bridge can follow changes
+   without polling the business tables) — adding an event-emitting trigger to
+   `[Intervention]` is a clean slate, nothing to preserve. Adding one to
+   `[LigCde]` means inserting into the existing `If (Trigger event=1) |
+   (Trigger event=2)` block, never replacing it.
+
+## Licence covers 4D Server + SQL only — no Web server / REST (2026-09-12)
+
+Rules out calling a 4D method over HTTP. Two SQL-only alternatives instead,
+in preference order:
+
+1. **A project method flagged "available through SQL"** (4D's method
+   properties have a checkbox for this — exact label to be confirmed once
+   tested) is exposed as an ODBC stored procedure, callable via the `{CALL
+   MethodName(...)}` escape sequence — synchronous, transactional, no polling.
+   Being tested now with a throwaway `API_SQL_TEST` method. **Test with a
+   literal argument first** (`{CALL API_SQL_TEST('World')}`), not a `?`
+   placeholder — this driver already confirmed live that `?` parameter markers
+   silently fail to execute (see "SQL-dialect quirks" at the top of this file),
+   and there's no reason to expect a stored-procedure call is exempt from that.
+2. **Fallback, if (1) doesn't pan out:** a plain request-queue table BRAXON
+   only ever `INSERT`s into, polled by a permanent 4D background process
+   (`Executer sur serveur` launches exactly this kind of server-side process)
+   that does the real `CREATE RECORD`/`Sequence number()`/save. Slower
+   (~1s polling latency) but no new licence needed either way. Full design in
+   the migration plan (scratchpad, not this repo — see BRAXON's chat history
+   for the `REMAN-migration-plan.md` write-up).
+
+If (1) works, the real-time change feed described above rides the same
+mechanism for free: an `API_EVENTS`-watching bridge (proposed home: the
+already-deployed `scan-service/` Node service next to Postgres, which already
+plays this exact "poll an external source, mirror into Postgres" role for the
+QR-scan flow) polls the tiny event table and does `NOTIFY` on the shared
+Postgres bus — every BRAXON instance `LISTEN`s, so no BRAXON client ever
+polls 4D directly, and the old 4D client's own saves show up too since the
+trigger fires on any save regardless of who made it.
+
+## `ZZ_ValidLigneInterv` — the "Valider" button's own logic, and still no `DernièreInterv` (2026-09-12)
+
+This is the object method on `S_Interv`'s OK/"Valider" button — the actual
+commit logic for both `ADD RECORD` (new step) and `MODIFY RECORD` (editing the
+last step), distinguished internally by `Old([Intervention]NoInt_interv)=0`
+(zero only for a brand-new record). **Still no `LigCde.DernièreInterv` or
+`TechDernInterv` assignment anywhere in it** — the fifth place ruled out
+(`Intervention` trigger, `LigCde` trigger, add-step handler, edit-step
+handler, and now the save-validation logic itself). The next, and probably
+decisive, check: **whether `LigCde.DernièreInterv` is a calculated field**
+(Structure editor → right-click the field → Propriétés). If so, nothing ever
+"sets" it — it's a live formula off `Intervention`'s most recent row, which
+would mean BRAXON's own `UPDATE LigCde SET "DernièreInterv"=...` in every
+write path has likely been a no-op the whole time, with correctness coming
+entirely from creating the right `Intervention` row. Consistent with BRAXON's
+own read side already deriving "current status" from `Intervention.TypeLibelle`
+of the most recent row rather than trusting the `LigCde` column directly.
+
+Two things this method is worth regardless of that question:
+
+### Required fields per `TypeCode` (validation before 4D accepts a step)
+
+A `REJECT` inside this method cancels the save and keeps the form open with an
+alert — the technician-facing rules a 4D-side write method (or BRAXON's own
+form) needs to satisfy or replicate:
+
+- Always: a technician, a `TypeCode`, and a date.
+- `R` / `GRE` / `RG` (unless `LigCde.ContratDLM=True`): `NiveauPanne` and a
+  `cause de panne` (`<>VtabCausePanne`).
+- Internal warranty flagged (`Garantieinter=True`): must be explicitly
+  accepted or refused (`Baccept`/`Brefus`).
+- `RED`, `ND`, `TND`, `PTOK`, `DR`, `TES`: a comment.
+- `TES` specifically also needs the "can this go to a subcontractor?" flag
+  set if there's an `ArticleMeteor.NDST` comment pending.
+- `ES` needs `LigCde.CodeStock` when `Type_Service="305@"`.
+- Any exchange (`CodeStock` or `EchAD_numInterv` set, unless the AD number was
+  auto-generated) needs the returned-part destination (`Bc1`/`Bc2`).
+- `TREP` must **not** have `CodeStock` set.
+- `ARD`: a corrected delay > 0, and blocked outright if the line is under
+  warranty.
+- `DA`: a devis-acceptance date+time unless the devis was refused.
+- The accessories checklist (`VTabTest`) must be fully checked.
+- `TNON`: one of 4 refusal reasons, plus a comment if it's a refusal-type
+  reason (constructor screen defect, oxidation, SG-constructor refusal).
+- Destockage screen must be visited first for several closing codes (`ND`,
+  `TND`, `ARD`, `AP`, `R`, `V`, `GRE`, `RG`, `RED`, `ES`, `ER`, `PTOK`, `TOK`
+  without an SG-constructor link) **on a brand-new record**, when the article
+  is in `HA_ArticleVte` and on the technician-bench `Type_Service`s.
+- Tests & Actions Systématiques (`Zebra_LigCdeTest`) required for `R`/`ES`/`RAS`
+  if none recorded yet — matches BRAXON's own Tests & Actions feature exactly.
+- Fault indicators (`IndicateursND` / `Indicateurs`) required for several
+  closing codes depending on the article's indicator category
+  (`ArticleIndic.Categorie`).
+
+### `TypeCode` → `LigCde` effects (the forward counterpart to `ZZ_SupInterv`'s undo)
+
+Before the per-code case, every validated step **resets** embalage/nettoyage/
+post-technique/test-final tracking (`DateEmbal`, `NoInt_TechNett`,
+`NoInt_TechPT`, `ValidationChefEquipe`, `TestFinal`, …) — a fresh transition
+clears whatever downstream state existed. Then, selected highlights (full
+table is the method itself, not reproduced here — it's REMAN's code, not
+ours):
+
+| `TypeCode` | Sets on `LigCde` |
+|---|---|
+| `ND` | `Soldée=False`, `ND=True`, price→0 or 100% discount (DLM-dependent), `Type_Service="305"` |
+| `RAS` | `Soldée=True`, price from `<>Majo_NFF`/`<>Majo_NFFST` (subcontractor-return history dependent), `ZZ_ValoCdeIntervention` + `ZZ_CtrlPost_tec` |
+| `R` | `Soldée=True`, `NivPanne`, `ZZ_CtrlPost_tec` |
+| `GR` (garantie RAS) | `Soldée=True`, `SGRAS=True`, `Garantie=False`, **hardcoded per-client discount overrides** (`CodeClient` `1159/2`, `6212@`/Montics, `6067@`/Toshiba) |
+| `GRE` | `Soldée=True`, `Remise=RemiseNG`, `Garantie=False` |
+| `RG` | `Soldée=True`, `PrixHT=0` (unless DLM), `Garantie=True` |
+| `ES` | `Soldée=True`, `Nettoyage` depends on `CodeStock`, `SemaineGarantie` from a global |
+| `DA` | does **not** solde the line — recalculates delivery/technical delay from the linked `ARD` row's `DelaiCorrigé` |
+| `TES` | `Soldée=False`, `Type_Service="305"`, and **emails/faxes the customer** (`ZZ_EnvoiMailSuiteRAS`, via a fax-number picker dialog) the moment the line newly becomes RAS/SGRAS |
+| `TREP` / `T114` | recompute delay/date-limite fields from `<>NbJourRetST`/`<>NbjourHGST`, reset `Type_Service` |
+| `MAJ` | `Soldée=True`, `Nettoyage=True`, caps `DateLimiteLivraison` to today |
+| `TOK` (3 sub-branches by `NumIntervSGConstr`/`CodeClientSGConstr`) | SG-constructor test outcomes, including a client-specific ("DAMOVO Deutschland") always-OK path |
+
+`VALIDATE TRANSACTION` closes the method — confirms the whole thing runs
+inside an explicit 4D transaction, started elsewhere (likely when
+`ADD RECORD`/`MODIFY RECORD` opens the form).
+
 ## Open questions still open for the Rust implementation
 
 1. Whether `LigCde` needs to be queried at all for the browse UI, or
@@ -5573,3 +5781,16 @@ which edit introduced a problem harder), plus a final `cargo check
 2. `Client` and `ArticleMeteor` column lists above are abbreviated to what
    looked relevant; re-run `scripts/explore-4d.mjs` and check the full
    `_USER_COLUMNS` output if a query needs a field not listed here.
+3. Where `LigCde.DernièreInterv`/`DateDernInterv`/`TechDernInterv` actually
+   get set 4D-side — five places ruled out now (both table triggers, the
+   add-step handler, the edit-step handler, and `ZZ_ValidLigneInterv` itself;
+   see the two 2026-09-12 entries above). Next step is checking the field's
+   own properties for a calculated-field formula, not reading more methods.
+4. Whether any existing `NoInt_interv >= 900000000` row has been deleted
+   outside BRAXON's own code (see "Design-mode confirmation" above) — an
+   integrity check, not a design question, and worth running before the
+   migration starts.
+5. Whether `API_SQL_TEST` (2026-09-12 entry above) actually works as a
+   SQL-callable stored procedure against this server/driver — decides
+   whether writes go through direct method calls or the request-queue
+   fallback.

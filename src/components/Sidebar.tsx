@@ -19,6 +19,7 @@ import {
   EyeSlashIcon,
   SparklesIcon,
   QrCodeIcon,
+  RectangleGroupIcon,
 } from '@heroicons/react/24/outline';
 import {
   HomeIcon as HomeSolid,
@@ -32,6 +33,7 @@ import {
   CogIcon as CogSolidAlt,
   EyeIcon as EyeSolid,
   SparklesIcon as SparklesSolid,
+  RectangleGroupIcon as RectangleGroupSolid,
 } from '@heroicons/react/24/solid';
 import { useClientSerialConnection } from '@/hooks/useClientSerialConnection';
 import { useSignalBoard } from '@/hooks/useSignalBoard';
@@ -73,6 +75,7 @@ const TAB_DEFS: {
   { id: 'f2evo_gearbox', labelKey: 'nav.f2evo_gearbox', subKey: 'nav.f2evo_gearbox_sub', defaultLabel: 'F2-EVO Gearbox', defaultSub: 'Gearbox control', Outline: CogIcon, Solid: CogSolidAlt },
   { id: 'f2evo_sensor', labelKey: 'nav.f2evo_sensor', subKey: 'nav.f2evo_sensor_sub', defaultLabel: 'F2-EVO Sensor', defaultSub: 'Sensor testing', Outline: EyeIcon, Solid: EyeSolid },
   { id: 'f2evo_washing', labelKey: 'nav.f2evo_washing', subKey: 'nav.f2evo_washing_sub', defaultLabel: 'F2-EVO Washing', defaultSub: 'Washing station', Outline: SparklesIcon, Solid: SparklesSolid },
+  { id: 'cluster_bench', labelKey: 'nav.cluster_bench', subKey: 'nav.cluster_bench_sub', defaultLabel: 'Cluster Bench', defaultSub: 'Instrument cluster / virtual BSI', Outline: RectangleGroupIcon, Solid: RectangleGroupSolid },
 ];
 
 interface SidebarProps {
@@ -114,7 +117,9 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
   const isKvaser = source === 'kvaser';
 
   // Second transport: the WSS signal board (only relevant alongside the Kvaser).
-  const sb = useSignalBoard();
+  // Passing legacyMode keeps it at the Nano's fixed 500 000 baud instead of
+  // the Pico's 115200 default — see useSignalBoard.ts.
+  const sb = useSignalBoard({ legacyMode });
 
   // Refresh ports on mount
   useEffect(() => { refreshPorts(); }, []);
@@ -377,7 +382,9 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               )
             ) : (
               ports.length === 0 && (
-                <p className="text-[10px] text-warning px-1">Connect Pico via USB then refresh ↻</p>
+                <p className="text-[10px] text-warning px-1">
+                  Connect {legacyMode ? 'Nano' : 'Pico'} via USB then refresh ↻
+                </p>
               )
             )}
             {serialError && (
@@ -416,10 +423,10 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                 sb.isConnected ? 'bg-success animate-pulse-slow' : 'bg-text-tertiary',
               ].join(' ')} />
               <span className="text-[10px] font-medium text-text-secondary flex-1">
-                Signal board (WSS)
+                Signal board (WSS) — {legacyMode ? 'Nano' : 'Pico/Nano'}
               </span>
               {sb.isConnected && (
-                <span className="text-[9px] text-success">{sb.selectedPort}</span>
+                <span className="text-[9px] text-success">{sb.selectedPort} · {sb.baudRate}</span>
               )}
             </div>
 
@@ -444,6 +451,24 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                   <ArrowPathIcon className="w-3 h-3" />
                 </button>
               </div>
+            )}
+
+            {/* USB-serial baud for this board — independent of the CAN
+                bitrate above; the Nano's fixed 500000 is only a starting
+                default set when legacy mode turns on (useSignalBoard.ts),
+                not enforced afterward, so a different firmware build can
+                still be dialed in here. */}
+            {!sb.isConnected && (
+              <select
+                value={sb.baudRate}
+                onChange={e => sb.setBaudRate(e.target.value)}
+                className="w-full bg-elevated border border-border rounded-lg px-2 py-1
+                  text-[11px] text-text-primary focus:outline-none focus:ring-1 focus:ring-accent/40"
+              >
+                {BAUD_RATES.map(r => (
+                  <option key={r} value={r}>{r} baud</option>
+                ))}
+              </select>
             )}
 
             <button

@@ -15,6 +15,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
+import { page, parseScanRequest, parseScanPath, confirmationLines } from './lib.js';
 
 const {
   PGHOST = '127.0.0.1',
@@ -28,11 +29,6 @@ const {
   SCAN_TLS_CERT = '/etc/braxon-scan/cert.pem',
   SCAN_TLS_KEY = '/etc/braxon-scan/key.pem',
 } = process.env;
-
-const ENTITIES = new Set(['job', 'abs', 'stock']);
-const ENTITY_LABEL = { job: 'Job', abs: 'ABS reference', stock: 'Stock item' };
-const KEY_MAX = 128;
-const LABEL_MAX = 200;
 
 const pool = new pg.Pool({
   host: PGHOST,
@@ -81,38 +77,6 @@ async function init() {
   }, 60 * 60 * 1000).unref();
 }
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
-
-function page({ title, accent, heading, lines }) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-         font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-         background:#0b0b0c; color:#f5f5f7; padding:24px; }
-  .card { max-width:340px; width:100%; text-align:center; background:#1c1c1e;
-          border:1px solid #2c2c2f; border-radius:20px; padding:32px 24px; }
-  .badge { width:64px; height:64px; border-radius:50%; margin:0 auto 18px;
-           display:flex; align-items:center; justify-content:center; font-size:32px;
-           background:${accent}22; color:${accent}; border:1px solid ${accent}55; }
-  h1 { font-size:19px; margin:0 0 6px; }
-  p { margin:2px 0; color:#a1a1a6; font-size:14px; }
-  .key { color:#f5f5f7; font-weight:600; word-break:break-all; }
-  .hint { margin-top:16px; font-size:12px; color:#6e6e73; }
-</style></head><body><div class="card">
-  <div class="badge">${heading.icon}</div>
-  <h1>${esc(heading.text)}</h1>
-  ${lines.map((l) => `<p${l.strong ? ' class="key"' : ''}>${esc(l.text)}</p>`).join('')}
-  <div class="hint">You can put your phone away.</div>
-</div></body></html>`;
-}
-
 function send(res, status, body, type = 'text/html; charset=utf-8') {
   res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
   res.end(body);
@@ -156,30 +120,20 @@ const server = async (req, res) => {
       } catch {
         return send(res, 400, JSON.stringify({ error: 'bad json' }), 'application/json');
       }
-      const pcId = String(body.pcId || '').trim();
-      const entity = String(body.entity || '').trim();
-      const key = String(body.key || '').trim();
-      if (!pcId || !ENTITIES.has(entity) || !key || key.length > KEY_MAX) {
+      const parsed = parseScanRequest(body, { defaultSource: 'manual' });
+      if (!parsed.ok) {
         return send(res, 400, JSON.stringify({ error: 'invalid' }), 'application/json');
       }
-      const r = await recordScan({
-        pcId, entity, key,
-        label: String(body.label || '').slice(0, LABEL_MAX),
-        source: String(body.source || 'manual').slice(0, 32),
-      });
+      const { pcId, entity, key } = parsed.value;
+      const r = await recordScan(parsed.value);
       console.log(`[scan] POST ${entity}/${key} -> ${pcId} (${r.hostname || '?'}, online=${r.online})`);
       return send(res, 200, JSON.stringify({ ok: true, ...r }), 'application/json');
     }
 
     // GET /s/<pcId>/<entity>/<key>
     if (req.method === 'GET' && parts[0] === 's' && parts.length === 4) {
-      const pcId = decodeURIComponent(parts[1]).trim();
-      const entity = decodeURIComponent(parts[2]).trim().toLowerCase();
-      const key = decodeURIComponent(parts[3]).trim();
-      const label = (url.searchParams.get('label') || '').slice(0, LABEL_MAX);
-      const source = (url.searchParams.get('src') || 'phone').slice(0, 32);
-
-      if (!pcId || !ENTITIES.has(entity) || !key || key.length > KEY_MAX) {
+      const parsed = parseScanPath(url.pathname, url.searchParams);
+      if (!parsed.ok) {
         return send(res, 400, page({
           title: 'BRAXON — invalid code',
           accent: '#ff453a',
@@ -187,20 +141,13 @@ const server = async (req, res) => {
           lines: [{ text: 'The scanned link is missing a machine, type, or reference.' }],
         }));
       }
+      const { pcId, entity, key, label } = parsed.value;
 
-      const r = await recordScan({ pcId, entity, key, label, source });
+      const r = await recordScan(parsed.value);
       console.log(`[scan] GET ${entity}/${key} -> ${pcId} (${r.hostname || '?'}, online=${r.online})`);
 
       const target = r.hostname ? `Opening on ${r.hostname}` : 'Sent to BRAXON';
-      const lines = [
-        { text: `${ENTITY_LABEL[entity]}${label ? '' : ':'}`, strong: false },
-        { text: label || key, strong: true },
-      ];
-      if (!r.known) {
-        lines.push({ text: 'That bench PC has never registered — check the pc_id.' });
-      } else if (!r.online) {
-        lines.push({ text: `${r.hostname} is offline right now — it will open when BRAXON reconnects.` });
-      }
+      const lines = confirmationLines(entity, label, key, r);
       return send(res, 200, page({
         title: 'BRAXON — sent',
         accent: r.online || !r.known ? '#30d158' : '#ff9f0a',

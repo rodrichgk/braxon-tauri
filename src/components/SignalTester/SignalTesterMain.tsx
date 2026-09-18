@@ -1,8 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/tauri';
 import { useWheelSpeedControl } from '@/hooks/useWheelSpeedControl';
 import { useProfileManagement } from '@/hooks/useProfileManagement';
 import { useRecording } from '@/hooks/useRecording';
+import { useWssReadback } from '@/hooks/useWssReadback';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { wssReadSpecFor, hzToKmh, evaluateWheel } from '@/lib/wssReadback';
 import WaveformCanvas from './WaveformCanvas';
 import WheelSpeedControls from './WheelSpeedControls';
 import ProfileEditor from './ProfileEditor';
@@ -12,7 +16,17 @@ import { PlayIcon, PauseIcon } from '@heroicons/react/24/solid';
 interface SignalTesterProps {
   sendMessage: (message: string) => void;
   isConnected: boolean;
+  /** Selected ABS reference row — enables per-reference save/recall of the
+   *  protocol assignment + geometry, and (when a wheel-read spec is on file)
+   *  the live wheel-speed readback. */
+  selectedRef?: { id: string; reference: string } | null;
+  /** Main serial / CAN transport send — the readback polls the ECU over
+   *  ISO-TP through this (distinct from `sendMessage`, which is the signal
+   *  board). Absent → readback unavailable. */
+  canSend?: (message: string) => Promise<boolean | void> | boolean | void;
 }
+
+const WHEEL_KEYS = ['fl', 'fr', 'rl', 'rr'] as const;
 
 interface WheelSpeeds {
   fl: number;
@@ -32,7 +46,7 @@ const VARIANTS = [
 
 const QUICK_SPEEDS_KMH = [0, 5, 20, 50, 80, 120, 180, 250];
 
-export default function SignalTesterMain({ sendMessage, isConnected }: SignalTesterProps) {
+export default function SignalTesterMain({ sendMessage, isConnected, selectedRef, canSend }: SignalTesterProps) {
 
   // Wheel model — used for km/h ↔ Hz conversion
   const [circumference, setCircumference] = useState(2.0);   // tyre circumference in metres
@@ -41,6 +55,27 @@ export default function SignalTesterMain({ sendMessage, isConnected }: SignalTes
   const pprRef = useRef(48);
   circumferenceRef.current = circumference;
   pprRef.current = ppr;
+
+  // ── Live wheel-speed readback ──
+  // The ABS ECU's own measured speed per wheel, polled over ISO-TP and
+  // compared against what the bench is injecting (the legacy Arduino
+  // bench's green "within 5%" check). Layout is per-reference — see
+  // `src/lib/wssReadback.ts`.
+  const readSpec = useMemo(() => wssReadSpecFor(selectedRef?.reference), [selectedRef?.reference]);
+  const [readbackOn, setReadbackOn] = useState(false);
+  const { measured, error: readErr } = useWssReadback({ readSpec, canSend, enabled: readbackOn });
+  // Where the wheel-speed *signal itself* is coming from — this is what the
+  // "commanded" side of the comparison has to track:
+  //  - 'pico'   this Pico wheel-speed control panel is driving it; BRAXON
+  //             knows the exact Hz it told the board (`wheelSpeedControl`).
+  //  - 'legacy' the old Nano signal generator (`LegacySignalPanel`) is
+  //             driving it instead — one shared waveform on `legacyFreq`.
+  //  - 'manual' anything else: hand-wired generator, a wheel spun by hand,
+  //             or any source BRAXON isn't commanding. The frequency is
+  //             unknowable here, so `evaluateWheel` must never call a
+  //             mismatch a fault in this mode — see wssReadback.ts.
+  const [signalSource, setSignalSource] = useState<'pico' | 'legacy' | 'manual'>('pico');
+  const { legacyFreq } = useAppSettings();
 
   // km/h master speed — drives the Hz value sent to the Pico
   const [speedKmh, setSpeedKmh] = useState(0);
@@ -116,20 +151,85 @@ export default function SignalTesterMain({ sendMessage, isConnected }: SignalTes
     return () => clearInterval(id);
   }, []); // intentionally empty — uses refs throughout
 
-  // Listen for incoming serial data and add to log
+  // Listen for incoming serial data and add to log. Board bridge and Kvaser
+  // interface print frames identically (see CANSettings.tsx) — the signal
+  // board itself always stays on the board bridge, but the diagnostic
+  // session driving readback can be on either, so both event sources need
+  // to reach this log or RX traffic silently vanishes whenever Kvaser is
+  // the active transport.
   useEffect(() => {
-    const unlistenPromise = listen<string>('serial-data', e => {
-      setSerialLog(prev => [...prev.slice(-299), `RX: ${e.payload}`]);
-    });
-    return () => { 
-      unlistenPromise.then(unlisten => unlisten()); 
-    };
+    const subs = (['serial-data', 'kvaser-data'] as const).map(evt =>
+      listen<string>(evt, e => {
+        setSerialLog(prev => [...prev.slice(-299), `RX: ${e.payload}`]);
+      })
+    );
+    return () => { subs.forEach(s => s.then(unlisten => unlisten())); };
   }, []);
 
   // Auto-scroll log when expanded
   useEffect(() => {
     if (logExpanded) logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [serialLog, logExpanded]);
+
+  // ── Per-reference protocol assignment + geometry (extends the same
+  //    `wssCalibration` blob Signal.tsx's legacy calibration writes). ──
+  const [refCalStatus, setRefCalStatus] =
+    useState<'idle' | 'loading' | 'loaded' | 'none' | 'saving' | 'saved' | 'error'>('idle');
+  const appliedRefRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedRef) { setRefCalStatus('idle'); appliedRefRef.current = null; return; }
+    if (appliedRefRef.current === selectedRef.id) return;
+    appliedRefRef.current = selectedRef.id;
+    setRefCalStatus('loading');
+    invoke<string | null>('get_wss_calibration', { id: selectedRef.id })
+      .then(json => {
+        if (!json) { setRefCalStatus('none'); return; }
+        let data: Record<string, unknown>;
+        try { data = JSON.parse(json); } catch { setRefCalStatus('error'); return; }
+        if (typeof data.circ === 'number' && data.circ > 0) { setCircumference(data.circ); circumferenceRef.current = data.circ; }
+        if (typeof data.ppr === 'number' && data.ppr > 0) { setPpr(data.ppr); pprRef.current = data.ppr; }
+        const proto = data.protocol as { profiles?: unknown; akMultipliers?: unknown } | undefined;
+        const rawProfiles = proto?.profiles;
+        if (!Array.isArray(rawProfiles) || rawProfiles.length !== 4) { setRefCalStatus('none'); return; }
+        const profs = rawProfiles.map(n => (typeof n === 'number' ? n : 0)) as [number, number, number, number];
+        const rawMults = proto?.akMultipliers;
+        const mults = (Array.isArray(rawMults) && rawMults.length === 4
+          ? rawMults.map(n => (typeof n === 'number' ? n : 100))
+          : [100, 100, 100, 100]) as [number, number, number, number];
+        setWheelProfiles(profs);
+        setAkMultipliers(mults);
+        if (isConnected) {
+          profs.forEach((p, ch) => loggedSend(`C${ch},${p}\n`));
+          mults.forEach((m, ch) => { if (profs[ch] >= 4) loggedSend(`M${ch},${m}\n`); });
+        }
+        setRefCalStatus('loaded');
+      })
+      .catch(() => setRefCalStatus('error'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRef?.id]);
+
+  const saveToReference = useCallback(async () => {
+    if (!selectedRef) return;
+    setRefCalStatus('saving');
+    let existing: Record<string, unknown> = {};
+    try {
+      const json = await invoke<string | null>('get_wss_calibration', { id: selectedRef.id });
+      if (json) existing = JSON.parse(json) as Record<string, unknown>;
+    } catch { /* write a fresh blob */ }
+    try {
+      await invoke('save_wss_calibration', {
+        id: selectedRef.id,
+        calibration: JSON.stringify({
+          ...existing,
+          ppr, circ: circumference,
+          protocol: { profiles: wheelProfiles, akMultipliers },
+        }),
+      });
+      setRefCalStatus('saved');
+      setTimeout(() => setRefCalStatus('loaded'), 2000);
+    } catch { setRefCalStatus('error'); }
+  }, [selectedRef, ppr, circumference, wheelProfiles, akMultipliers]);
 
   // ---- Handlers ----
 
@@ -346,9 +446,38 @@ export default function SignalTesterMain({ sendMessage, isConnected }: SignalTes
 
           {/* ── WSS Protocol Assignment (per channel) ── */}
           <div className="mt-6 pt-6 border-t border-border">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-sm font-semibold text-text-primary">WSS Protocol Assignment</h3>
-              <div className="flex gap-1.5">
+              <div className="flex items-center gap-1.5">
+                {selectedRef && (
+                  <>
+                    <span
+                      data-testid="wss-ref-status"
+                      className={[
+                        'text-[10px] px-1.5 py-0.5 rounded',
+                        refCalStatus === 'error' ? 'text-danger'
+                          : refCalStatus === 'saved' || refCalStatus === 'loaded' ? 'text-success'
+                          : 'text-text-tertiary',
+                      ].join(' ')}
+                    >
+                      {refCalStatus === 'loading' ? 'Loading…'
+                        : refCalStatus === 'saving' ? 'Saving…'
+                        : refCalStatus === 'saved' ? 'Saved'
+                        : refCalStatus === 'loaded' ? `From ${selectedRef.reference}`
+                        : refCalStatus === 'none' ? 'Not saved yet'
+                        : refCalStatus === 'error' ? 'Save error'
+                        : ''}
+                    </span>
+                    <button
+                      data-testid="btn-wss-save-ref"
+                      onClick={saveToReference}
+                      disabled={refCalStatus === 'saving' || refCalStatus === 'loading'}
+                      className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40 bg-elevated text-text-secondary border border-border hover:text-text-primary"
+                    >
+                      Save to reference
+                    </button>
+                  </>
+                )}
                 <button onClick={() => handleAllProtocol(false)} disabled={!isConnected}
                   className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40 bg-accent/15 text-accent border border-accent/20 hover:bg-accent/25">
                   All DF11
@@ -427,6 +556,116 @@ export default function SignalTesterMain({ sendMessage, isConnected }: SignalTes
               })}
             </div>
           </div>
+
+          {/* ── Live Wheel Speed (ECU-measured, per wheel) ── */}
+          {readSpec && (
+            <div className="mt-6 pt-6 border-t border-border" data-testid="wss-readback">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h3 className="text-sm font-semibold text-text-primary">Live Wheel Speed</h3>
+                <div className="flex items-center gap-2">
+                  {readbackOn && readErr && <span className="text-[10px] text-danger">{readErr}</span>}
+                  <button
+                    data-testid="btn-wss-readback"
+                    onClick={() => setReadbackOn(v => !v)}
+                    disabled={!canSend}
+                    className={[
+                      'px-2.5 py-1 rounded-md text-xs font-medium transition-colors disabled:opacity-40 border',
+                      readbackOn
+                        ? 'bg-success/15 text-success border-success/20'
+                        : 'bg-elevated text-text-secondary border-border hover:text-text-primary',
+                    ].join(' ')}
+                  >
+                    {readbackOn ? 'Reading…' : 'Read wheel speeds'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Signal source — what's actually driving the sensor frequency.
+                  Only 'pico' and 'legacy' give evaluateWheel a real commanded
+                  speed to check against; 'manual' shows the raw reading only. */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] text-text-tertiary">Signal source</span>
+                <div className="flex gap-0.5 p-0.5 bg-app rounded-lg">
+                  {([
+                    { id: 'pico', label: 'Pico' },
+                    { id: 'legacy', label: 'Legacy Nano' },
+                    { id: 'manual', label: 'Manual' },
+                  ] as const).map(s => (
+                    <button
+                      key={s.id}
+                      data-testid={`signal-source-${s.id}`}
+                      onClick={() => setSignalSource(s.id)}
+                      className={[
+                        'px-2 py-0.5 text-[10px] font-medium rounded-md transition-colors',
+                        signalSource === s.id
+                          ? 'bg-elevated text-text-primary shadow-sm'
+                          : 'text-text-tertiary hover:text-text-secondary',
+                      ].join(' ')}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-2">
+                {WHEEL_NAMES.map((label, i) => {
+                  const key = WHEEL_KEYS[i];
+                  // Commanded speed, per signal source — null means "unknown
+                  // to BRAXON", which evaluateWheel treats as never-a-fault.
+                  const cmd: number | null =
+                    signalSource === 'manual' ? null
+                    : signalSource === 'legacy' ? hzToKmh(legacyFreq, circumference, ppr)
+                    : wheelSpeedControl.wheelEnabled[key]
+                      ? hzToKmh(wheelSpeedControl.wheelSpeeds[key], circumference, ppr)
+                      : 0;
+                  const m = measured[i];
+                  const { status, deviationPct, errorKmh } = evaluateWheel({ measured: m, commanded: cmd });
+                  const good = status === 'ok';
+                  const bad = status === 'off' || status === 'no-signal';
+                  const [hi, lo] = readSpec.dids[i];
+                  return (
+                    <div key={label} data-testid={`wss-wheel-${label}`} data-status={status} className={[
+                      'rounded-xl p-3 text-center border transition-colors',
+                      good ? 'bg-success/5 border-success/25'
+                        : bad ? 'bg-danger/5 border-danger/25'
+                        : 'bg-elevated border-border',
+                    ].join(' ')}>
+                      <div className="text-[10px] font-semibold text-text-tertiary tracking-wide">{label}</div>
+                      <div className={[
+                        'text-2xl font-bold tabular-nums mt-1',
+                        good ? 'text-success' : bad ? 'text-danger' : 'text-text-primary',
+                      ].join(' ')}>
+                        {m == null ? '—' : m.toFixed(1)}
+                      </div>
+                      <div className="text-[10px] text-text-tertiary mt-0.5">km/h</div>
+                      <div className="text-[10px] text-text-tertiary/70 mt-1 tabular-nums">
+                        {status === 'idle' ? 'idle'
+                          : status === 'no-signal' ? 'no signal'
+                          : status === 'unknown' ? 'manual — no verdict'
+                          // Lead with the km/h error — the % looks alarming at
+                          // low speed where 1-count ECU rounding dominates; append
+                          // it only on a flagged wheel, where "how far" matters.
+                          : `cmd ${(cmd ?? 0).toFixed(1)} · ${errorKmh >= 0 ? '+' : ''}${errorKmh.toFixed(1)} km/h${
+                              status === 'off' ? ` (${deviationPct >= 0 ? '+' : ''}${deviationPct.toFixed(0)}%)` : ''
+                            }`}
+                      </div>
+                      <div className="text-[9px] text-text-tertiary/50 mt-0.5 font-mono">
+                        22 {hi.toString(16).toUpperCase().padStart(2, '0')} {lo.toString(16).toUpperCase().padStart(2, '0')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-text-tertiary mt-2 px-0.5">
+                {signalSource === 'manual'
+                  ? 'Manual source: showing the raw ECU reading only — no expected speed to compare against, so no wheel is flagged.'
+                  : 'Green = ECU reading within 5% of the injected speed.'} The check is coarse
+                below ~20 km/h (1&nbsp;km/h ECU resolution) — hold ≥&nbsp;20 km/h for a
+                definitive result. Needs a held diagnostic session — open it in Diagnostics above.
+              </p>
+            </div>
+          )}
         </div>
 
         <div>

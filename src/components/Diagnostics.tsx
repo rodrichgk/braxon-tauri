@@ -15,6 +15,7 @@ import {
   StopIcon,
   ArrowDownTrayIcon,
   Cog6ToothIcon,
+  PencilSquareIcon,
 } from '@heroicons/react/24/outline';
 import clientSerial, { type SerialEvent } from '@/lib/clientSerial';
 import { useSession } from '@/contexts/SessionContext';
@@ -27,6 +28,7 @@ import {
   guessHardwareFamily,
   parseCanId,
   protocolFromDb,
+  resolveManualDtcEcuFile,
   toHex3,
 } from '@/lib/ecu';
 import { isoTpRequest } from '@/lib/isotp';
@@ -34,7 +36,7 @@ import { describeDtc } from '@/lib/dtcGeneric';
 import { builtinActuatorsFor } from '@/lib/builtinActuators';
 import LiveData from '@/components/LiveData';
 import { openVwTp20Channel, type VwTp20Channel } from '@/lib/vwtp20';
-import { decodeVwDtcs } from '@/lib/vwKwp';
+import { decodeVwDtcs, CLEAR_ALL_DTC_REQUEST } from '@/lib/vwKwp';
 import { useUdsSession } from '@/hooks/useUdsSession';
 import { useReports } from '@/contexts/ReportsContext';
 
@@ -322,6 +324,14 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   const [errorMsg, setErrorMsg]         = useState('');
   const [dbEnriching, setDbEnriching]   = useState(false);
   const [rawOpen, setRawOpen]           = useState(false);
+  // Manual DTC description entry — a technician typing in what a code means
+  // (read off Diagbox/Clip/online) for a unit the curated DB has no text
+  // for. `editingDtcRaw` is the raw value of the row currently open for
+  // editing (null = none).
+  const [editingDtcRaw, setEditingDtcRaw] = useState<number | null>(null);
+  const [manualDtcText, setManualDtcText] = useState('');
+  const [manualDtcSaving, setManualDtcSaving] = useState(false);
+  const [manualDtcError, setManualDtcError] = useState<string | null>(null);
 
   // ECU selector + active test state
   const [ecuList, setEcuList]           = useState<EcuInfo[]>([]);
@@ -499,9 +509,11 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   // `cross-unit` so the UI can mark it as borrowed.
   const enrichFromDb = useCallback(async (codes: DTCEntry[]): Promise<DTCEntry[]> => {
     if (!codes.length) return codes;
-    // VW TP2.0 DTCs are the VAG 5-digit number on the wire → the Ross-Tech wiki
-    // table is keyed exactly the same way.
-    const ecuFile = protocol === 'VWTP20' ? 'VAG_WIKI' : (selectedEcu?.ecuFile ?? null);
+    // Falls back to the ABS reference itself when there's no DDT4ALL link
+    // (e.g. 476601KD2A) — otherwise a description a technician manually
+    // typed in for this exact unit (see `dtcSaveEcuFile` below) would never
+    // be picked back up on the next scan.
+    const ecuFile = resolveManualDtcEcuFile(protocol, selectedEcu?.ecuFile ?? null, partNumber);
     try {
       const hits = await invoke<(EcuDtcEntry | null)[]>('lookup_dtcs', {
         dtcRaws: codes.map(c => c.rawValue),
@@ -515,7 +527,62 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     } catch {
       return codes; // DB not populated yet — keep the generic SAE fallback
     }
-  }, [selectedEcu, protocol]);
+  }, [selectedEcu, protocol, partNumber]);
+
+  // Same key `enrichFromDb` reads descriptions from — a manual save has to
+  // land under the identical `ecu_file` or it will never resolve back on
+  // the next scan of this unit.
+  const dtcSaveEcuFile = resolveManualDtcEcuFile(protocol, selectedEcu?.ecuFile ?? null, partNumber);
+
+  const startEditDtc = (dtc: DTCEntry) => {
+    setEditingDtcRaw(dtc.rawValue);
+    setManualDtcText(dtc.description);
+    setManualDtcError(null);
+  };
+
+  const cancelEditDtc = () => {
+    setEditingDtcRaw(null);
+    setManualDtcText('');
+    setManualDtcError(null);
+  };
+
+  // Save a technician-typed DTC description — read off a proper diag tool
+  // (Diagbox/Clip) or found online — straight into the DB, no script needed.
+  const saveManualDtc = async (dtc: DTCEntry) => {
+    if (!dtcSaveEcuFile) {
+      setManualDtcError('No ABS reference on the bench — set one above first.');
+      return;
+    }
+    const text = manualDtcText.trim();
+    if (!text) {
+      setManualDtcError('Description is empty.');
+      return;
+    }
+    setManualDtcSaving(true);
+    setManualDtcError(null);
+    const ecuName = selectedEcu?.ecuName || partNumber || dtcSaveEcuFile;
+    try {
+      await invoke('save_manual_dtc', {
+        ecuFile: dtcSaveEcuFile,
+        ecuName,
+        dtcRaw: dtc.rawValue,
+        dtcCode: dtc.code,
+        description: text,
+      });
+      setScan(prev => prev ? {
+        ...prev,
+        codes: prev.codes.map(c => c.rawValue === dtc.rawValue
+          ? { ...c, description: text, ecuName, dtcSource: 'ecu-exact' as const }
+          : c),
+      } : prev);
+      setEditingDtcRaw(null);
+      setManualDtcText('');
+    } catch (e) {
+      setManualDtcError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setManualDtcSaving(false);
+    }
+  };
 
   const guessedFamily = guessHardwareFamily(partNumber);
 
@@ -535,7 +602,9 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
   // Renault MK61, so its Renault built-ins (pump test, 21 04 wheel speeds)
   // must not appear.
   const familyForBuiltins = protocol === 'VWTP20' ? null : testFamily;
-  const builtinActuators = builtinActuatorsFor(familyForBuiltins)
+  // Also checks BUILTIN_ACTUATORS_BY_REF (per-exact-reference tests, for a
+  // unit with no recognisable hardware family and no DDT4ALL ecu_file link).
+  const builtinActuators = builtinActuatorsFor(familyForBuiltins, absReference)
     .filter(b => !actuators.some(a => a.id === b.id));
   const extraDdtProcs = ddtProcs.filter(
     p => !actuators.some(a => a.sentBytes === p.sentBytes) &&
@@ -778,7 +847,7 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     const ch = vwChanRef.current;
     if (!ch?.open) return;
     setScanState('clearing');
-    await ch.request([0x14, 0xff, 0xff], { timeoutMs: 3000 });
+    await ch.request(CLEAR_ALL_DTC_REQUEST, { timeoutMs: 3000 });
     setTimeout(() => { setScanState('cleared'); setScan(null); }, 1200);
   };
 
@@ -795,31 +864,34 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
     const payloads = payloadsRef.current;
     const rawResponse = [...respFramesRef.current];
 
-    // Negative response to *this scan's own request* — 7F <sid> <nrc>, sid must
-    // match what we asked for (not an unrelated 7F, e.g. the keep-alive's),
-    // nrc 0x78 ("pending") stepped over.
-    const neg = payloads.find(p =>
-      p.payload[0] === 0x7F && p.payload[1] === reqSidRef.current && p.payload[2] !== 0x78);
-    if (neg) {
-      setScan({
-        timestamp: new Date().toISOString(),
-        protocol: protocolRef.current, brand: brandRef.current,
-        codes: [], rawLines, rawResponse,
-        nrc: { sid: neg.payload[1] ?? 0, code: neg.payload[2] ?? 0 },
-        gotPositive: false,
-      });
-      setScanState('rejected');
-      return;
-    }
-
-    // Nothing at all came back on the response ID.
-    if (rawResponse.length === 0) {
-      setScanState('no_response');
-      return;
-    }
-
     const posSid = protocolRef.current === 'OBD2' ? 0x43 : protocolRef.current === 'UDS' ? 0x59 : 0x58;
     const gotPositive = payloads.some(p => p.payload[0] === posSid);
+
+    // Negative response to *this scan's own request* — 7F <sid> <nrc>, sid must
+    // match what we asked for (not an unrelated 7F, e.g. the keep-alive's),
+    // nrc 0x78 ("pending") stepped over. Ignored when a positive also came in:
+    // the UDS scan fires several `19 02 <mask>` variants and the unsupported
+    // masks answer 7F while the right one answers 59 02.
+    if (!gotPositive) {
+      const neg = payloads.find(p =>
+        p.payload[0] === 0x7F && p.payload[1] === reqSidRef.current && p.payload[2] !== 0x78);
+      if (neg) {
+        setScan({
+          timestamp: new Date().toISOString(),
+          protocol: protocolRef.current, brand: brandRef.current,
+          codes: [], rawLines, rawResponse,
+          nrc: { sid: neg.payload[1] ?? 0, code: neg.payload[2] ?? 0 },
+          gotPositive: false,
+        });
+        setScanState('rejected');
+        return;
+      }
+      // Nothing at all came back on the response ID.
+      if (rawResponse.length === 0) {
+        setScanState('no_response');
+        return;
+      }
+    }
 
     let codes: DTCEntry[] = [];
     for (const { payload } of payloads) {
@@ -993,6 +1065,18 @@ export default function Diagnostics({ sendMessage, isConnected, absReference }: 
       setScanState('error');
       setErrorMsg('Failed to send request — check serial connection');
       return;
+    }
+
+    // 19 02 <mask> — no single status mask answers on every ECU: Renault/Bosch
+    // like 0x3B, some Bosch answer nothing to it, PSA units use 0x09, and 0xFF
+    // ("all") is what UDS-strict ECUs expect. Fire the alternates too; the
+    // listener + parseUDSPayload dedup by code, so extra 59 02 replies are free.
+    if (protocol === 'UDS') {
+      for (const [i, mask] of ['FF', '09', '08'].entries()) {
+        setTimeout(() => {
+          if (scanActiveRef.current) sendRef.current(`CANTx : ${reqId} 03 19 02 ${mask} 00 00 00 00\n`);
+        }, 180 * (i + 1));
+      }
     }
 
     timeoutRef.current = setTimeout(() => {
@@ -1348,6 +1432,7 @@ else if (line.startsWith("CANTx : "))
           isConnected={isConnected}
           send={sendMessage}
           absRef={absReference}
+          currentProtocol={protocol}
           onApply={applyAutoConfig}
           session={session}
           connect={ensureSession}
@@ -2039,7 +2124,51 @@ else if (line.startsWith("CANTx : "))
                       {dtc.code}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12px] text-text-primary font-medium leading-tight">{dtc.description}</p>
+                      {editingDtcRaw === dtc.rawValue ? (
+                        <div className="space-y-1.5" data-testid={`dtc-edit-${dtc.rawValue}`}>
+                          <textarea
+                            value={manualDtcText}
+                            onChange={e => setManualDtcText(e.target.value)}
+                            rows={2}
+                            autoFocus
+                            placeholder="What this code means — from Diagbox/Clip/online…"
+                            className="w-full text-[12px] rounded-lg border border-border bg-card px-2 py-1.5 text-text-primary focus:outline-none focus:ring-1 focus:ring-accent resize-none"
+                          />
+                          {manualDtcError && <p className="text-[10px] text-danger">{manualDtcError}</p>}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => saveManualDtc(dtc)}
+                              disabled={manualDtcSaving}
+                              data-testid={`dtc-save-${dtc.rawValue}`}
+                              className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 disabled:opacity-50"
+                            >
+                              {manualDtcSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditDtc}
+                              disabled={manualDtcSaving}
+                              className="text-[11px] px-2 py-1 rounded-lg text-text-tertiary hover:bg-elevated border border-transparent"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-1.5">
+                          <p className="text-[12px] text-text-primary font-medium leading-tight flex-1">{dtc.description}</p>
+                          <button
+                            type="button"
+                            onClick={() => startEditDtc(dtc)}
+                            title="Add or edit this code's description"
+                            data-testid={`dtc-edit-btn-${dtc.rawValue}`}
+                            className="shrink-0 p-0.5 rounded text-text-tertiary hover:text-accent hover:bg-accent/10"
+                          >
+                            <PencilSquareIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2 mt-0.5">
                         {dtc.ecuName && (
                           <span

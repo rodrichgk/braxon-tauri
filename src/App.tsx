@@ -23,7 +23,9 @@ import SignalPage from "./pages/Signal";
 import JobsPage from "./pages/Jobs";
 import RemanPage from "./pages/Reman";
 import F2EvoHydraulicPage from "./pages/F2EvoHydraulic";
+import F2EvoElectronicsPage from "./pages/F2EvoElectronics";
 import F2EvoLegacyPage from "./pages/F2EvoLegacy";
+import ClusterBenchPage from "./pages/ClusterBench";
 
 /* ── Page transition variants ─────────────────────────────── */
 const pageVariants = {
@@ -158,10 +160,11 @@ function App() {
                     {currentPage === "jobs"   && <JobsPage />}
                     {currentPage === "reman"  && <RemanPage />}
                     {currentPage === "f2evo_hydraulic" && <F2EvoHydraulicPage />}
-                    {currentPage === "f2evo_electronics" && <F2EvoLegacyPage board="electronics" title="F2-EVO Electronics (ABS)" subtitle="Raw commands for Electronics board" />}
+                    {currentPage === "f2evo_electronics" && <F2EvoElectronicsPage />}
                     {currentPage === "f2evo_gearbox" && <F2EvoLegacyPage board="gearbox" title="F2-EVO Gearbox" subtitle="Raw commands for Gearbox board" />}
                     {currentPage === "f2evo_sensor" && <F2EvoLegacyPage board="sensor" title="F2-EVO Sensor" subtitle="Raw commands for Sensor board" />}
                     {currentPage === "f2evo_washing" && <F2EvoLegacyPage board="washing" title="F2-EVO Washing" subtitle="Raw commands for Washing board" />}
+                    {currentPage === "cluster_bench" && <ClusterBenchPage />}
                   </motion.div>
                 </AnimatePresence>
               </main>

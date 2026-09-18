@@ -32,6 +32,7 @@ import {
   guessHardwareFamily,
   parseCanId,
   protocolFromDb,
+  resolveSaveProtocol,
   toHex3,
 } from '@/lib/ecu';
 import { type SendFn } from '@/lib/isotp';
@@ -64,6 +65,12 @@ interface Props {
   send: SendFn;
   /** Reference selected in the ABS DB search above — the only input here. */
   absRef?: string;
+  /** The protocol tab Diagnostics is actually on right now — may be a
+   *  manual correction of what the discovery probe guessed. Saving a
+   *  discovery hit prefers this over the probe's own guess (see
+   *  `resolveSaveProtocol`), so confirming a working protocol by hand always
+   *  wins over the coarse auto-detect. */
+  currentProtocol?: Protocol | null;
   onApply: (config: EcuAutoConfig) => void;
   /** Diagnostic session held for the bench ECU, owned by the scanner. */
   session: SessionState;
@@ -85,7 +92,7 @@ const TIER_LABEL: Record<DiscoveryTier, string> = {
 };
 
 export default function EcuAutoConfig({
-  isConnected, send, absRef, onApply, session, connect, disconnect,
+  isConnected, send, absRef, currentProtocol, onApply, session, connect, disconnect,
 }: Props) {
   const [lookupState, setLookupState] = useState<LookupState>('idle');
   const [lookup, setLookup]         = useState<AbsRefLookup | null>(null);
@@ -274,9 +281,11 @@ export default function EcuAutoConfig({
         recvId:         toHex3(hit.recvId),
         // Was hardcoded null — the next lookup of this reference then had no
         // stored protocol to go on and always fell back to guessing KWP2000,
-        // forcing a manual tab switch every time. Save what the hit itself
-        // proved (from the session-control response shape).
-        protocol:       hitProtocol,
+        // forcing a manual tab switch every time. Prefer whatever protocol
+        // the operator has actually confirmed works right now (e.g. switched
+        // to UDS by hand and scanned real DTCs) over the probe's own coarse
+        // guess from the session-control response shape alone.
+        protocol:       resolveSaveProtocol(currentProtocol, hitProtocol),
         hardwareFamily: lookup?.hardwareFamily ?? guessHardwareFamily(ref),
         source:         'discovery',
       });

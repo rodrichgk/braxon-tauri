@@ -33,9 +33,12 @@ import {
   TrashIcon,
   LockClosedIcon,
   QrCodeIcon,
+  ShareIcon,
+  QueueListIcon,
 } from '@heroicons/react/24/outline';
 import { useSession, UserRole } from '@/contexts/SessionContext';
 import RemanAnalytics from '@/components/RemanAnalytics';
+import RemanGraphView from '@/components/RemanGraphView';
 import ScanModal from '@/components/ScanModal';
 import Spinner, { LoadingRow } from '@/components/Spinner';
 import RemanForecast from '@/components/RemanForecast';
@@ -2387,13 +2390,17 @@ const INTERVENTION_QUEUES: { id: InterventionQueueId; labelKey: string }[] = [
   { id: 'closed', labelKey: 'reman.queue_closed' },
 ];
 
-function InterventionsTab({ techId, focusJobId, onClearFocus }: {
+function InterventionsTab({ techId, focusJobId, onClearFocus, onRequestWide }: {
   techId?: string;
   // A job reached by scanning its QR code — fetched on its own and pinned,
   // expanded, above the queue list until dismissed. See RemanPage's
   // pendingScan effect.
   focusJobId?: string | null;
   onClearFocus?: () => void;
+  // The graph view needs the full page width to be legible — this lets the
+  // tab ask RemanPage to drop its `max-w-3xl` reading column while the
+  // "Visual" view is active. No-op for the list view.
+  onRequestWide?: (wide: boolean) => void;
 }) {
   const { t } = useTranslation();
   const { currentUser } = useSession();
@@ -2446,6 +2453,39 @@ function InterventionsTab({ techId, focusJobId, onClearFocus }: {
   const [faultType, setFaultType] = useState<'' | 'hydraulic' | 'ecu' | 'both'>('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // "Visual search" — an Obsidian-style graph of the same `items` wired to the
+  // Repair Knowledge Base (fault codes <-> jobs <-> proven fixes). Requested
+  // directly: "add a visual search button… keep the current stuff." The list
+  // stays the default; the graph is a toggled alternate view over the exact
+  // same search results and filters. The knowledge base (BRAXON's own
+  // Postgres, capped at 200 rows server-side) is fetched once, lazily, only
+  // when the graph is first opened.
+  const [view, setView] = useState<'list' | 'graph'>('list');
+  const [kbEntries, setKbEntries] = useState<KnowledgeEntryRecord[] | null>(null);
+  const [kbLoading, setKbLoading] = useState(false);
+  const [kbError, setKbError] = useState('');
+  // A job opened from a graph node (may be an "unlisted" sibling not in the
+  // current results) — pinned expanded above the graph, same idea as the
+  // scanned-job focus card.
+  const [graphJobId, setGraphJobId] = useState<string | null>(null);
+
+  const loadKb = useCallback(() => {
+    setKbLoading(true);
+    setKbError('');
+    invoke<KnowledgeEntryRecord[]>('reman_search_knowledge_entries', { query: null, family: null })
+      .then(setKbEntries)
+      .catch((err: unknown) => setKbError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setKbLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (view === 'graph' && kbEntries === null && !kbLoading && !kbError) loadKb();
+  }, [view, kbEntries, kbLoading, kbError, loadKb]);
+
+  useEffect(() => {
+    onRequestWide?.(view === 'graph');
+  }, [view, onRequestWide]);
 
   // Unlike Clients/Stock, an empty query still fetches here — the backend
   // returns the queue's worklist instead of nothing, so the tab defaults to
@@ -2545,6 +2585,34 @@ function InterventionsTab({ techId, focusJobId, onClearFocus }: {
           ))}
         </select>
         {refreshing && <ArrowPathIcon className="w-3.5 h-3.5 text-text-tertiary animate-spin shrink-0" />}
+        {/* List vs. visual-search (graph) toggle — the list is the default;
+            the graph is an alternate view over the same results + filters. */}
+        <div className="flex items-center gap-0.5 bg-card border border-border rounded-lg p-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setView('list')}
+            aria-pressed={view === 'list'}
+            title={t('reman.graph_toggle_list')}
+            className={[
+              'flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-colors',
+              view === 'list' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary',
+            ].join(' ')}
+          >
+            <QueueListIcon className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('graph')}
+            aria-pressed={view === 'graph'}
+            title={t('reman.graph_toggle_graph')}
+            className={[
+              'flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-colors',
+              view === 'graph' ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary',
+            ].join(' ')}
+          >
+            <ShareIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -2649,37 +2717,73 @@ function InterventionsTab({ techId, focusJobId, onClearFocus }: {
       {/* The bench forecast reflects everyone currently on the bench —
           only meaningful on the global (unfiltered) view. */}
       {queue === 'open' && !techId && <RemanForecast />}
-      <ResultList
-        alwaysActive
-        query={query}
-        loading={loading}
-        error={error}
-        empty={items.length === 0}
-        count={items.length}
-        icon={<BriefcaseIcon className="w-10 h-10 text-text-tertiary mx-auto mb-3 opacity-40" />}
-      >
-        {items.map(item => (
-          <InterventionRow
-            key={item.id}
-            item={item}
-            showLastVisitInsteadOfDeadline={queue === 'closed'}
-            // Instant feedback rather than waiting for the next
-            // INTERVENTIONS_REFRESH_MS poll — requested directly ("kick it
-            // out of suivi d'interventions directly... make the app a bit
-            // more alive"). The closed job wouldn't match this queue's
-            // results on the next real refetch anyway; this just removes
-            // the round-trip wait for something already known locally.
-            onClosed={closedId => setItems(prev => prev.filter(i => i.id !== closedId))}
-            // Same idea, for a step that changes queue membership without
-            // fully closing the job (e.g. ATN/NET) — see stepLeavesQueue.
-            onStepAdded={(id, stepType) => {
-              if (stepLeavesQueue(stepType, queue)) {
-                setItems(prev => prev.filter(i => i.id !== id));
-              }
-            }}
+
+      {view === 'graph' ? (
+        <div className="space-y-2">
+          {graphJobId && (
+            <div className="rounded-xl border border-accent/40 bg-accent/5 ring-2 ring-accent/15 p-2 space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-accent">
+                  <ShareIcon className="w-3.5 h-3.5" />
+                  {t('reman.graph_open_job')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setGraphJobId(null)}
+                  className="text-[11px] text-text-tertiary hover:text-danger transition-colors"
+                >
+                  {t('scan.dismiss')}
+                </button>
+              </div>
+              <InterventionRow
+                key={`graph-${graphJobId}`}
+                item={items.find(i => i.id === graphJobId) ?? { id: graphJobId, underWarranty: false, hasPreviousJob: false }}
+                autoExpand
+              />
+            </div>
+          )}
+          <RemanGraphView
+            jobs={items}
+            knowledgeEntries={kbEntries ?? []}
+            loadingLinks={kbLoading}
+            linksError={kbError || undefined}
+            onRetryLinks={loadKb}
+            onOpenJob={setGraphJobId}
           />
-        ))}
-      </ResultList>
+        </div>
+      ) : (
+        <ResultList
+          alwaysActive
+          query={query}
+          loading={loading}
+          error={error}
+          empty={items.length === 0}
+          count={items.length}
+          icon={<BriefcaseIcon className="w-10 h-10 text-text-tertiary mx-auto mb-3 opacity-40" />}
+        >
+          {items.map(item => (
+            <InterventionRow
+              key={item.id}
+              item={item}
+              showLastVisitInsteadOfDeadline={queue === 'closed'}
+              // Instant feedback rather than waiting for the next
+              // INTERVENTIONS_REFRESH_MS poll — requested directly ("kick it
+              // out of suivi d'interventions directly... make the app a bit
+              // more alive"). The closed job wouldn't match this queue's
+              // results on the next real refetch anyway; this just removes
+              // the round-trip wait for something already known locally.
+              onClosed={closedId => setItems(prev => prev.filter(i => i.id !== closedId))}
+              // Same idea, for a step that changes queue membership without
+              // fully closing the job (e.g. ATN/NET) — see stepLeavesQueue.
+              onStepAdded={(id, stepType) => {
+                if (stepLeavesQueue(stepType, queue)) {
+                  setItems(prev => prev.filter(i => i.id !== id));
+                }
+              }}
+            />
+          ))}
+        </ResultList>
+      )}
     </div>
   );
 }
@@ -3227,6 +3331,9 @@ export default function RemanPage() {
   // Job id from a scanned QR code — pinned/expanded at the top of Suivi
   // d'interventions until dismissed (see InterventionsTab's focus block).
   const [focusJobId, setFocusJobId] = useState<string | null>(null);
+  // InterventionsTab's "Visual" (graph) view asks for the full page width —
+  // see its onRequestWide effect. Only takes effect while that tab is active.
+  const [interventionsGraphWide, setInterventionsGraphWide] = useState(false);
 
   // Bench Report finding: Interventions/My Jobs unmounted (and so lost
   // every filter) the instant you switched to any other tab — check
@@ -3280,17 +3387,22 @@ export default function RemanPage() {
     inputRef.current?.focus();
   }, []);
 
+  // The graph ("Visual") view of the Interventions tab wants the whole
+  // screen — it drops the reading column AND widens the outer container
+  // past its usual max-w-6xl. Only while that tab is actually showing.
+  const graphWide = tab === 'interventions' && interventionsGraphWide;
+
   // The tab bar row always gets the full max-w-6xl width, regardless of
   // which tab is active — with 8 tabs (added "Repair Knowledge"), the
   // narrower max-w-3xl used by list tabs no longer fits them on one line
   // and wraps mid-label. Everything below the tab bar keeps its original
   // per-tab width (narrow reading width for lists, wide for dashboards),
   // centered inside the wider outer container via its own mx-auto.
-  const contentIsWide = tab === 'analytics' || tab === 'knowledge' || tab === 'roster' || tab === 'finance';
+  const contentIsWide = graphWide || tab === 'analytics' || tab === 'knowledge' || tab === 'roster' || tab === 'finance';
 
   return (
     <ChangeTabContext.Provider value={changeTab}>
-    <div className="p-6 space-y-5 mx-auto max-w-6xl">
+    <div className={['p-6 space-y-5 mx-auto', graphWide ? 'max-w-[1760px]' : 'max-w-6xl'].join(' ')}>
       <div>
         <h1 className="text-xl font-bold text-text-primary">REMAN</h1>
         <p className="text-xs text-text-tertiary mt-0.5">{t('reman.subtitle')}</p>
@@ -3358,7 +3470,11 @@ export default function RemanPage() {
 
         {visitedInterventions && (
           <div className={tab === 'interventions' ? '' : 'hidden'}>
-            <InterventionsTab focusJobId={focusJobId} onClearFocus={() => setFocusJobId(null)} />
+            <InterventionsTab
+              focusJobId={focusJobId}
+              onClearFocus={() => setFocusJobId(null)}
+              onRequestWide={setInterventionsGraphWide}
+            />
           </div>
         )}
         {visitedMine && <div className={tab === 'mine' ? '' : 'hidden'}><MyJobsTab /></div>}

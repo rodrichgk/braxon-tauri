@@ -98,3 +98,20 @@ pub fn spawn_scan_inbox_poller(app: AppHandle, db_config: Arc<Mutex<database::Db
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ScanEvent;
+
+    #[test]
+    fn scan_event_serializes_to_camel_case_for_scanlistener() {
+        let e = ScanEvent { entity: "job".into(), key: "17500101".into(), label: Some("Renault".into()) };
+        let v: serde_json::Value = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["entity"], "job");
+        assert_eq!(v["key"], "17500101");
+        assert_eq!(v["label"], "Renault");
+
+        let no_label = ScanEvent { entity: "abs".into(), key: "X".into(), label: None };
+        assert_eq!(serde_json::to_value(&no_label).unwrap()["label"], serde_json::Value::Null);
+    }
+}

@@ -484,3 +484,65 @@ mod imp {
 }
 
 pub use imp::{run_worker, CanLib};
+
+#[cfg(test)]
+mod tests {
+    use super::{format_frame, parse_cantx};
+
+    #[test]
+    fn parse_cantx_decodes_a_standard_dtc_request() {
+        // The exact line lib/isotp.ts / DTCScanner put on the wire.
+        let (id, data) = parse_cantx("CANTx : 7E0 03 19 02 FF 00 00 00 00").unwrap();
+        assert_eq!(id, 0x7E0);
+        assert_eq!(data, vec![0x03, 0x19, 0x02, 0xFF, 0x00, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn parse_cantx_never_widens_the_frame_past_eight_data_bytes() {
+        let (_, data) = parse_cantx("CANTx : 100 01 02 03 04 05 06 07 08 09").unwrap();
+        assert_eq!(data, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn parse_cantx_handles_a_29_bit_extended_id() {
+        let (id, data) = parse_cantx("CANTx : 18DAF110 22 F1 90").unwrap();
+        assert_eq!(id, 0x18DAF110);
+        assert_eq!(data, vec![0x22, 0xF1, 0x90]);
+    }
+
+    #[test]
+    fn parse_cantx_tolerates_a_missing_colon_and_stray_whitespace() {
+        let (id, data) = parse_cantx("  CANTx 200 AA BB  ").unwrap();
+        assert_eq!(id, 0x200);
+        assert_eq!(data, vec![0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn parse_cantx_ignores_lines_the_kvaser_has_no_equivalent_for() {
+        assert!(parse_cantx("t").is_none()); // handshake ping
+        assert!(parse_cantx("CANSpeed : 500000").is_none());
+        assert!(parse_cantx("Waveform : 1 2 3").is_none());
+        assert!(parse_cantx("").is_none());
+    }
+
+    #[test]
+    fn parse_cantx_needs_a_parseable_hex_id() {
+        assert!(parse_cantx("CANTx : ").is_none());
+        assert!(parse_cantx("CANTx : ZZZ 01").is_none());
+    }
+
+    #[test]
+    fn format_frame_matches_the_isotp_parser_contract() {
+        // parseCanLine() / parseNanoFrame() require exactly `2 + dlc` decimals,
+        // no trailing padding.
+        assert_eq!(format_frame(0x7E8, &[0x03, 0x7F, 0x22]), "2024 3 3 127 34");
+        assert_eq!(format_frame(2015, &[]), "2015 0");
+    }
+
+    #[test]
+    fn format_frame_emits_decimal_only() {
+        let s = format_frame(0x7DF, &[0x02, 0x01, 0x0C]);
+        assert_eq!(s, "2015 3 2 1 12");
+        assert!(s.split(' ').all(|t| t.chars().all(|c| c.is_ascii_digit())));
+    }
+}

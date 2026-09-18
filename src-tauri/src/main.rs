@@ -12,12 +12,17 @@ mod client_registry;
 mod scan_inbox;
 mod signal_history;
 mod app_settings;
+mod cluster_bench;
 
 use std::sync::{Arc, Mutex};
 
 pub struct AppState {
     pub db_config: Arc<Mutex<database::DbConfig>>,
     pub serial_connection: serial::SharedSerialConnection,
+    /// The F2-EVO's *second* COM port — the ECU / "Centralina" board. The
+    /// bench has two (`MainMenuForm.TestHydraulic` / `TestElectronic`);
+    /// mode switches go on the primary, STX ECU commands on this one.
+    pub ecu_serial_connection: serial::SharedSerialConnection,
     pub kvaser_connection: kvaser::SharedKvaserConnection,
 }
 
@@ -78,6 +83,7 @@ fn main() {
     let state = AppState {
         db_config: Arc::new(Mutex::new(db_config)),
         serial_connection: serial::create_serial_connection(),
+        ecu_serial_connection: serial::create_serial_connection(),
         kvaser_connection: kvaser::create_kvaser_connection(),
     };
 
@@ -106,6 +112,9 @@ fn main() {
             commands::disconnect_serial,
             commands::send_serial_message,
             commands::is_serial_connected,
+            commands::connect_ecu_serial,
+            commands::disconnect_ecu_serial,
+            commands::is_ecu_serial_connected,
             commands::get_kvaser_channels,
             commands::connect_kvaser,
             commands::disconnect_kvaser,
@@ -149,6 +158,7 @@ fn main() {
             commands::import_ecu_dtcs,
             commands::lookup_dtc,
             commands::lookup_dtcs,
+            commands::save_manual_dtc,
             commands::get_ecu_db_stats,
             commands::get_ecu_list,
             commands::get_ecu_actuators,
@@ -228,6 +238,7 @@ fn main() {
             f2evo::f2evo_sensor_send,
             f2evo::f2evo_washing_send,
             f2evo::f2evo_probe,
+            f2evo::f2evo_bench_mode,
             f2evo::f2evo_parse_line,
             f2evo::f2evo_parse_hydraulic_report,
             hydraulic_import::import_hydraulic_cycles,
@@ -240,6 +251,8 @@ fn main() {
             signal_history::delete_signal_hil_test,
             app_settings::get_app_setting,
             app_settings::set_app_setting,
+            cluster_bench::get_cluster_bench_catalog,
+            cluster_bench::upsert_cluster_bench_signal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

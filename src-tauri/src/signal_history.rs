@@ -273,3 +273,61 @@ pub async fn delete_signal_hil_test(id: String, state: State<'_, AppState>) -> R
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_deserializes_from_camel_case_and_defaults_fault_count() {
+        let json = r#"{
+            "operator": "Alice",
+            "verdict": "pass",
+            "absRef": "10.0961-1464.3",
+            "ecuName": "ABS X95",
+            "currentPeakA": 42.5,
+            "reportJson": "{}"
+        }"#;
+        let input: SignalHilTestInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.operator.as_deref(), Some("Alice"));
+        assert_eq!(input.abs_ref.as_deref(), Some("10.0961-1464.3"));
+        assert_eq!(input.ecu_name.as_deref(), Some("ABS X95"));
+        assert_eq!(input.current_peak_a, Some(42.5));
+        assert_eq!(input.fault_count, 0); // #[serde(default)] — key omitted
+        assert_eq!(input.job_number, None);
+        assert_eq!(input.report_json, "{}");
+    }
+
+    #[test]
+    fn row_serializes_to_camel_case() {
+        let row = SignalHilTestRow {
+            id: "row1".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            operator: None,
+            verdict: Some("fail".into()),
+            reason: None,
+            abs_ref: Some("X".into()),
+            manufacturer: None,
+            wss_type: None,
+            brand: None,
+            ecu_name: None,
+            hardware_family: None,
+            protocol: None,
+            send_id: None,
+            recv_id: None,
+            fault_count: 2,
+            current_peak_a: None,
+            voltage_v: None,
+            job_number: None,
+            job_label: None,
+            ligcde_id: None,
+            notes: None,
+            report_json: "{}".into(),
+        };
+        let v: serde_json::Value = serde_json::to_value(&row).unwrap();
+        assert_eq!(v["createdAt"], "2026-01-01T00:00:00Z");
+        assert_eq!(v["faultCount"], 2);
+        assert_eq!(v["absRef"], "X");
+        assert!(v.get("created_at").is_none()); // never snake_case on the wire
+    }
+}

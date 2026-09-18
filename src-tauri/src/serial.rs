@@ -109,3 +109,38 @@ pub type SharedSerialConnection = Arc<Mutex<SerialConnection>>;
 pub fn create_serial_connection() -> SharedSerialConnection {
     Arc::new(Mutex::new(SerialConnection::new()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_fresh_connection_is_not_connected_and_refuses_to_send() {
+        let mut c = SerialConnection::new();
+        assert!(!c.is_connected());
+        assert_eq!(c.send_message("PING".into()), Err("Serial port not connected".to_string()));
+
+        // disconnect() on an already-idle connection is harmless and raises the stop flag
+        c.disconnect();
+        assert!(!c.is_connected());
+        assert!(c.stop_flag().load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stop_flag_is_shared_state() {
+        let c = SerialConnection::new();
+        let a = c.stop_flag();
+        let b = c.stop_flag();
+        a.store(true, Ordering::SeqCst);
+        assert!(b.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn serial_port_data_round_trips_through_json() {
+        let d = SerialPortData { port_name: "COM7".into(), port_type: "USB VID:2e8a PID:0005".into() };
+        let back: SerialPortData = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+        assert_eq!(back.port_name, "COM7");
+        assert_eq!(back.port_type, "USB VID:2e8a PID:0005");
+    }
+}

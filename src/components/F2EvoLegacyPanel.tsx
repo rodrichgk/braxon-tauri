@@ -26,6 +26,7 @@ type ElectronicsCmd =
   | { action: 'wheel_go'; wheel: number }
   | { action: 'push' }
   | { action: 'release' }
+  | { action: 'motor_test_enable' }
   | { action: 'turn_off_motor' }
   | { action: 'ack_electronics' };
 
@@ -96,6 +97,7 @@ const ELECTRONICS_CONTROLS: Control<ElectronicsCmd>[] = [
   { type: 'number', label: 'Wheel Go', placeholder: 'wheel #', build: wheel => ({ action: 'wheel_go', wheel }) },
   { type: 'button', label: 'Push', cmd: { action: 'push' } },
   { type: 'button', label: 'Release', cmd: { action: 'release' } },
+  { type: 'button', label: 'Motor Test Enable', cmd: { action: 'motor_test_enable' } },
   { type: 'button', label: 'Turn Off Motor', cmd: { action: 'turn_off_motor' } },
   { type: 'button', label: 'Ack Electronics', cmd: { action: 'ack_electronics' } },
 ];

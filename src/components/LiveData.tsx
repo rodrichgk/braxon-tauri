@@ -20,7 +20,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { isoTpRequest } from '@/lib/isotp';
 import { type Protocol } from '@/lib/ecu';
-import { builtinLiveFor, type LivePreset } from '@/lib/builtinLiveSignals';
+import { builtinLiveForRef, type LivePreset } from '@/lib/builtinLiveSignals';
 import { decodeVwMeasuringBlock } from '@/lib/vwKwp';
 
 type Svc = '21' | '22' | '01' | 'can';
@@ -122,7 +122,7 @@ export default function LiveData({
   const isCan = svc === 'can';
   const ready = vwMode ? isConnected : (isCan ? isConnected : (isConnected && sendId !== null && recvId !== null));
   const storeKey = keyFor(unit, vwMode ? 'vw' as Svc : svc, idHex);
-  const presets = vwMode ? [] : builtinLiveFor(family);
+  const presets = vwMode ? [] : builtinLiveForRef(absRef, family);
 
   // Load / save signal map for the current (unit + request) key.
   useEffect(() => {

@@ -35,6 +35,7 @@ Prisma knows nothing about them:
 | `EcuAbsRef` | `ensure_abs_ref_table()` | ABS reference → ECU model / CAN addressing |
 | `AppUser` | `ensure_auth_tables()` | application login accounts |
 | `RepairJob` | `ensure_auth_tables()` | repair job lifecycle |
+| `ClusterBenchSignal` | `cluster_bench::ensure_table()` | Cluster Bench signal catalog (name/kind/category/unit/icon) — self-seeds from `SEED_SIGNALS` on every `get_cluster_bench_catalog` call, see `src-tauri/src/cluster_bench.rs` and `docs/DASHBOARD-BENCH.md` |
 
 `EcuAbsRef` is the index from the reference printed on the ABS block to the
 DDT4ALL diagnostic model. It is keyed by the reference stripped to

@@ -23,6 +23,7 @@ export function isDevUser(user: AppUser | null | undefined): boolean {
 export const HIDEABLE_PAGES: readonly Page[] = [
   'valves', 'motors', 'signal', 'jobs', 'reman',
   'f2evo_hydraulic', 'f2evo_electronics', 'f2evo_gearbox', 'f2evo_sensor', 'f2evo_washing',
+  'cluster_bench',
 ];
 
 /** The shared AppSetting key holding the JSON array of hidden page ids. */

@@ -6,6 +6,9 @@
 
    Decoded from Autel↔ABS captures — grow as more units are worked. ────────── */
 
+import { normalizeAbsRef } from './ecu';
+import { FORD_WHEEL_DECODE } from './wssReadback';
+
 export type LiveSvc = '21' | '22' | '01' | 'can';
 
 export interface LiveSignalDef {
@@ -62,8 +65,38 @@ export const BUILTIN_LIVE: Record<string, LivePreset[]> = {
     { service: '22', id: '0203', label: 'Wheel RR (22 02 03)', signals: [kmh100('Wheel RR', 3)] },
     { service: '22', id: '0204', label: 'Vehicle speed (22 02 04)', signals: [kmh100('Vehicle', 3)] },
   ],
+
+  // Ford / ATE ABS (0x760→0x768). Wheel speed is four separate DIDs, one
+  // byte each = km/h (`22 2B 0X` → `62 2B 0X <v>`). Decoded from an
+  // Autel↔ABS capture 2026-09-10 (ref 10.0961-0191.3) — see
+  // `src/lib/wssReadback.ts`, which drives the Signal-tester readback off
+  // the same layout. Not a `guessHardwareFamily` family: those `10.0961-*`
+  // refs otherwise resolve to Renault MK61, so this is reached by
+  // `builtinLiveForRef` on the exact reference.
+  FORD_ATE: (['FL', 'FR', 'RL', 'RR'] as const).map((w, i) => ({
+    service: '22' as const,
+    id: `2B0${6 + i}`,
+    label: `Wheel ${w} (22 2B 0${6 + i})`,
+    signals: [{ name: `Wheel ${w}`, unit: 'km/h', ...FORD_WHEEL_DECODE }],
+  })),
+};
+
+// Refs whose live-data layout is known but doesn't follow from the part
+// number's hardware family (see the FORD_ATE note). `normalizeAbsRef` key.
+const LIVE_BY_REF: Record<string, string> = {
+  '10096101913': 'FORD_ATE', // 10.0961-0191.3
 };
 
 export function builtinLiveFor(family: string | null | undefined): LivePreset[] {
   return (family && BUILTIN_LIVE[family]) || [];
+}
+
+/** Live-data presets for a unit — an exact-reference match wins over the
+ *  hardware family (some refs share a family but not a diagnostic layout). */
+export function builtinLiveForRef(
+  absRef: string | null | undefined,
+  family: string | null | undefined,
+): LivePreset[] {
+  const byRef = absRef && LIVE_BY_REF[normalizeAbsRef(absRef)];
+  return byRef ? BUILTIN_LIVE[byRef] : builtinLiveFor(family);
 }

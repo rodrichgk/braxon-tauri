@@ -11,6 +11,35 @@ use sha2::{Sha256, Digest};
 
 // ---- Serial Port Commands ----
 
+/// Feeds a freshly-read `chunk` into `line_buf` and returns every completed
+/// line. Lines end on **CR or LF** (universal newline): `\r\n` yields one
+/// line and suppresses the empty trailing piece; a bare `\r` or bare `\n`
+/// each end a line. Completed lines are trimmed; empty ones are dropped. A
+/// partial line stays in `line_buf` for the next chunk.
+///
+/// CR-terminated framing is required by the F2-EVO boards, whose own
+/// `Handle_DataReceived` accumulates characters until `c == '\r'` and
+/// ignores `\n` entirely — an `\n`-only split glued a `\r`-separated reply
+/// burst (`Volt:…\rCurrent:…\rOK\r`) into one unparseable line. The extra
+/// CR break is inert for the Nano/Pico CAN bridge that feeds the
+/// ISO-TP/UDS/DTC stack: it emits `\n`-terminated ASCII decimal/hex frames
+/// (`<id> <dlc> <b0> …`) with no `0x0D` anywhere in a payload.
+fn split_serial_lines(line_buf: &mut String, chunk: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for c in chunk.chars() {
+        if c == '\n' || c == '\r' {
+            let line = line_buf.trim().to_string();
+            if !line.is_empty() {
+                lines.push(line);
+            }
+            line_buf.clear();
+        } else {
+            line_buf.push(c);
+        }
+    }
+    lines
+}
+
 #[tauri::command]
 pub async fn get_serial_ports() -> Result<Vec<SerialPortData>, String> {
     serial::SerialConnection::list_ports()
@@ -19,6 +48,70 @@ pub async fn get_serial_ports() -> Result<Vec<SerialPortData>, String> {
 #[tauri::command]
 pub async fn get_pico_port() -> Result<Option<String>, String> {
     Ok(serial::SerialConnection::find_pico_port())
+}
+
+/// The read/write pump shared by the primary and ECU serial workers. Each
+/// port gets its own thread and its own pair of Tauri event names
+/// (`serial-data` / `serial-disconnected` for the primary, `ecu-serial-*`
+/// for the F2-EVO's second port — the two-COM-port ECU bench, see
+/// `f2evo.rs`).
+fn run_serial_worker(
+    mut port: Box<dyn serialport::SerialPort>,
+    rx: std::sync::mpsc::Receiver<String>,
+    stop_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    app_handle: tauri::AppHandle,
+    data_event: &'static str,
+    disconnected_event: &'static str,
+) {
+    use std::io::{Read, Write};
+    use std::sync::mpsc::TryRecvError;
+
+    let mut line_buf = String::new();
+    let mut read_buf = [0u8; 256];
+
+    loop {
+        if stop_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+
+        // ---- TX: drain outgoing command queue (non-blocking) ----
+        loop {
+            match rx.try_recv() {
+                Ok(msg) => {
+                    let data = msg.as_bytes();
+                    if let Err(e) = port.write_all(data) {
+                        // transient USB CDC stall on Windows — one retry
+                        if e.raw_os_error() == Some(121) {
+                            std::thread::sleep(std::time::Duration::from_millis(15));
+                            let _ = port.write_all(data);
+                        }
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    // Sender was dropped by disconnect() — exit cleanly
+                    let _ = app_handle.emit_all(disconnected_event, ());
+                    return;
+                }
+            }
+        }
+
+        // ---- RX: read available data (10 ms timeout) ----
+        match port.read(&mut read_buf) {
+            Ok(n) if n > 0 => {
+                if let Ok(chunk) = std::str::from_utf8(&read_buf[..n]) {
+                    for line in split_serial_lines(&mut line_buf, chunk) {
+                        let _ = app_handle.emit_all(data_event, &line);
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(_) => break, // device gone
+        }
+    }
+
+    let _ = app_handle.emit_all(disconnected_event, ());
 }
 
 #[tauri::command]
@@ -30,75 +123,14 @@ pub async fn connect_serial(
 ) -> Result<(), String> {
     // connect() opens the port once and returns it alongside the rx channel.
     // The worker thread owns the port — no try_clone() needed.
-    let (port, rx) = {
+    let (port, rx, stop_flag) = {
         let mut conn = state.serial_connection.lock().await;
-        conn.connect(&port_name, baud_rate)?
-    };
-
-    let stop_flag = {
-        let conn = state.serial_connection.lock().await;
-        conn.stop_flag()
+        let (port, rx) = conn.connect(&port_name, baud_rate)?;
+        (port, rx, conn.stop_flag())
     };
 
     std::thread::spawn(move || {
-        use std::io::{Read, Write};
-        use std::sync::mpsc::TryRecvError;
-
-        let mut port = port;
-        let mut line_buf = String::new();
-        let mut read_buf = [0u8; 256];
-
-        loop {
-            if stop_flag.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-
-            // ---- TX: drain outgoing command queue (non-blocking) ----
-            loop {
-                match rx.try_recv() {
-                    Ok(msg) => {
-                        let data = msg.as_bytes();
-                        if let Err(e) = port.write_all(data) {
-                            // transient USB CDC stall on Windows — one retry
-                            if e.raw_os_error() == Some(121) {
-                                std::thread::sleep(std::time::Duration::from_millis(15));
-                                let _ = port.write_all(data);
-                            }
-                        }
-                    }
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        // Sender was dropped by disconnect() — exit cleanly
-                        let _ = app_handle.emit_all("serial-disconnected", ());
-                        return;
-                    }
-                }
-            }
-
-            // ---- RX: read available data (10 ms timeout) ----
-            match port.read(&mut read_buf) {
-                Ok(n) if n > 0 => {
-                    if let Ok(chunk) = std::str::from_utf8(&read_buf[..n]) {
-                        for c in chunk.chars() {
-                            if c == '\n' {
-                                let line = line_buf.trim().to_string();
-                                if !line.is_empty() {
-                                    let _ = app_handle.emit_all("serial-data", &line);
-                                }
-                                line_buf.clear();
-                            } else if c != '\r' {
-                                line_buf.push(c);
-                            }
-                        }
-                    }
-                }
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
-                Err(_) => break, // device gone
-            }
-        }
-
-        let _ = app_handle.emit_all("serial-disconnected", ());
+        run_serial_worker(port, rx, stop_flag, app_handle, "serial-data", "serial-disconnected");
     });
 
     Ok(())
@@ -110,6 +142,59 @@ pub async fn disconnect_serial(state: State<'_, AppState>) -> Result<(), String>
     conn.disconnect();
     Ok(())
 }
+
+// ---- F2-EVO second COM port (the ECU / "Centralina" board) ----
+//
+// The SC F2-EVO exposes the hydraulic-bench MCU and the ECU MCU as two
+// separate COM ports (`MainMenuForm.TestHydraulic` / `TestElectronic`).
+// `ELECTRONIC` / `HYDRAULIC` mode switches go on the hydraulic port; every
+// STX ECU command (`Check Code`, `Volt`, the model upload, …) goes on the
+// ECU port. `connect_serial` above owns one; this owns the other, emitting
+// `ecu-serial-data` / `ecu-serial-disconnected`.
+
+#[tauri::command]
+pub async fn connect_ecu_serial(
+    port_name: String,
+    baud_rate: u32,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let (port, rx, stop_flag) = {
+        let mut conn = state.ecu_serial_connection.lock().await;
+        let (port, rx) = conn.connect(&port_name, baud_rate)?;
+        (port, rx, conn.stop_flag())
+    };
+
+    std::thread::spawn(move || {
+        run_serial_worker(
+            port,
+            rx,
+            stop_flag,
+            app_handle,
+            "ecu-serial-data",
+            "ecu-serial-disconnected",
+        );
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_ecu_serial(state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.ecu_serial_connection.lock().await;
+    conn.disconnect();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn is_ecu_serial_connected(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.ecu_serial_connection.lock().await.is_connected())
+}
+
+// No raw `send_ecu_serial_message` counterpart to `send_serial_message`: the
+// ECU port only ever carries structured STX frames built by `f2evo.rs`
+// (`f2evo_electronics_send { ecu: true }`), never operator free-text. Add one
+// back the day a raw-send console for this port is actually needed.
 
 #[tauri::command]
 pub async fn send_serial_message(message: String, state: State<'_, AppState>) -> Result<(), String> {
@@ -864,6 +949,71 @@ pub async fn lookup_dtcs(
     let client = database::connect(&config).await.map_err(|e| e.to_string())?;
     let map = resolve_dtcs(&client, dtc_raws.clone(), ecu_file.as_deref()).await;
     Ok(dtc_raws.iter().map(|r| map.get(r).cloned()).collect())
+}
+
+/// Trim + normalise the two free-typed fields for a technician-entered DTC
+/// description (see `save_manual_dtc`) — code uppercased to match every
+/// other `EcuDtc.dtc_code` in the table, description just trimmed. Both
+/// empty is rejected: a blank entry isn't worth a row, and would silently
+/// wipe a real description already on file for that code on a re-save.
+fn normalize_manual_dtc_fields(dtc_code: &str, description: &str) -> Result<(String, String), String> {
+    let description = description.trim();
+    if description.is_empty() {
+        return Err("Description is empty".to_string());
+    }
+    let dtc_code = dtc_code.trim().to_uppercase();
+    if dtc_code.is_empty() {
+        return Err("DTC code is empty".to_string());
+    }
+    Ok((dtc_code, description.to_string()))
+}
+
+/// Let a technician type in a DTC's meaning themselves — read off a proper
+/// diag tool (Diagbox/Clip) or found online — instead of waiting on a
+/// curated import. `dtc_raw`/`dtc_code` come from the scan row already on
+/// screen (the ECU already told us the raw value; the tech is only
+/// supplying the missing text), so there's nothing to parse here.
+///
+/// `ecu_file` is whatever the frontend is already using to resolve this
+/// unit's codes (see `resolveManualDtcEcuFile` in `src/lib/ecu.ts`) — a
+/// DDT4ALL `ecu_file` when the unit is linked to one, otherwise the
+/// normalised ABS reference, so the save round-trips back through
+/// `resolve_dtcs`'s priority-1 (`ecu-exact`) match on the very next scan of
+/// the same physical unit instead of leaking onto unrelated ECUs that
+/// happen to share the same raw DTC number.
+#[tauri::command]
+pub async fn save_manual_dtc(
+    ecu_file: String,
+    ecu_name: String,
+    dtc_raw: i32,
+    dtc_code: String,
+    description: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (dtc_code, description) = normalize_manual_dtc_fields(&dtc_code, &description)?;
+    let ecu_file = ecu_file.trim();
+    if ecu_file.is_empty() {
+        return Err("No ECU reference on the bench — select or scan an ABS unit first".to_string());
+    }
+    let ecu_name = ecu_name.trim();
+    let ecu_name = if ecu_name.is_empty() { ecu_file } else { ecu_name };
+
+    let config = state.db_config.lock().map_err(|e| e.to_string())?.clone();
+    let client = database::connect(&config).await?;
+    ensure_ecu_tables(&client).await?;
+
+    let id = Uuid::new_v4().to_string();
+    client.execute(
+        r#"INSERT INTO "EcuDtc" (id, ecu_name, ecu_file, protocol, dtc_raw, dtc_code, description, dtc_type)
+           VALUES ($1, $2, $3, NULL, $4, $5, $6, 0)
+           ON CONFLICT (ecu_file, dtc_raw) DO UPDATE SET
+               description = EXCLUDED.description,
+               dtc_code    = EXCLUDED.dtc_code,
+               ecu_name    = EXCLUDED.ecu_name"#,
+        &[&id, &ecu_name, &ecu_file, &dtc_raw, &dtc_code, &description],
+    ).await.map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -2170,4 +2320,140 @@ pub async fn printer_query(host: String, port: u16, data: String, read_ms: u64) 
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_serial_lines_breaks_a_cr_separated_reply_burst() {
+        // The bug: an F2-EVO reply burst terminated with bare `\r` used to
+        // be glued into one unparseable line by an `\n`-only split.
+        let mut buf = String::new();
+        assert_eq!(
+            split_serial_lines(&mut buf, "Volt:1024\rCurrent:88\rComunication:None\rOK\r"),
+            vec!["Volt:1024", "Current:88", "Comunication:None", "OK"]
+        );
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn split_serial_lines_treats_crlf_as_one_line_break() {
+        let mut buf = String::new();
+        assert_eq!(
+            split_serial_lines(&mut buf, "740 8 02 10 03\r\n760 8 06 50 03\r\n"),
+            vec!["740 8 02 10 03", "760 8 06 50 03"]
+        );
+        // Bare `\n` still works (the Nano/Pico bridge's framing).
+        assert_eq!(split_serial_lines(&mut String::new(), "a\nb\n"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn split_serial_lines_carries_a_partial_line_across_chunks() {
+        let mut buf = String::new();
+        assert_eq!(split_serial_lines(&mut buf, "Volt:10"), Vec::<String>::new());
+        assert_eq!(buf, "Volt:10");
+        assert_eq!(split_serial_lines(&mut buf, "24\rCur"), vec!["Volt:1024"]);
+        assert_eq!(buf, "Cur");
+    }
+
+    #[test]
+    fn split_serial_lines_drops_empty_and_whitespace_only_lines() {
+        let mut buf = String::new();
+        assert_eq!(split_serial_lines(&mut buf, "\r\n\r\n  \rOK\r"), vec!["OK"]);
+    }
+
+    #[test]
+    fn decode_dtc_code_matches_the_sae_bit_layout() {
+        // letter = bits 7-6 ; d1 = bits 5-4 ; d2 = low nibble hi ; d3/d4 = lo
+        assert_eq!(decode_dtc_code(0x4044), "C0044");
+        assert_eq!(decode_dtc_code(0x0000), "P0000");
+        assert_eq!(decode_dtc_code(0xC000), "U0000");
+        assert_eq!(decode_dtc_code(0x8000), "B0000");
+        assert_eq!(decode_dtc_code(0x5210), "C1210");
+        assert_eq!(decode_dtc_code(0x50AB), "C10AB");
+    }
+
+    #[test]
+    fn decode_dtc_code_only_looks_at_the_low_16_bits() {
+        assert_eq!(decode_dtc_code(0x0004_4044), "C0044");
+    }
+
+    #[test]
+    fn normalize_manual_dtc_fields_trims_and_uppercases_the_code() {
+        let (code, desc) = normalize_manual_dtc_fields(" c1391 ", "  Brake pressure sensor fault  ").unwrap();
+        assert_eq!(code, "C1391");
+        assert_eq!(desc, "Brake pressure sensor fault");
+    }
+
+    #[test]
+    fn normalize_manual_dtc_fields_rejects_an_empty_description() {
+        assert!(normalize_manual_dtc_fields("C1391", "   ").is_err());
+    }
+
+    #[test]
+    fn normalize_manual_dtc_fields_rejects_an_empty_code() {
+        assert!(normalize_manual_dtc_fields("  ", "Some fault").is_err());
+    }
+
+    #[test]
+    fn normalize_abs_ref_keeps_only_alnum_uppercased() {
+        assert_eq!(normalize_abs_ref("10.0961-1464.3"), "10096114643");
+        assert_eq!(normalize_abs_ref("0 265 231 456"), "0265231456");
+        assert_eq!(normalize_abs_ref("abc-1"), "ABC1");
+        // idempotent
+        let once = normalize_abs_ref("10.0961-1464.3");
+        assert_eq!(normalize_abs_ref(&once), once);
+    }
+
+    #[test]
+    fn guess_hardware_family_covers_the_known_prefixes() {
+        assert_eq!(guess_hardware_family("10.0961-1464.3").as_deref(), Some("MK61"));
+        assert_eq!(guess_hardware_family("10.0960-0000.0").as_deref(), Some("MK60"));
+        assert_eq!(guess_hardware_family("10.0175-0000.0").as_deref(), Some("MK60"));
+        assert_eq!(guess_hardware_family("10.0971-0000.0").as_deref(), Some("MK70"));
+        assert_eq!(guess_hardware_family("10.0202-0000.0").as_deref(), Some("MK20"));
+        assert_eq!(guess_hardware_family("0 265 950 001").as_deref(), Some("Bosch Gen 9"));
+        assert_eq!(guess_hardware_family("0 265 231 456").as_deref(), Some("Bosch 8.x"));
+        assert_eq!(guess_hardware_family("0 265 081 001").as_deref(), Some("Bosch 8.0"));
+        assert_eq!(guess_hardware_family("99.9999-0000.0"), None);
+        assert_eq!(guess_hardware_family(""), None);
+    }
+
+    #[test]
+    fn normalize_can_id_strips_prefix_pads_and_uppercases() {
+        assert_eq!(normalize_can_id(Some("0x740".into())).as_deref(), Some("740"));
+        assert_eq!(normalize_can_id(Some("740".into())).as_deref(), Some("740"));
+        assert_eq!(normalize_can_id(Some("  7a0 ".into())).as_deref(), Some("7A0"));
+        assert_eq!(normalize_can_id(Some("7".into())).as_deref(), Some("007"));
+        assert_eq!(normalize_can_id(Some("18DAF110".into())).as_deref(), Some("18DAF110"));
+        assert_eq!(normalize_can_id(Some("".into())), None);
+        assert_eq!(normalize_can_id(Some("zzz".into())), None);
+        assert_eq!(normalize_can_id(None), None);
+    }
+
+    #[test]
+    fn password_hash_round_trips_and_rejects_a_wrong_password() {
+        let h = hash_password("hunter2");
+        assert!(h.starts_with("$sha256v2$"));
+        assert!(verify_password("hunter2", &h));
+        assert!(!verify_password("hunter3", &h));
+        // Two hashes of the same password differ (random salt).
+        assert_ne!(hash_password("hunter2"), hash_password("hunter2"));
+    }
+
+    #[test]
+    fn verify_password_still_accepts_a_legacy_unsalted_hash() {
+        let mut hsh = Sha256::new();
+        hsh.update(b"legacy-pw");
+        let legacy = format!("{:x}", hsh.finalize());
+        assert!(verify_password("legacy-pw", &legacy));
+        assert!(!verify_password("nope", &legacy));
+    }
+
+    #[test]
+    fn verify_password_rejects_a_malformed_v2_hash() {
+        assert!(!verify_password("x", "$sha256v2$only-one-field"));
+    }
 }

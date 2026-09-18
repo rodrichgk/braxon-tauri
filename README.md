@@ -36,6 +36,27 @@ Frontend only, without the Tauri shell:
 npm run dev
 ```
 
+## Testing
+
+```sh
+npm run test:all       # typecheck + Vitest (frontend) + cargo test (backend)
+npm test               # Vitest once
+npm run test:watch     # Vitest watch
+npm run test:coverage  # + V8 coverage → coverage/
+npm run test:rust      # cargo test in src-tauri/
+```
+
+**Every code change must keep these green and ship its own tests** — see
+[CLAUDE.md](CLAUDE.md) and [docs/TESTING.md](docs/TESTING.md). CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) gates `dev` and `main`
+on the full suite.
+
+## For contributors (and AI agents)
+
+Read **[CLAUDE.md](CLAUDE.md)** (the rules), **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+(module map) and **[docs/TESTING.md](docs/TESTING.md)** before changing code.
+`AGENTS.md` points non-Claude tools at the same guidance.
+
 ## Building
 
 ```sh

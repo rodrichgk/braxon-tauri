@@ -8,4 +8,5 @@
 // Report entry for the full context.
 export type Page =
   | 'home' | 'valves' | 'motors' | 'signal' | 'jobs' | 'reman'
-  | 'f2evo_hydraulic' | 'f2evo_electronics' | 'f2evo_gearbox' | 'f2evo_sensor' | 'f2evo_washing';
+  | 'f2evo_hydraulic' | 'f2evo_electronics' | 'f2evo_gearbox' | 'f2evo_sensor' | 'f2evo_washing'
+  | 'cluster_bench';

@@ -145,6 +145,15 @@ export function vwAscii(bytes: number[]): string {
   return bytes.map((x) => (x >= 0x20 && x < 0x7f ? String.fromCharCode(x) : '·')).join('');
 }
 
+// ClearDiagnosticInformation (`14`) request bytes — group `FF 00` ("all
+// groups"), not `FF FF`. Confirmed against a real ABS unit (ref
+// 10.0961-0315.3, VWTP20 tab, bus capture 2026-09-15): the ECU answered a
+// string of `7F 14 78` (responsePending) then a positive `54 FF 00` —
+// echoing the exact group bytes requested. `FF FF` was never actually
+// tested against real hardware before this; don't reintroduce it without
+// a capture proving an ECU that needs it.
+export const CLEAR_ALL_DTC_REQUEST = [0x14, 0xff, 0x00];
+
 /** Pull the VW ident fields out of a `62 F1 87 …` multi-DID response. */
 export function parseVwIdent(payload: number[]): Record<string, string> {
   const out: Record<string, string> = {};

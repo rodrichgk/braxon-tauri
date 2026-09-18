@@ -64,7 +64,30 @@ pub mod electronics {
         WheelGo { wheel: u8 },
         Push,
         Release,
+        /// `Motor Test Enable` — arms the pump-motor current test
+        /// (`ABS.cs` `MotorTest_Click` / `WorkinigProgress.Test_Click`).
+        /// The board answers with a `Motor ok` / `Motor error` line.
+        MotorTestEnable,
         TurnOffMotor,
+        /// The serialised model (`ModelComponent` / `Car`) JSON blob
+        /// `ABS.cs Model_Click` sends to the board (`InviaComando(Electronic,
+        /// text2)` where `text2 = Serialize(Car).Replace("Name","Model")`).
+        /// The board needs this to know the unit under test before it will
+        /// answer `Check Code` etc. STX-prefixed like every other
+        /// `InviaComando` call. The PC builds the JSON (see
+        /// `src/lib/absModel.ts`); passed straight through here.
+        LoadModel { json: String },
+        /// One CAN init frame, or an `N_STRING`-sized batch of them, that
+        /// `ABS.cs` `StartABS` / `FillTable` serialise from the `Stringhe`
+        /// table and stream to the board on Key Power
+        /// (`InviaComando(Electronic, Serialize(FRAME))` /
+        /// `Serialize(FRAME[])`). The PC builds the JSON — see
+        /// `src/lib/absCanUpload.ts` — and it's passed straight through,
+        /// STX-prefixed like every other `InviaComando` call.
+        CanFrames { json: String },
+        /// `Start ABS` — sent after the `Test = 3` init frames in
+        /// `ABS.cs StartABS`, before `FillTable`'s interleaved batches.
+        StartAbs,
         /// Handshake ack — enqueued bare in `ABS.cs:909`, bypassing
         /// `InviaComando`, so unlike everything else here it is NOT
         /// STX-prefixed.
@@ -95,7 +118,11 @@ pub mod electronics {
                 WheelGo { wheel } => stx_frame(format!("Wheel Go:{wheel}")),
                 Push => stx_frame("Push"),
                 Release => stx_frame("Release"),
+                MotorTestEnable => stx_frame("Motor Test Enable"),
                 TurnOffMotor => stx_frame("Turn Off Motor"),
+                LoadModel { json } => stx_frame(json.clone()),
+                CanFrames { json } => stx_frame(json.clone()),
+                StartAbs => stx_frame("Start ABS"),
                 AckElectronics => "ACK Electronics".to_string(),
             }
         }
@@ -183,6 +210,15 @@ pub mod hydraulic {
         /// Pump on/off — `OnOff_Click`: `"Pompa:" + OnOff.Tag` (same verb
         /// the Sensor board's `Pompa:` command uses).
         Pump { on: bool },
+        /// Stepper jog for the pump-pressure regulator. Wire form is
+        /// `Step:<count>;<dir>` where `dir` is `-1` to *raise* pressure and
+        /// `1` to *lower* it — the sign is inverted from intuition, matching
+        /// the original `FormHydraulicBench.StepMotor` (`Plus` sender →
+        /// `-1`, `Minus` → `1`) and `FormSensor.StepMotor`. Both original
+        /// call sites hardcoded `count = 800` (one regulator increment); the
+        /// pre-charge PID loop on the PC side varies `count` within a
+        /// bounded range, so it's a parameter here.
+        StepMotor { steps: u16, raise: bool },
         /// The bleeding-cycle top-level test button (`Bleeding.Tag`).
         Bleeding,
         /// The valve-test top-level button (`Valves.Tag`).
@@ -230,6 +266,12 @@ pub mod hydraulic {
                 Oil => "H-OIL".to_string(),
                 Unlock { channel } => format!("UNLOCK:{channel}"),
                 Pump { on } => format!("Pompa:{}", if *on { "ON" } else { "OFF" }),
+                StepMotor { steps, raise } => {
+                    // Defensive clamp — the PC-side loop already bounds this,
+                    // but never let a stray value drive an unbounded jog.
+                    let steps = (*steps).clamp(1, 4000);
+                    format!("Step:{};{}", steps, if *raise { -1 } else { 1 })
+                }
                 Bleeding => "BLEEDING".to_string(),
                 Valves => "VALVES".to_string(),
                 Motor => "MOTOR".to_string(),
@@ -283,6 +325,18 @@ pub mod hydraulic {
         pub oil_status: OilStatus,
         /// `array[29] == "1"`.
         pub pod_enabled: bool,
+        /// `array[23] == "1"` — whether the pump (`Pompa`) is currently
+        /// running. The original reads this as `flag2` in `RefreshStatus1`
+        /// to gate its `WorkPressureCount` pre-charge regulator and to
+        /// paint the ON/OFF button state.
+        pub pump_on: bool,
+        /// `array[28]` — the loaded unit's working / master-cylinder
+        /// pressure (`PressureWork` in the original; the `PressioneLavoro` /
+        /// `P_Work` value uploaded with the program). This is the setpoint
+        /// the pre-charge regulator drives the pump gauge to before a
+        /// Bleeding or Hydraulic Test run. `0.0` when no program is loaded
+        /// (the board reports `0` in that field until an upload lands).
+        pub work_pressure: f64,
         /// Decoded `array[19]` protection bitmask — human-readable fault
         /// messages, in the same order `ReportDiagnostic`/`RefreshStatus1`
         /// check them (first match wins there; all active ones listed
@@ -397,6 +451,8 @@ pub mod hydraulic {
             oil_level,
             oil_status,
             pod_enabled: fields.get(29).map(|s| s.trim() == "1").unwrap_or(false),
+            pump_on: fields.get(23).map(|s| s.trim() == "1").unwrap_or(false),
+            work_pressure: f(28).unwrap_or(0.0),
             protection_faults: protection_faults(mask),
             test_step_index: fields.get(13).and_then(|s| s.trim().parse().ok()).unwrap_or(0),
             valve_under_test: fields.get(38).and_then(|s| s.trim().parse().ok()).unwrap_or(-1),
@@ -866,6 +922,21 @@ pub enum F2EvoEvent {
     Current { amps: f64 },
     Comunication { state: String },
     Frequency { raw: String },
+    /// Bare `Information` line — the Electronics/ABS board's
+    /// handshake-complete signal (`ABS.cs` `case "Information"` sets
+    /// `IsElectronicConnected = true`).
+    Information,
+    /// `ver<X.X>` firmware line following the Electronics/ABS announce —
+    /// `MainMenuForm.Handle_DataReceived` treats this as "board found".
+    Version { value: String },
+    /// `Check ok` — the Electronics/ABS board confirming the battery
+    /// code-check passed (`ABS.cs` `case "Check ok"`, which then sends
+    /// `Set ReleExt ON` and unlocks Key Power).
+    CheckOk,
+    /// `Motor ok` / `Motor error` / `Motor off` — result of a
+    /// `Motor Test Enable` run (`ABS.cs` `case "Motor ok"` / `"Motor error"`
+    /// / `"Motor off"`). `state` is `"ok"`, `"error"`, or `"off"`.
+    MotorResult { state: String },
     /// 39-field `;`-joined Hydraulic Bench status telemetry. `telemetry` is
     /// `None` if the frame didn't decode cleanly (wrong field count, or a
     /// required numeric field wasn't parseable) — `fields` is always kept
@@ -898,6 +969,12 @@ pub enum F2EvoEvent {
     /// here (see `hydraulic_import::build_abs_upload`'s doc comment) — this
     /// event alone is treated as "upload finished" by the caller.
     AbsCaricato,
+    /// Literal `ErrorPressureReturn` — the board aborts a pre-charge /
+    /// pressure-regulation phase (`FormHydraulicBench.Handle_DataReceived`,
+    /// `case "ErrorPressureReturn"`: it forces the pump-ON tag, clears the
+    /// command queue, drops `TestButton` and `WorkPressureCount`). The PC
+    /// side must abandon an in-flight pre-charge when it sees this.
+    ErrorPressureReturn,
     /// Generic fallback: `Key` alone, or `Key:Value` split on the first
     /// colon (matches `DataUart[n].Split(':')` in the original app, which
     /// only ever looks at the first segment).
@@ -916,9 +993,48 @@ pub fn parse_line(line: &str) -> F2EvoEvent {
             board: board.to_string(),
         };
     }
-    if matches!(line, "Hydraulics" | "Electronics" | "WASHING") {
+    if matches!(line, "Hydraulics" | "WASHING") {
         return F2EvoEvent::DiscoveryBroadcast {
             board: line.to_string(),
+        };
+    }
+    // The Electronics/ABS board announces itself as `Electronics` *or*
+    // `Test Centralina` (`MainMenuForm.Handle_DataReceived:535` switches on
+    // `IndexOf(...) > -1`), sometimes with a ` ver1.2` firmware suffix on
+    // the same line. Both normalise to `board: "Electronics"` so callers
+    // have one thing to match. (`Test Centralina` also implies single-frame
+    // CAN mode — `N_STRING = 1` — but BRAXON doesn't drive the CAN upload,
+    // so that distinction isn't carried here.)
+    //
+    // Deliberately stricter than the original's bare `IndexOf`: both forms
+    // match only as a whole line (optionally with a ` ver1.2` suffix). The
+    // word `Electronics` is common enough that a substring match swallows
+    // unrelated lines (`Electronic Stability Program`, an `Electronics`
+    // mention inside a diagnostic string); `Test Centralina` is more
+    // distinctive but, now that `parse_line` feeds the dashboard's
+    // which-COM-port-is-the-ECU auto-detect, an anchored match keeps any
+    // hydraulic free-text line from ever being read as the ECU announce and
+    // flipping command routing.
+    // The firmware version line the board sends right after its announce
+    // (`MainMenuForm.Handle_DataReceived:554`: `text2.IndexOf("ver") == 0 &&
+    // text2.Length >= 4` → sets `TestElectronic` / `Uscite = true`, i.e.
+    // this is what actually marks the ECU bench "found"). Tighter than the
+    // original's bare `IndexOf`: the 4th char must look like a version
+    // number, so a free-text `very …` diagnostic isn't mistaken for it.
+    if let Some(rest) = line.strip_prefix("ver") {
+        if matches!(rest.chars().next(), Some(c) if c.is_ascii_digit() || c == ' ' || c == '.') {
+            return F2EvoEvent::Version {
+                value: line.to_string(),
+            };
+        }
+    }
+    if line == "Electronics"
+        || line.starts_with("Electronics ")
+        || line == "Test Centralina"
+        || line.starts_with("Test Centralina ")
+    {
+        return F2EvoEvent::DiscoveryBroadcast {
+            board: "Electronics".to_string(),
         };
     }
     if line == "OK" {
@@ -926,6 +1042,11 @@ pub fn parse_line(line: &str) -> F2EvoEvent {
     }
     if line == "ABS caricato." {
         return F2EvoEvent::AbsCaricato;
+    }
+    // Split on ':' below strips a trailing `:` / `:<detail>` the board may
+    // append; the switch key in the original is `text.Split(':')[0]`.
+    if line == "ErrorPressureReturn" || line.starts_with("ErrorPressureReturn:") {
+        return F2EvoEvent::ErrorPressureReturn;
     }
 
     let (key, value) = match line.split_once(':') {
@@ -951,6 +1072,18 @@ pub fn parse_line(line: &str) -> F2EvoEvent {
         },
         "Frequency" => F2EvoEvent::Frequency {
             raw: value.unwrap_or_default().to_string(),
+        },
+        // Electronics/ABS board handshake + test-result lines. All three
+        // are keyword-only in the original (`text.Split(':')[0]` switch),
+        // so an optional trailing `:detail` is ignored here too.
+        "Information" => F2EvoEvent::Information,
+        "Check ok" => F2EvoEvent::CheckOk,
+        "Motor ok" => F2EvoEvent::MotorResult { state: "ok".to_string() },
+        "Motor error" => F2EvoEvent::MotorResult {
+            state: "error".to_string(),
+        },
+        "Motor off" => F2EvoEvent::MotorResult {
+            state: "off".to_string(),
         },
         "Status" => {
             let fields: Vec<String> = value
@@ -1094,6 +1227,92 @@ Channel Pressure2=5.5Bar - error!!
     }
 
     #[test]
+    fn load_model_frame_is_the_stx_prefixed_json_verbatim() {
+        // ABS.cs Model_Click: InviaComando(Electronic, Serialize(Car).Replace("Name","Model"))
+        let json = r#"{"Model":"MK60 generic","Type":0,"Signal":2,"Code":2137}"#;
+        assert_eq!(
+            electronics::Command::LoadModel { json: json.to_string() }.to_frame(),
+            format!("\u{2}{json}")
+        );
+    }
+
+    #[test]
+    fn can_frames_and_start_abs_match_the_key_power_upload() {
+        // ABS.cs StartABS/FillTable: InviaComando(Electronic, Serialize(FRAME))
+        // for each batch, then InviaComando(Electronic, "Start ABS"). Both are
+        // STX-prefixed; the frame JSON is built PC-side (absCanUpload.ts) and
+        // passed through untouched.
+        let batch = r#"[{"address1":"520","indx":0,"pos":0,"type":0,"us":4000,"data":[0,32,5]}]"#;
+        assert_eq!(
+            electronics::Command::CanFrames { json: batch.to_string() }.to_frame(),
+            format!("\u{2}{batch}")
+        );
+        assert_eq!(
+            electronics::Command::StartAbs.to_frame(),
+            "\u{2}Start ABS"
+        );
+    }
+
+    #[test]
+    fn motor_test_enable_frame_is_stx_prefixed() {
+        // ABS.cs MotorTest_Click / WorkinigProgress.Test_Click:
+        // InviaComando(Electronic, "Motor Test Enable") — STX-prefixed like
+        // every other ABS.InviaComando call.
+        assert_eq!(
+            electronics::Command::MotorTestEnable.to_frame(),
+            "\u{2}Motor Test Enable"
+        );
+    }
+
+    #[test]
+    fn parses_the_firmware_version_line() {
+        assert_eq!(
+            parse_line("ver1.2"),
+            F2EvoEvent::Version { value: "ver1.2".to_string() }
+        );
+        assert_eq!(
+            parse_line("ver 3.0"),
+            F2EvoEvent::Version { value: "ver 3.0".to_string() }
+        );
+        // Too short, or free text that merely starts with "ver" → not a version.
+        assert_eq!(
+            parse_line("ver"),
+            F2EvoEvent::Raw { key: "ver".to_string(), value: None }
+        );
+        assert_eq!(
+            parse_line("very low voltage"),
+            F2EvoEvent::Raw { key: "very low voltage".to_string(), value: None }
+        );
+    }
+
+    #[test]
+    fn parses_electronics_handshake_and_test_result_lines() {
+        assert_eq!(parse_line("Information"), F2EvoEvent::Information);
+        // A trailing detail is ignored — the original switches on
+        // text.Split(':')[0].
+        assert_eq!(parse_line("Information: ready"), F2EvoEvent::Information);
+        assert_eq!(parse_line("Check ok"), F2EvoEvent::CheckOk);
+        assert_eq!(
+            parse_line("Motor ok"),
+            F2EvoEvent::MotorResult { state: "ok".to_string() }
+        );
+        assert_eq!(
+            parse_line("Motor error"),
+            F2EvoEvent::MotorResult { state: "error".to_string() }
+        );
+        assert_eq!(
+            parse_line("Motor off"),
+            F2EvoEvent::MotorResult { state: "off".to_string() }
+        );
+        // An unrelated "Motor ..." line still falls through to Raw rather
+        // than being mistaken for a result.
+        assert_eq!(
+            parse_line("Motor running"),
+            F2EvoEvent::Raw { key: "Motor running".to_string(), value: None }
+        );
+    }
+
+    #[test]
     fn gearbox_frames_are_plain() {
         assert_eq!(gearbox::Command::SetGearbox.to_frame(), "Set GEARBOX");
         assert_eq!(
@@ -1106,6 +1325,34 @@ Channel Pressure2=5.5Bar - error!!
     fn hydraulic_frames_match_original_keywords() {
         assert_eq!(hydraulic::Command::GetModel.to_frame(), "H-GETMODEL");
         assert_eq!(hydraulic::Command::Unlock { channel: 3 }.to_frame(), "UNLOCK:3");
+    }
+
+    #[test]
+    fn step_motor_frame_matches_original_wire_format() {
+        // Original `StepMotor`: `"Step:800;" + b`, where `b` is `-1` for the
+        // `Plus` sender (raise pressure) and `1` otherwise (lower).
+        assert_eq!(
+            hydraulic::Command::StepMotor { steps: 800, raise: true }.to_frame(),
+            "Step:800;-1"
+        );
+        assert_eq!(
+            hydraulic::Command::StepMotor { steps: 800, raise: false }.to_frame(),
+            "Step:800;1"
+        );
+        // The count is a parameter for the PC-side PID loop.
+        assert_eq!(
+            hydraulic::Command::StepMotor { steps: 1600, raise: true }.to_frame(),
+            "Step:1600;-1"
+        );
+        // Defensive clamp keeps a stray value from driving an unbounded jog.
+        assert_eq!(
+            hydraulic::Command::StepMotor { steps: 60000, raise: false }.to_frame(),
+            "Step:4000;1"
+        );
+        assert_eq!(
+            hydraulic::Command::StepMotor { steps: 0, raise: true }.to_frame(),
+            "Step:1;-1"
+        );
     }
 
     #[test]
@@ -1144,6 +1391,17 @@ Channel Pressure2=5.5Bar - error!!
     }
 
     #[test]
+    fn parses_error_pressure_return_line() {
+        assert_eq!(parse_line("ErrorPressureReturn"), F2EvoEvent::ErrorPressureReturn);
+        // A trailing `:detail` still resolves to the same event (switch key
+        // is `text.Split(':')[0]` in the original).
+        assert_eq!(
+            parse_line("ErrorPressureReturn:2"),
+            F2EvoEvent::ErrorPressureReturn
+        );
+    }
+
+    #[test]
     fn raw_json_payload_passes_through_unmodified() {
         let json = r#"{"Model":"5.4B mercedes-benz sw","C_Max":8.0}"#;
         assert_eq!(
@@ -1166,6 +1424,47 @@ Channel Pressure2=5.5Bar - error!!
                 board: "WASHING".to_string()
             }
         );
+    }
+
+    #[test]
+    fn electronics_announces_itself_under_two_names_plus_a_version_suffix() {
+        let want = F2EvoEvent::DiscoveryBroadcast {
+            board: "Electronics".to_string(),
+        };
+        assert_eq!(parse_line("Electronics"), want);
+        // `MainMenuForm.Handle_DataReceived` reads the version off the next
+        // line, but the board sometimes puts it on the same one.
+        assert_eq!(parse_line("Electronics ver1.2"), want);
+        // Older/CAN-single-frame firmware calls it "Test Centralina".
+        assert_eq!(parse_line("Test Centralina"), want);
+        assert_eq!(parse_line("Test Centralina ver3.0"), want);
+        // A near-miss must NOT be swallowed as a discovery broadcast — both
+        // names match only as a whole line, since `parse_line` now feeds the
+        // dashboard's which-COM-port-is-the-ECU auto-detect and a stray hit
+        // would flip command routing to the wrong MCU.
+        assert_eq!(
+            parse_line("Electronic Stability Program"),
+            F2EvoEvent::Raw {
+                key: "Electronic Stability Program".to_string(),
+                value: None
+            }
+        );
+        assert_eq!(
+            parse_line("Report: Test Centralina done"),
+            F2EvoEvent::HydraulicReport {
+                text: "Test Centralina done".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn bench_mode_keywords_match_the_decompiled_release_procedures() {
+        // ABS.cs Polling_Tick spams "ELECTRONIC" to enter ECU mode;
+        // ReleaseElectronic() spams "HYDRAULIC" to hand the bench back.
+        assert_eq!(bench_mode_keyword("electronic"), Some("ELECTRONIC"));
+        assert_eq!(bench_mode_keyword("hydraulic"), Some("HYDRAULIC"));
+        assert_eq!(bench_mode_keyword("Electronics"), None); // the boot keyword is not a mode
+        assert_eq!(bench_mode_keyword(""), None);
     }
 
     #[test]
@@ -1235,6 +1534,30 @@ Channel Pressure2=5.5Bar - error!!
         assert_eq!(telemetry.oil_status, hydraulic::OilStatus::Ok);
         assert!(telemetry.protection_faults.is_empty());
         assert_eq!(telemetry.valve_under_test, -1);
+        // Defaults when those fields are the placeholder "0".
+        assert!(!telemetry.pump_on);
+        assert_eq!(telemetry.work_pressure, 0.0);
+    }
+
+    #[test]
+    fn parses_pump_on_and_work_pressure_from_a_loaded_mid_run_frame() {
+        // A full 39-field frame with a program loaded: array[23] = pump
+        // running, array[28] = the unit's PressureWork (master-cylinder
+        // pressure) the pre-charge regulator drives the pump gauge to.
+        let mut fields = vec!["0".to_string(); hydraulic::STATUS_FIELD_COUNT];
+        fields[0] = "48".to_string(); // pump gauge
+        fields[5] = "3.1".to_string();
+        fields[6] = "40".to_string();
+        fields[7] = "Ready".to_string();
+        fields[21] = "1".to_string();
+        fields[23] = "1".to_string(); // pump ON
+        fields[27] = "2".to_string();
+        fields[28] = "55".to_string(); // PressureWork = 55 bar (e.g. an MK100)
+        fields[38] = "-1".to_string();
+
+        let t = hydraulic::parse_status(&fields).expect("should decode");
+        assert!(t.pump_on);
+        assert_eq!(t.work_pressure, 55.0);
     }
 
     #[test]
@@ -1530,10 +1853,28 @@ use tauri::State;
 
 /// Sends the frame and returns it so the caller can log exactly what went
 /// out on the wire (there's no separate TX echo from the board).
-async fn send(state: &State<'_, AppState>, frame: String) -> Result<String, String> {
-    let conn = state.serial_connection.lock().await;
-    conn.send_message(format!("{frame}\n"))?;
+///
+/// `ecu` routes to the F2-EVO's *second* COM port (the ECU/"Centralina"
+/// board) instead of the primary — the two-port ECU bench needs STX
+/// commands on that port while `ELECTRONIC`/`HYDRAULIC` go on the primary.
+/// Callers that don't open a second port leave `ecu` false and everything
+/// stays single-port as before.
+async fn send_frame(
+    state: &State<'_, AppState>,
+    frame: String,
+    ecu: bool,
+) -> Result<String, String> {
+    let msg = format!("{frame}\n");
+    if ecu {
+        state.ecu_serial_connection.lock().await.send_message(msg)?;
+    } else {
+        state.serial_connection.lock().await.send_message(msg)?;
+    }
     Ok(frame)
+}
+
+async fn send(state: &State<'_, AppState>, frame: String) -> Result<String, String> {
+    send_frame(state, frame, false).await
 }
 
 // The argument is named `command`, not `cmd` — Tauri's own invoke()
@@ -1548,9 +1889,10 @@ async fn send(state: &State<'_, AppState>, frame: String) -> Result<String, Stri
 #[tauri::command]
 pub async fn f2evo_electronics_send(
     command: electronics::Command,
+    ecu: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    send(&state, command.to_frame()).await
+    send_frame(&state, command.to_frame(), ecu.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -1589,14 +1931,51 @@ pub async fn f2evo_washing_send(
 /// The original app polled every open COM port with this up to 3 times,
 /// 200ms apart, until the matching board replied (`MainMenuForm_Load`).
 #[tauri::command]
-pub async fn f2evo_probe(board: String, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn f2evo_probe(
+    board: String,
+    ecu: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
     let keyword = match board.as_str() {
         "electronics" => "Electronics",
         "hydraulic" => "Hydraulics",
         "washing" => "WASHING",
         other => return Err(format!("unknown board '{other}'")),
     };
-    send(&state, keyword.to_string()).await
+    send_frame(&state, keyword.to_string(), ecu.unwrap_or(false)).await
+}
+
+/// Switches the shared F2-EVO bench between its two runtime modes.
+///
+/// The SC F2-EVO is *one* bench on *one* serial line that runs either as the
+/// hydraulic bench (streams `Status:` telemetry) or as the Electronics/ABS
+/// bench ("Centralina" = ECU). The boot-time `Electronics` / `Hydraulics`
+/// keywords (see `f2evo_probe`) only *identify* the board; at runtime the
+/// mode is toggled with a different, upper-case keyword:
+///
+/// * `ELECTRONIC` — `ABS.cs` / `WorkinigProgress.cs` `Polling_Tick` spam
+///   this (up to 8×, 300 ms apart there; BRAXON's ElectronicsBenchDashboard
+///   paces it at ~800 ms) on the hydraulic port to pull the bench into ECU
+///   mode; it then re-announces as `Electronics` / `Test Centralina`.
+/// * `HYDRAULIC` — `ABS.ReleaseElectronic()` / `WorkinigProgress.ReleaseElectronic()`
+///   spam this to hand the bench back to hydraulic mode on close.
+fn bench_mode_keyword(mode: &str) -> Option<&'static str> {
+    match mode {
+        "electronic" => Some("ELECTRONIC"),
+        "hydraulic" => Some("HYDRAULIC"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+pub async fn f2evo_bench_mode(
+    mode: String,
+    ecu: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let keyword =
+        bench_mode_keyword(&mode).ok_or_else(|| format!("unknown bench mode '{mode}'"))?;
+    send_frame(&state, keyword.to_string(), ecu.unwrap_or(false)).await
 }
 
 #[tauri::command]

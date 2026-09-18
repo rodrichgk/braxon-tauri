@@ -1173,3 +1173,23 @@ pub async fn hydraulic_list_test_channels(
     }
     Ok(groups)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_valve;
+
+    #[test]
+    fn clamp_valve_passes_a_real_index_through() {
+        assert_eq!(clamp_valve(Some(0)), 0);
+        assert_eq!(clamp_valve(Some(1)), 1);
+        assert_eq!(clamp_valve(Some(127)), 127);
+    }
+
+    #[test]
+    fn clamp_valve_maps_the_access_sentinel_and_out_of_range_to_minus_one() {
+        assert_eq!(clamp_valve(Some(255)), -1); // Access "valve not set"
+        assert_eq!(clamp_valve(Some(128)), -1); // first value past a signed byte
+        assert_eq!(clamp_valve(Some(-1)), -1);
+        assert_eq!(clamp_valve(None), -1);
+    }
+}

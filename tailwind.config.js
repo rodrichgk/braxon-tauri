@@ -45,10 +45,15 @@ export default {
         'fade-in':    'fadeIn 0.25s ease-out',
         'slide-up':   'slideUp 0.25s ease-out',
         'pulse-slow': 'pulse 2.5s cubic-bezier(0.4,0,0.6,1) infinite',
+        // REMAN visual-search graph — click feedback.
+        'graph-pop':    'graphPop 0.42s cubic-bezier(0.34,1.56,0.64,1)',
+        'graph-ripple': 'graphRipple 0.6s ease-out forwards',
       },
       keyframes: {
         fadeIn:  { from: { opacity: '0' },                              to: { opacity: '1' } },
         slideUp: { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        graphPop:    { '0%': { transform: 'scale(1)' }, '45%': { transform: 'scale(1.4)' }, '100%': { transform: 'scale(1)' } },
+        graphRipple: { '0%': { transform: 'scale(0.6)', opacity: '0.55' }, '100%': { transform: 'scale(3.4)', opacity: '0' } },
       },
     },
   },

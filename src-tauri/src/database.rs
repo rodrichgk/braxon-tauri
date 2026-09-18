@@ -173,3 +173,56 @@ pub struct MotorTest {
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_config_default_is_empty_with_the_standard_pg_port() {
+        let c = DbConfig::default();
+        assert_eq!(c.port, 5432);
+        assert!(c.host.is_empty());
+        assert!(c.database.is_empty());
+        assert!(c.username.is_empty());
+        assert!(c.password.is_empty());
+    }
+
+    #[test]
+    fn db_config_round_trips_through_json() {
+        let c = DbConfig {
+            host: "10.0.0.5".into(),
+            port: 5433,
+            database: "reman".into(),
+            username: "braxon".into(),
+            password: "s3cret".into(),
+        };
+        let back: DbConfig = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.host, "10.0.0.5");
+        assert_eq!(back.port, 5433);
+        assert_eq!(back.database, "reman");
+    }
+
+    #[test]
+    fn config_path_lives_in_the_braxon_appdata_folder() {
+        let p = config_path();
+        assert_eq!(p.file_name().unwrap(), "db_config.json");
+        assert_eq!(p.parent().unwrap().file_name().unwrap(), "braxon");
+    }
+
+    #[test]
+    fn model_structs_use_camel_case_on_the_wire() {
+        let m = ABSModule {
+            id: "m1".into(),
+            name: "MK100".into(),
+            valve_count: 12,
+            description: "d".into(),
+            created_at: "a".into(),
+            updated_at: "b".into(),
+        };
+        let v: serde_json::Value = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["valveCount"], 12);
+        assert_eq!(v["createdAt"], "a");
+        assert!(v.get("valve_count").is_none());
+    }
+}

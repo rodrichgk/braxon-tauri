@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BeakerIcon, SignalIcon, ExclamationTriangleIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { BeakerIcon, SignalIcon, ExclamationTriangleIcon, CheckCircleIcon, XCircleIcon, LinkSlashIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { useTranslation } from 'react-i18next';
 import { useStickyLog } from '@/hooks/useStickyLog';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import PressureGauge from './PressureGauge';
 import HydraulicTestReport from './HydraulicTestReport';
 import { type ParsedReport, type Verdict, computeVerdict } from '@/lib/hydraulicReport';
+import { PidController } from '@/lib/pid';
 
 // ---- Types mirroring src-tauri/src/f2evo.rs's `hydraulic::Telemetry` ----
 
@@ -33,6 +34,16 @@ interface Telemetry {
   oil_level: number;
   oil_status: 'ok' | 'low' | 'critical';
   pod_enabled: boolean;
+  // Status field 23 — whether the pump ("Pompa") is currently running.
+  // The original reads this as `flag2` to gate its WorkPressureCount
+  // pre-charge regulator; the pre-charge state machine below needs it to
+  // know when "pump ON" / "pump OFF" have actually taken effect.
+  pump_on: boolean;
+  // Status field 28 — the loaded unit's working / master-cylinder
+  // pressure (`PressureWork` / `PressioneLavoro`). The setpoint the
+  // pre-charge loop drives the pump gauge to before Bleeding / Hydraulic
+  // Test. 0 when no program is loaded.
+  work_pressure: number;
   protection_faults: string[];
   test_step_index: number;
   valve_under_test: number;
@@ -56,6 +67,7 @@ type F2EvoEvent =
   | { kind: 'model'; status: string; param: string | null }
   | { kind: 'ack'; board: string }
   | { kind: 'abs_caricato' }
+  | { kind: 'error_pressure_return' }
   | { kind: 'hydraulic_report'; text: string }
   | { kind: string; [key: string]: unknown };
 
@@ -106,6 +118,11 @@ type HydraulicCmd =
   | { action: 'oil' }
   | { action: 'unlock'; channel: number }
   | { action: 'pump'; on: boolean }
+  // Stepper jog for the pump-pressure regulator — wire `Step:<steps>;<dir>`.
+  // `raise: true` drives pressure up (dir -1, matching the original's
+  // Plus→-1), `false` bleeds it down. Only emitted by the pre-charge PID
+  // loop below.
+  | { action: 'step_motor'; steps: number; raise: boolean }
   | { action: 'bleeding' }
   | { action: 'valves' }
   | { action: 'motor' }
@@ -285,11 +302,69 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // side effect, which is why the early-stop path always pairs it with an
   // explicit pod_enable right after (see waitForProgress below).
   const progressWatchRef = useRef<{ minPercent: number; resolve: (reached: boolean) => void } | null>(null);
-  // Ref mirrors of resolvedModel/hydraulicOilMax for the listener effect
-  // below (subscribes once, `[]` deps — a plain closure over either would
-  // only ever see their value at mount).
+  // Ref mirrors of resolvedModel/hydraulicOilMax/telemetry/isConnected for
+  // the listener effect below (subscribes once, `[]` deps — a plain closure
+  // over any of them would only ever see their value at mount) and for the
+  // pre-charge loop (a long-lived async function that must read *live*
+  // telemetry, not whatever frame was current when it was called).
   const resolvedModelRef = useRef<AbsModelOption | null>(null);
   const hydraulicOilMaxRef = useRef(hydraulicOilMax);
+  const telemetryRef = useRef<Telemetry | null>(null);
+  const isConnectedRef = useRef(isConnected);
+
+  // ---- Pre-charge to working pressure ----
+  // The original never sends BLEEDING / PRESSURE straight from the button:
+  // Send_Click only arms `TestButton`, and RefreshStatus1's
+  // `WorkPressureCount` regulator first drives the pump gauge to the loaded
+  // unit's `PressureWork` (master-cylinder pressure, Status field 28), then
+  // SendCommand_Tick finally enqueues the real command. The original's
+  // inner loop is bang-bang: a fixed ±5 bar deadband and a constant
+  // `Step:800;±1` jog. Here that inner correction is a real PID
+  // (`@/lib/pid`) whose signed output is turned into a `Step:<n>;<dir>`
+  // command, wrapped in a hysteresis band so it doesn't chatter once
+  // settled.
+  const PRECHARGE = {
+    // Original guard: the regulator only engages for `PressureWork > 50.0`.
+    MIN_TARGET_BAR: 50,
+    // |error| ≥ this (re)starts correcting — the original's own threshold.
+    EXIT_BAND_BAR: 5.0,
+    // |error| ≤ this counts as "in band". Strictly < EXIT_BAND_BAR: the gap
+    // between the two is the hysteresis that stops jog chatter around the
+    // setpoint.
+    ENTER_BAND_BAR: 1.5,
+    // Consecutive in-band telemetry frames required before "settled".
+    SETTLE_FRAMES: 3,
+    // Let the gauge stabilise after the pump spins up before the PID takes
+    // over (the original burned ~50 status frames here doing nothing).
+    SETTLE_DELAY_MS: 2000,
+    // Smallest jog worth sending — below this the PID output is treated as 0.
+    MIN_STEP: 120,
+    // Hard clamp on any single jog: 3× the original's fixed 800-step chunk.
+    MAX_STEP: 2400,
+    // Don't fire jogs faster than the board drains its command queue
+    // (Send.Interval is 200 ms in the original) — plus margin.
+    MIN_STEP_INTERVAL_MS: 350,
+    // Pump ON / OFF must be reflected in telemetry within this long.
+    PUMP_WAIT_MS: 6000,
+    // Whole-sequence ceiling and jog-count ceiling — can't run forever.
+    TOTAL_TIMEOUT_MS: 60000,
+    MAX_JOGS: 40,
+  } as const;
+  // Conservative starting gains (output unit = stepper steps, error unit =
+  // bar). Mostly proportional, a little integral to kill steady-state
+  // offset, light derivative for overshoot. `k` (bar per step) isn't known
+  // from the decompile, so these are a sane first cut meant for field
+  // tuning, not a characterised plant.
+  const PRECHARGE_GAINS = { kp: 130, ki: 12, kd: 45 } as const;
+
+  const [prechargeState, setPrechargeState] = useState<
+    { target: number; pressure: number; phase: 'pumping' | 'settling' | 'regulating' | 'venting' } | null
+  >(null);
+  const prechargeActiveRef = useRef(false);
+  const prechargeAbortRef = useRef(false);
+  // Set by the 'error_pressure_return' listener case below — the board
+  // bailed out of pressure regulation and the loop must abandon ship.
+  const errorPressureReturnRef = useRef(false);
   // Safety monitors: the board enforces its own max temperature for the
   // loaded model (and simply stops the test once crossed) and a minimum
   // oil level — these give the operator a heads-up *before* either of
@@ -304,6 +379,14 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   const tempWarnedRef = useRef(false);
   const oilWarnedRef = useRef(false);
   const [linked, setLinked] = useState(false);
+  // The operator paused the hydraulic link (`FormHydraulicBench.Close_Click`:
+  // `H-POD:DISABLE` then `DISABLESTATUS`). While set, the auto-ack/handshake
+  // effects and the serial listener stand down so the board isn't
+  // immediately pulled back into streaming — `Reconnect` lifts it. A real
+  // cable drop clears it (see the disconnect-wipe effect).
+  const [released, setReleased] = useState(false);
+  const releasedRef = useRef(false);
+  useEffect(() => { releasedRef.current = released; }, [released]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [activeTest, setActiveTest] = useState<string | null>(null);
   // Accumulated Report: telemetry text — mirrors FormHydraulicBench.cs's
@@ -588,6 +671,9 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // — see the fault-triggered abort below).
   const abortAutoSequence = () => {
     autoAbortRef.current = true;
+    // A Bleeding / Hydraulic Test pre-charge may be mid-run inside
+    // runTestAndWait — its own loop polls this flag and bails.
+    prechargeAbortRef.current = true;
     if (autoPromptResolveRef.current) {
       autoPromptResolveRef.current(false);
       autoPromptResolveRef.current = null;
@@ -681,6 +767,16 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
         return;
       }
       addLog(`RX: ${line}`);
+
+      // Link paused by the operator — still drain the command queue on OK
+      // (so the H-POD:DISABLE / DISABLESTATUS themselves get acked), but
+      // drive nothing else off the wire until Reconnect. (The board may
+      // still stream for a moment after DISABLESTATUS, and re-announces
+      // once it stops.)
+      if (releasedRef.current) {
+        if (parsed.kind === 'ok') advanceQueue();
+        return;
+      }
 
       if (parsed.kind === 'discovery_broadcast' && 'board' in parsed && parsed.board === 'Hydraulics') {
         // The board keeps re-announcing itself until acked AND told to
@@ -870,6 +966,15 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
         const resolveProgramLoad = programLoadResolverRef.current;
         programLoadResolverRef.current = null;
         resolveProgramLoad?.();
+      } else if (parsed.kind === 'error_pressure_return') {
+        // The board bailed out of pressure regulation (original:
+        // `case "ErrorPressureReturn"` forces the pump-ON tag, clears
+        // Comand, drops TestButton/WorkPressureCount). The pre-charge loop
+        // polls this ref and aborts; also stop any test we thought we'd
+        // started off the back of it.
+        addLog('RX: ErrorPressureReturn — pressure regulation aborted by board');
+        errorPressureReturnRef.current = true;
+        setActiveTest(null);
       } else if (parsed.kind === 'hydraulic_report' && 'text' in parsed) {
         setReportText(prev => prev + (parsed.text as string));
       }
@@ -909,6 +1014,10 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
 
     const wipeConnectionState = () => {
       setLinked(false);
+      // A real cable drop moots an operator "pause" — a fresh connection
+      // should auto-link, not stay silently released.
+      setReleased(false);
+      releasedRef.current = false;
       setTelemetry(null);
       setModelStatus(null);
       setResolvedModel(null);
@@ -931,6 +1040,8 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
       lastLoadWasScopedRef.current = false;
       programLoadResolverRef.current = null;
       autoAbortRef.current = true;
+      prechargeAbortRef.current = true;
+      setPrechargeState(null);
       if (autoPromptResolveRef.current) { autoPromptResolveRef.current(false); autoPromptResolveRef.current = null; }
       testDoneResolverRef.current = null;
       if (progressWatchRef.current) { progressWatchRef.current.resolve(false); progressWatchRef.current = null; }
@@ -976,6 +1087,8 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   useEffect(() => { autoSequenceRunningRef.current = autoSequenceRunning; }, [autoSequenceRunning]);
   useEffect(() => { resolvedModelRef.current = resolvedModel; }, [resolvedModel]);
   useEffect(() => { hydraulicOilMaxRef.current = hydraulicOilMax; }, [hydraulicOilMax]);
+  useEffect(() => { telemetryRef.current = telemetry; }, [telemetry]);
+  useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
   // A new test just started — see testStartConfirmedRef above for why
   // this has to reset here, not just once at app startup.
   useEffect(() => { if (activeTest) testStartConfirmedRef.current = false; }, [activeTest]);
@@ -995,9 +1108,9 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // own broadcast cycle, and removes the need to separately click Probe
   // every time. The button stays for manual retry if needed.
   useEffect(() => {
-    if (isConnected) probe();
+    if (isConnected && !released) probe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected]);
+  }, [isConnected, released]);
 
   // Belt-and-suspenders alongside the probe above, specifically for an
   // *unexpected* disconnect that auto-reconnects (see
@@ -1011,7 +1124,7 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // idle, so this also sends the full ack+enable_status handshake
   // directly, independent of whatever the probe gets back.
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && !released) {
       const timeoutId = setTimeout(() => {
         send({ action: 'ack_hydraulics' });
         send({ action: 'enable_status' });
@@ -1019,7 +1132,27 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
       return () => clearTimeout(timeoutId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected]);
+  }, [isConnected, released]);
+
+  // FormHydraulicBench.Close_Click: H-POD:DISABLE then DISABLESTATUS, and
+  // stop consuming telemetry. Reconnect re-runs the ack + enable_status
+  // handshake.
+  const releaseBench = () => {
+    send({ action: 'pod_disable' });
+    send({ action: 'disable_status' });
+    setReleased(true);
+    releasedRef.current = true;
+    setLinked(false);
+    setTelemetry(null);
+    addLog('RELEASE: H-POD:DISABLE + DISABLESTATUS — link paused');
+  };
+  const reconnectBench = () => {
+    setReleased(false);
+    releasedRef.current = false;
+    send({ action: 'ack_hydraulics' });
+    send({ action: 'enable_status' });
+    addLog('RECONNECT: ACK Hydraulics + ENABLESTATUS');
+  };
 
   const modelColor = useMemo(() => {
     if (modelStatus === 'resolved') return 'text-success';
@@ -1050,8 +1183,10 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // becomes available if it errored out.
   // Also covers the auto-sequence: while it's driving bleeding/valves/
   // motor/hydraulic_test/cycles on its own timeline, the manual buttons
-  // (which share this same flag) shouldn't be pressable in parallel.
-  const actuationDisabled = !isConnected || hasFault || programLoading || uploadInProgress || !!programError || !programSteps || autoSequenceRunning;
+  // (which share this same flag) shouldn't be pressable in parallel — and
+  // likewise while a Bleeding / Hydraulic Test pre-charge is running the
+  // pump up to working pressure.
+  const actuationDisabled = !isConnected || released || hasFault || programLoading || uploadInProgress || !!programError || !programSteps || autoSequenceRunning || !!prechargeState;
 
   // Sign matters, not just non-zero: the decompiled source treats a
   // *positive* test_step_index as a test starting ("Start: " + name) and
@@ -1101,6 +1236,216 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // so the operator doesn't have to open the full report view for that.
   const lastVerdict: Verdict | null = useMemo(() => computeVerdict(parsedReport), [parsedReport]);
 
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  // The pre-charge setpoint: prefer the board's own Status field 28
+  // (`work_pressure`, populated once a program is uploaded), fall back to
+  // the imported model spec (`pressioneLavoro`) if the board hasn't
+  // reported it yet. 0 / null from both means "no target" → caller sends
+  // the command immediately, exactly as it does today.
+  const prechargeTarget = (): number => {
+    const board = telemetryRef.current?.work_pressure ?? 0;
+    if (board > 0) return board;
+    return resolvedModelRef.current?.pressioneLavoro ?? 0;
+  };
+
+  // Drives the pump gauge to `targetBar` with a PID loop + hysteresis, then
+  // stops the pump. Resolves:
+  //  - 'skipped'  — no meaningful target (≤ MIN_TARGET_BAR); caller proceeds
+  //  - 'ok'       — settled in band and pump stopped; caller sends the test
+  //  - 'aborted'  — board ErrorPressureReturn, a protection fault, a
+  //                 disconnect, an explicit abort, or a timeout; caller
+  //                 must NOT start the test
+  const prechargeToWorkPressure = async (
+    targetBar: number,
+  ): Promise<'ok' | 'skipped' | 'aborted'> => {
+    if (!Number.isFinite(targetBar) || targetBar <= PRECHARGE.MIN_TARGET_BAR) {
+      addLog(
+        `PRECHARGE: target ${Number.isFinite(targetBar) ? targetBar.toFixed(0) : '—'} bar ≤ ${PRECHARGE.MIN_TARGET_BAR} — skipping (matches original PressureWork>50 guard)`,
+      );
+      return 'skipped';
+    }
+
+    prechargeActiveRef.current = true;
+    prechargeAbortRef.current = false;
+    errorPressureReturnRef.current = false;
+    const startedAt = Date.now();
+
+    const finish = (result: 'ok' | 'aborted', why?: string): 'ok' | 'aborted' => {
+      prechargeActiveRef.current = false;
+      setPrechargeState(null);
+      if (result === 'aborted') {
+        addLog(`PRECHARGE: aborted — ${why}`);
+        // An *external* stop (ABORT/RESET, auto-sequence teardown,
+        // disconnect) owns queue + pump cleanup — don't fight it. Only
+        // self-clean on our own failure exits: board ErrorPressureReturn
+        // (the original clears Comand + forces pump state here too), a
+        // protection trip, a timeout, or the pump never spinning up.
+        if (!prechargeAbortRef.current && isConnectedRef.current) {
+          queueRef.current = [];
+          send({ action: 'pump', on: false });
+        }
+      }
+      return result;
+    };
+
+    // Non-null when we should bail; the string is the reason for the log.
+    const abortReason = (): string | null => {
+      if (prechargeAbortRef.current) return 'cancelled';
+      if (errorPressureReturnRef.current) return 'board reported ErrorPressureReturn';
+      if (!isConnectedRef.current) return 'bench disconnected';
+      if ((telemetryRef.current?.protection_faults.length ?? 0) > 0) {
+        return `protection fault (${telemetryRef.current!.protection_faults.join(', ')})`;
+      }
+      if (Date.now() - startedAt > PRECHARGE.TOTAL_TIMEOUT_MS) return 'overall timeout';
+      return null;
+    };
+
+    // 1. Pump ON — enable the pod first if the operator hasn't (the
+    //    original's OnOff_Click silently no-ops without it).
+    addLog(`PRECHARGE: target ${targetBar.toFixed(0)} bar — pump ON`);
+    setPrechargeState({ target: targetBar, pressure: telemetryRef.current?.pump_pressure ?? 0, phase: 'pumping' });
+    if (!telemetryRef.current?.pod_enabled) send({ action: 'pod_enable' });
+    send({ action: 'pump', on: true });
+    {
+      const t0 = Date.now();
+      while (!telemetryRef.current?.pump_on) {
+        const why = abortReason();
+        if (why) return finish('aborted', why);
+        if (Date.now() - t0 > PRECHARGE.PUMP_WAIT_MS) return finish('aborted', 'pump never reported running');
+        await sleep(120);
+      }
+    }
+
+    // 2. Let the reading settle before the PID starts integrating.
+    setPrechargeState((s) => (s ? { ...s, phase: 'settling' } : s));
+    {
+      const t0 = Date.now();
+      while (Date.now() - t0 < PRECHARGE.SETTLE_DELAY_MS) {
+        const why = abortReason();
+        if (why) return finish('aborted', why);
+        await sleep(120);
+      }
+    }
+
+    // 3. PID regulate, held inside a hysteresis band.
+    const pid = new PidController({
+      ...PRECHARGE_GAINS,
+      outputLimit: PRECHARGE.MAX_STEP,
+      integralLimit: PRECHARGE.MAX_STEP * 0.6,
+    });
+    let settled = false;
+    let inBandFrames = 0;
+    let jogs = 0;
+    // `pid.update` is called exactly once per control window (every
+    // ~MIN_STEP_INTERVAL_MS), never on the faster hysteresis-polling
+    // cadence — otherwise the integral would wind up at 2-3x its intended
+    // rate. `lastControlAt` gates that; `lastTick` is the timestamp handed
+    // to the PID as `dt`.
+    let lastControlAt = 0;
+    let lastTick = Date.now();
+    setPrechargeState((s) => (s ? { ...s, phase: 'regulating' } : s));
+
+    for (;;) {
+      const why = abortReason();
+      if (why) return finish('aborted', why);
+
+      const tel = telemetryRef.current;
+      if (!tel) { await sleep(120); continue; }
+
+      const pressure = tel.pump_pressure;
+      const error = targetBar - pressure;
+      const absErr = Math.abs(error);
+      setPrechargeState({ target: targetBar, pressure, phase: 'regulating' });
+
+      // --- hysteresis: settled ⇄ regulating (polled every ~120-150ms) ---
+      if (settled) {
+        if (absErr >= PRECHARGE.EXIT_BAND_BAR) {
+          settled = false;
+          inBandFrames = 0;
+          pid.reset();
+          lastTick = Date.now();
+          addLog(`PRECHARGE: drifted to ${pressure.toFixed(1)} bar (err ${error.toFixed(1)}) — resuming`);
+        } else {
+          await sleep(150);
+          continue;
+        }
+      } else if (absErr <= PRECHARGE.ENTER_BAND_BAR) {
+        if (++inBandFrames >= PRECHARGE.SETTLE_FRAMES) {
+          addLog(`PRECHARGE: settled at ${pressure.toFixed(1)} bar (target ${targetBar.toFixed(0)})`);
+          break;
+        }
+      } else {
+        inBandFrames = 0;
+      }
+
+      // --- control action, rate-limited to one jog at a time ---
+      // Same "if (Comand.Count <= 0)" gate the original's StepMotor uses,
+      // plus a floor on the interval so we don't outrun the board's queue.
+      const now = Date.now();
+      if (queueRef.current.length > 0 || now - lastControlAt < PRECHARGE.MIN_STEP_INTERVAL_MS) {
+        await sleep(80);
+        continue;
+      }
+      if (jogs >= PRECHARGE.MAX_JOGS) {
+        return finish('aborted', `gave up after ${jogs} jogs (stuck at ${pressure.toFixed(1)} bar)`);
+      }
+
+      const dt = (now - lastTick) / 1000;
+      lastTick = now;
+      lastControlAt = now;
+      const { output, p, i, d } = pid.update(targetBar, pressure, dt);
+      const steps = Math.min(Math.round(Math.abs(output)), PRECHARGE.MAX_STEP);
+      if (steps < PRECHARGE.MIN_STEP) {
+        // PID says "close enough to hold" but we're not yet inside the
+        // enter-band — just wait for the band logic above to settle us.
+        await sleep(120);
+        continue;
+      }
+      const raise = output > 0; // output>0 ⟺ error>0 ⟺ need more pressure
+      jogs += 1;
+      addLog(
+        `PRECHARGE: ${pressure.toFixed(1)}→${targetBar.toFixed(0)} bar | PID ${output.toFixed(0)} ` +
+          `(p ${p.toFixed(0)} i ${i.toFixed(0)} d ${d.toFixed(0)}) → Step ${steps} ${raise ? 'raise' : 'lower'} [jog ${jogs}]`,
+      );
+      send({ action: 'step_motor', steps, raise });
+      await sleep(120);
+    }
+
+    // 4. Pump OFF and wait for it to actually stop (best-effort), then the
+    //    caller sends the real command — mirrors SendCommand_Tick firing
+    //    only after WorkPressureCount converges.
+    setPrechargeState((s) => (s ? { ...s, phase: 'venting' } : s));
+    send({ action: 'pump', on: false });
+    {
+      const t0 = Date.now();
+      while (telemetryRef.current?.pump_on) {
+        const why = abortReason();
+        if (why) return finish('aborted', why);
+        if (Date.now() - t0 > PRECHARGE.PUMP_WAIT_MS) {
+          addLog('PRECHARGE: pump-off not confirmed within timeout, continuing anyway');
+          break;
+        }
+        await sleep(120);
+      }
+    }
+    addLog('PRECHARGE: complete — sending test command');
+    return finish('ok');
+  };
+
+  // Manual Bleeding / Hydraulic Test press: pre-charge first, then send.
+  const startTestWithPrecharge = async (action: 'bleeding' | 'hydraulic_test') => {
+    if (actuationDisabled || prechargeActiveRef.current) return;
+    setActiveTest(action);
+    const result = await prechargeToWorkPressure(prechargeTarget());
+    if (result === 'aborted') {
+      setActiveTest(null);
+      toast.error(t('f2evo.precharge_aborted'));
+      return;
+    }
+    send({ action });
+  };
+
   // Runs one test action and resolves once it's genuinely finished — reuses
   // the same debounced "really done, not just a step boundary" signal the
   // banner above relies on (see testDoneResolverRef, resolved from the
@@ -1108,25 +1453,49 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
   // AUTO_STEP_TIMEOUT_MS: if that resolver never fires (a fault this code
   // doesn't specifically know about yet, a dropped frame, anything), this
   // still returns and aborts the whole sequence rather than hanging.
+  //
+  // Bleeding and Hydraulic Test are pre-charged to the unit's working
+  // pressure first (Send_Click's `HydraulicTest || Bleeding` branch in the
+  // original), exactly like a manual press; the AUTO_STEP_TIMEOUT_MS
+  // backstop only starts once the real command actually goes out, so a slow
+  // pre-charge doesn't eat into the test's own time budget.
   const runTestAndWait = (action: 'bleeding' | 'valves' | 'motor' | 'hydraulic_test' | 'cycles'): Promise<void> => {
     return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        testDoneResolverRef.current = null;
-        addLog(`AUTO: "${action}" didn't finish within ${AUTO_STEP_TIMEOUT_MS / 1000}s — aborting auto-sequence`);
-        abortAutoSequence();
-        resolve();
-      }, AUTO_STEP_TIMEOUT_MS);
-      testDoneResolverRef.current = () => {
-        clearTimeout(timeoutId);
-        resolve();
+      const fire = () => {
+        const timeoutId = setTimeout(() => {
+          testDoneResolverRef.current = null;
+          addLog(`AUTO: "${action}" didn't finish within ${AUTO_STEP_TIMEOUT_MS / 1000}s — aborting auto-sequence`);
+          abortAutoSequence();
+          resolve();
+        }, AUTO_STEP_TIMEOUT_MS);
+        testDoneResolverRef.current = () => {
+          clearTimeout(timeoutId);
+          resolve();
+        };
+        // Set synchronously here rather than relying only on the
+        // activeTest-watching effect, which wouldn't run until after this
+        // function returns — closes any window where a stale telemetry
+        // frame could sneak in before the reset happens.
+        testStartConfirmedRef.current = false;
+        setActiveTest(action);
+        send({ action });
       };
-      // Set synchronously here rather than relying only on the
-      // activeTest-watching effect, which wouldn't run until after this
-      // function returns — closes any window where a stale telemetry
-      // frame could sneak in before the reset happens.
-      testStartConfirmedRef.current = false;
-      setActiveTest(action);
-      send({ action });
+
+      if (action === 'bleeding' || action === 'hydraulic_test') {
+        setActiveTest(action); // reflect it on screen during the pre-charge too
+        prechargeToWorkPressure(prechargeTarget()).then((r) => {
+          if (autoAbortRef.current) { resolve(); return; }
+          if (r === 'aborted') {
+            addLog(`AUTO: pre-charge for "${action}" aborted — stopping auto-sequence`);
+            abortAutoSequence();
+            resolve();
+            return;
+          }
+          fire();
+        });
+        return;
+      }
+      fire();
     });
   };
 
@@ -1572,17 +1941,36 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
         <div className="flex items-center gap-2">
           <span className={[
             'text-[10px] font-semibold px-2 py-1 rounded-md border flex items-center gap-1.5',
-            linked ? 'bg-success/15 text-success border-success/20' : 'bg-elevated text-text-tertiary border-border',
+            released ? 'bg-warning/15 text-warning border-warning/20'
+              : linked ? 'bg-success/15 text-success border-success/20'
+              : 'bg-elevated text-text-tertiary border-border',
           ].join(' ')}>
-            <span className={['w-1.5 h-1.5 rounded-full', linked ? 'bg-success animate-pulse-slow' : 'bg-text-tertiary'].join(' ')} />
-            {linked ? t('f2evo.linked') : t('f2evo.waiting_for_board')}
+            <span className={['w-1.5 h-1.5 rounded-full', linked && !released ? 'bg-success animate-pulse-slow' : released ? 'bg-warning' : 'bg-text-tertiary'].join(' ')} />
+            {released ? t('f2evo.link_paused') : linked ? t('f2evo.linked') : t('f2evo.waiting_for_board')}
           </span>
-          <button disabled={!isConnected} onClick={probe} className="flex items-center gap-1.5 text-xs btn-secondary px-2.5 py-1.5 disabled:opacity-40">
-            <SignalIcon className="w-3.5 h-3.5" />
-            {t('f2evo.probe')}
-          </button>
+          {isConnected && !released && (
+            <button disabled={!linked} onClick={releaseBench} className="flex items-center gap-1.5 text-xs btn-secondary px-2.5 py-1.5 disabled:opacity-40" data-testid="hyd-btn-release">
+              <LinkSlashIcon className="w-3.5 h-3.5" />
+              {t('f2evo.disconnect')}
+            </button>
+          )}
+          {isConnected && released && (
+            <button onClick={reconnectBench} className="flex items-center gap-1.5 text-xs btn-secondary px-2.5 py-1.5" data-testid="hyd-btn-reconnect">
+              <ArrowPathIcon className="w-3.5 h-3.5" />
+              {t('f2evo.reconnect')}
+            </button>
+          )}
+          {!released && (
+            <button disabled={!isConnected} onClick={probe} className="flex items-center gap-1.5 text-xs btn-secondary px-2.5 py-1.5 disabled:opacity-40">
+              <SignalIcon className="w-3.5 h-3.5" />
+              {t('f2evo.probe')}
+            </button>
+          )}
         </div>
       </h2>
+      {released && (
+        <p className="text-[11px] text-text-tertiary -mt-2 mb-3">{t('f2evo.link_paused_hint')}</p>
+      )}
 
       {/* Model + OIL + Ready state */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -1850,6 +2238,29 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
         </div>
       )}
 
+      {/* Pre-charge to working pressure — the pump-up-then-PID-regulate
+          phase that runs before Bleeding / Hydraulic Test actually start
+          (mirrors the original's WorkPressureCount regulator). Shows the
+          live pump gauge closing on the unit's master-cylinder pressure so
+          the wait before the test isn't a mystery. */}
+      {prechargeState && (
+        <div className="mb-4 px-3 py-3 rounded-lg bg-accent/10 border border-accent/20">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-bold text-accent tracking-wide">{t('f2evo.precharge_title')}</span>
+            <span className="text-xs font-semibold text-accent tabular-nums">
+              {prechargeState.pressure.toFixed(1)} / {prechargeState.target.toFixed(0)} bar
+            </span>
+          </div>
+          <div className="h-2 bg-app border border-border rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent transition-all duration-200"
+              style={{ width: `${Math.max(0, Math.min(100, (prechargeState.pressure / prechargeState.target) * 100))}%` }}
+            />
+          </div>
+          <div className="text-[11px] text-text-tertiary mt-1">{t(`f2evo.precharge_phase_${prechargeState.phase}`)}</div>
+        </div>
+      )}
+
       {/* Fault banner */}
       {hasFault && (
         <div className="flex items-start gap-2 mb-4 px-3 py-2 rounded-lg bg-danger/10 border border-danger/20">
@@ -1959,7 +2370,7 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
           ABORT / RESET
         </button>
         <button
-          disabled={!isConnected || hasFault}
+          disabled={!isConnected || released || hasFault}
           onClick={() => send({ action: telemetry?.pod_enabled ? 'pod_disable' : 'pod_enable' })}
           className={[btnCls, '!font-bold col-span-2 sm:col-span-4 py-2.5', telemetry?.pod_enabled ? '!bg-danger/10 !text-danger !border-danger/20' : '!bg-success/10 !text-success !border-success/20'].join(' ')}
         >
@@ -1985,7 +2396,7 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
             {t('f2evo.auto_test_repair')}
           </button>
         )}
-        <button disabled={actuationDisabled} onClick={() => { setActiveTest('bleeding'); send({ action: 'bleeding' }); }} className={[btnCls, activeTest === 'bleeding' ? '!bg-accent !text-white' : ''].join(' ')}>
+        <button disabled={actuationDisabled} onClick={() => { void startTestWithPrecharge('bleeding'); }} className={[btnCls, activeTest === 'bleeding' ? '!bg-accent !text-white' : ''].join(' ')}>
           {activeTest === 'bleeding' ? t('f2evo.bleeding_in_progress', { defaultValue: 'Bleeding in progress...' }) : t('f2evo.bleeding')}
         </button>
         <button disabled={actuationDisabled} onClick={() => { setActiveTest('valves'); send({ action: 'valves' }); }} className={[btnCls, activeTest === 'valves' ? '!bg-accent !text-white' : ''].join(' ')}>
@@ -1994,7 +2405,7 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
         <button disabled={actuationDisabled} onClick={() => { setActiveTest('motor'); send({ action: 'motor' }); }} className={[btnCls, activeTest === 'motor' ? '!bg-accent !text-white' : ''].join(' ')}>
           {activeTest === 'motor' ? t('f2evo.motor_in_progress', { defaultValue: 'Motor testing in progress...' }) : t('f2evo.motor')}
         </button>
-        <button disabled={actuationDisabled} onClick={() => { setActiveTest('hydraulic_test'); send({ action: 'hydraulic_test' }); }} className={[btnCls, activeTest === 'hydraulic_test' ? '!bg-accent !text-white' : ''].join(' ')}>
+        <button disabled={actuationDisabled} onClick={() => { void startTestWithPrecharge('hydraulic_test'); }} className={[btnCls, activeTest === 'hydraulic_test' ? '!bg-accent !text-white' : ''].join(' ')}>
           {activeTest === 'hydraulic_test' ? t('f2evo.hydraulic_test_in_progress', { defaultValue: 'Hydraulic testing in progress...' }) : t('f2evo.hydraulic_test')}
         </button>
         <button disabled={actuationDisabled} onClick={() => { setActiveTest('cycles'); send({ action: 'cycles' }); }} className={[btnCls, activeTest === 'cycles' ? '!bg-accent !text-white' : ''].join(' ')}>
@@ -2061,14 +2472,14 @@ export default function HydraulicBenchDashboard({ isConnected, isReconnecting = 
           <button disabled={actuationDisabled} onClick={() => send({ action: 'unlock', channel: 3 })} className={btnCls}>C3 Unlock</button>
           <button disabled={actuationDisabled} onClick={() => send({ action: 'unlock', channel: 4 })} className={btnCls}>C4 Unlock</button>
           <button disabled={actuationDisabled} onClick={() => send({ action: 'pump', on: true })} className={[btnCls, '!bg-success/10 !text-success !border-success/20'].join(' ')}>{t('f2evo.pump')} ON</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'pump', on: false })} className={[btnCls, '!bg-danger/10 !text-danger !border-danger/20'].join(' ')}>{t('f2evo.pump')} OFF</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'oil' })} className={btnCls}>{t('f2evo.oil_check')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'reset' })} className={btnCls}>{t('common.reset')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'get_model' })} className={btnCls}>{t('f2evo.get_model')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'get_serial_number' })} className={btnCls}>{t('f2evo.get_serial')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'enable_status' })} className={btnCls}>{t('f2evo.enable_status')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'disable_status' })} className={btnCls}>{t('f2evo.disable_status')}</button>
-          <button disabled={!isConnected} onClick={() => send({ action: 'ack_hydraulics' })} className={btnCls}>{t('f2evo.ack')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'pump', on: false })} className={[btnCls, '!bg-danger/10 !text-danger !border-danger/20'].join(' ')}>{t('f2evo.pump')} OFF</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'oil' })} className={btnCls}>{t('f2evo.oil_check')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'reset' })} className={btnCls}>{t('common.reset')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'get_model' })} className={btnCls}>{t('f2evo.get_model')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'get_serial_number' })} className={btnCls}>{t('f2evo.get_serial')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'enable_status' })} className={btnCls}>{t('f2evo.enable_status')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'disable_status' })} className={btnCls}>{t('f2evo.disable_status')}</button>
+          <button disabled={!isConnected || released} onClick={() => send({ action: 'ack_hydraulics' })} className={btnCls}>{t('f2evo.ack')}</button>
         </div>
       )}
 

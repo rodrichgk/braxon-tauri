@@ -17,7 +17,17 @@ function write<T>(key: string, v: T) {
   try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ }
 }
 
-export function useSignalBoard() {
+export interface UseSignalBoardOptions {
+  /** Legacy Arduino Nano firmware (AD9833 + MCP2515) is fixed at 500 000
+   *  baud — same rate the main transport is forced to when legacy mode is
+   *  on. Without this, the dual-transport case (Kvaser for CAN, this board
+   *  purely for signal generation) was silently stuck at the Pico's
+   *  115200 default and a Nano on this port would never talk correctly. */
+  legacyMode?: boolean;
+}
+
+export function useSignalBoard(options?: UseSignalBoardOptions) {
+  const legacyMode = options?.legacyMode ?? false;
   const [isConnected, setIsConnected] = useState(() => signalBoard.getIsConnected());
   const [ports, setPorts]             = useState<SerialPortInfo[]>([]);
   const [selectedPort, setPortState]  = useState<string | null>(() => read<string | null>('signalBoardPort', null));
@@ -33,6 +43,13 @@ export function useSignalBoard() {
     setBaudState(b);
     write('signalBoardBaud', b);
   }, []);
+
+  useEffect(() => {
+    if (legacyMode) setBaudRate('500000');
+    // Only re-run on legacyMode flipping — a one-time correction, not a
+    // continuous override, matching how the main transport's baud is set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legacyMode]);
 
   const refreshPorts = useCallback(async () => {
     try { setPorts(await signalBoard.listPorts()); }

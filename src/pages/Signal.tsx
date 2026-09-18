@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MagnifyingGlassIcon, BriefcaseIcon, QrCodeIcon } from '@heroicons/react/24/outline';
@@ -329,9 +329,15 @@ export default function SignalPage() {
     }
   };
 
-  const handleSendMessage = (message: string) => serialSendCommand(message);
+  // Stable identities — consumers (SignalTester's readback poll, Diagnostics)
+  // key effects off these; a fresh closure/object each render would thrash them.
+  const handleSendMessage = useCallback((message: string) => serialSendCommand(message), [serialSendCommand]);
   // WSS / power / waveform — goes to the signal board in dual-transport mode.
-  const handleSignalMessage = (message: string) => signalSend(message);
+  const handleSignalMessage = useCallback((message: string) => signalSend(message), [signalSend]);
+  const signalTesterRef = useMemo(
+    () => (selected ? { id: selected.id, reference: selected.reference } : null),
+    [selected?.id, selected?.reference],
+  );
 
   /* ── Edit / Add handlers ── */
 
@@ -787,7 +793,12 @@ export default function SignalPage() {
           {legacyMode ? (
             <>
               <motion.div custom={1} variants={sectionVariants} initial="hidden" animate="visible">
-                <LegacySignalPanel sendMessage={handleSignalMessage} isConnected={signalConnected} />
+                <LegacySignalPanel
+                  sendMessage={handleSignalMessage}
+                  isConnected={signalConnected}
+                  selectedRef={signalTesterRef}
+                  canSend={handleSendMessage}
+                />
               </motion.div>
               <motion.div custom={2} variants={sectionVariants} initial="hidden" animate="visible">
                 <CANAnalyzer result={canData} />
@@ -815,7 +826,12 @@ export default function SignalPage() {
       {/* Signal Tester — full width, normal mode only */}
       {!legacyMode && (
         <motion.div custom={4} variants={sectionVariants} initial="hidden" animate="visible" className="mt-6">
-          <SignalTester sendMessage={handleSignalMessage} isConnected={signalConnected} />
+          <SignalTester
+            sendMessage={handleSignalMessage}
+            isConnected={signalConnected}
+            selectedRef={signalTesterRef}
+            canSend={handleSendMessage}
+          />
         </motion.div>
       )}
 

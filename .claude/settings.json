@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/post-edit-tests.mjs",
+            "timeout": 300,
+            "statusMessage": "Running tests for the edited file..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/stop-tests.mjs",
+            "timeout": 900,
+            "statusMessage": "Running full test suite (npm run test:all)..."
+          }
+        ]
+      }
+    ]
+  }
+}
